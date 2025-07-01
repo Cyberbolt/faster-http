@@ -3,11 +3,10 @@ Tests for new features added to faster_http: cookies, proxy, http_version.
 """
 
 import pytest
-import asyncio
 from faster_http import (
-    get, post, put, patch, delete, head, options,
+    get, post,
     Client, AsyncClient,
-    HTTPError, ConnectTimeout, ReadTimeout, RequestError
+    ConnectTimeout, RequestError
 )
 
 
@@ -247,7 +246,7 @@ class TestProxyFeature:
         try:
             with Client(proxy="http://invalid-proxy.example.com:8080") as client:
                 # This should fail due to proxy connection, not parameter error
-                response = client.get("https://httpbin.org/get", timeout=2)
+                _response = client.get("https://httpbin.org/get", timeout=2)
         except (ConnectTimeout, RequestError) as e:
             # Expected - proxy connection should fail
             print(f"Expected proxy error: {e}")
@@ -262,7 +261,7 @@ class TestProxyFeature:
         """Test async client proxy parameter."""
         try:
             async with AsyncClient(proxy="http://invalid-proxy.example.com:8080") as client:
-                response = await client.get("https://httpbin.org/get", timeout=2)
+                _response = await client.get("https://httpbin.org/get", timeout=2)
         except (ConnectTimeout, RequestError) as e:
             # Expected - proxy connection should fail
             print(f"Expected async proxy error: {e}")

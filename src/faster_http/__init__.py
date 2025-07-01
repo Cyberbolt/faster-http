@@ -5,11 +5,11 @@ This library provides a drop-in replacement for httpx with significantly better 
 by leveraging Rust's reqwest library through PyO3 bindings.
 """
 
-from typing import Any, Dict, Optional, TypeAlias, Protocol, Tuple
+from typing import Any, Dict, List, Optional, TypeAlias, Protocol, Tuple
 from ._core import (
     HttpClient as _HttpClient,
     AsyncHttpClient as _AsyncHttpClient,
-    HttpResponse as _HttpResponse,
+    HttpRequest as _HttpRequest,
     HTTPError,
     ConnectTimeout,
     ReadTimeout,
@@ -26,7 +26,7 @@ from ._core import (
 __version__ = "0.1.0"
 __all__ = [
     "get", "post", "put", "patch", "delete", "head", "options",
-    "Client", "AsyncClient", "Response",
+    "Client", "AsyncClient", "Response", "Request",
     "HTTPError", "ConnectTimeout", "ReadTimeout", "RequestError"
 ]
 
@@ -75,6 +75,21 @@ class Response(Protocol):
         ...
     
     @property
+    def encoding(self) -> Optional[str]:
+        """Response text encoding."""
+        ...
+    
+    @encoding.setter
+    def encoding(self, value: Optional[str]) -> None:
+        """Set response text encoding."""
+        ...
+    
+    @property
+    def charset_encoding(self) -> Optional[str]:
+        """Character set encoding from Content-Type header."""
+        ...
+    
+    @property
     def elapsed(self) -> float:
         """Request elapsed time in seconds."""
         ...
@@ -104,6 +119,32 @@ class Response(Protocol):
         """Cookies set by the response."""
         ...
     
+    @property
+    def history(self) -> List[Any]:
+        """List of redirect responses that led to this response."""
+        ...
+    
+    @property
+    def request(self) -> Optional[Any]:
+        """The request that resulted in this response."""
+        ...
+    
+    def iter_bytes(self, chunk_size: Optional[int] = None) -> List[bytes]:
+        """Iterate over response content as bytes."""
+        ...
+    
+    def iter_text(self, chunk_size: Optional[int] = None) -> List[str]:
+        """Iterate over response content as text."""
+        ...
+    
+    def iter_lines(self) -> List[str]:
+        """Iterate over response content line by line."""
+        ...
+    
+    def iter_raw(self, chunk_size: Optional[int] = None) -> List[bytes]:
+        """Iterate over raw response content."""
+        ...
+    
     def json(self) -> Any:
         """Parse response content as JSON."""
         ...
@@ -115,19 +156,23 @@ class Response(Protocol):
 # 直接使用 Rust 的 HttpClient 类作为 Client
 Client: TypeAlias = _HttpClient
 
+# 直接使用 Rust 的 HttpRequest 类作为 Request
+Request: TypeAlias = _HttpRequest
+
 class AsyncClient:
     """
     Asynchronous HTTP client compatible with httpx.AsyncClient.
     
     Args:
         base_url: Base URL for all requests
-        timeout: Default timeout for requests in seconds
-        headers: Default headers to include with all requests
-        verify: Whether to verify SSL certificates (default: True)
-        follow_redirects: Whether to automatically follow redirects (default: True)
-        auth: Default authentication tuple (username, password)
-        proxy: Proxy server URL (e.g., "http://proxy.example.com:8080")
-        cookies: Default cookies to include with all requests
+        timeout: Default timeout for requests  
+        headers: Default headers for all requests
+        verify: SSL certificate verification
+        follow_redirects: Whether to follow redirects by default
+        auth: Default authentication (username, password)
+        proxy: Proxy server URL
+        cookies: Default cookies for all requests
+        http2: Enable HTTP/2 support
     """
     
     def __init__(
@@ -136,11 +181,12 @@ class AsyncClient:
         base_url: Optional[str] = None,
         timeout: Timeout = None,
         headers: Headers = None,
-        verify: bool = True,
-        follow_redirects: bool = True,
+        verify: Optional[bool] = None,
+        follow_redirects: Optional[bool] = None,
         auth: Auth = None,
         proxy: Optional[str] = None,
         cookies: Cookies = None,
+        http2: Optional[bool] = None,
     ):
         self._client = _AsyncHttpClient(
             base_url=base_url,
@@ -151,19 +197,33 @@ class AsyncClient:
             auth=auth,
             proxy=proxy,
             cookies=cookies,
+            http2=http2,
         )
     
+    def build_request(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Params = None,
+        headers: Headers = None,
+        content: Optional[bytes] = None,
+    ) -> Request:
+        """Build a request object."""
+        return self._client.build_request(
+            method, url, params=params, headers=headers, content=content
+        )
+    
+    async def send(self, request: Request) -> Response:
+        """Send a pre-built request."""
+        return await self._client.send(request)
+
     async def __aenter__(self):
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.aclose()
-    
-    async def aclose(self):
-        """Close the client and clean up resources."""
-        # For now, this is a no-op since the Rust client handles cleanup
-        pass
-    
+        return False
+
     async def get(
         self,
         url: str,
@@ -299,7 +359,7 @@ class AsyncClient:
         )
 
 
-# Top-level convenience functions
+# 全局函数 - 同步版本
 def get(
     url: str,
     *,
@@ -311,7 +371,10 @@ def get(
     cookies: Cookies = None,
 ) -> Response:
     """Send a GET request."""
-    return _get(url, params, headers, timeout, auth, follow_redirects, cookies)
+    return _get(
+        url, params=params, headers=headers, timeout=timeout,
+        auth=auth, follow_redirects=follow_redirects, cookies=cookies
+    )
 
 
 def post(
@@ -329,7 +392,11 @@ def post(
     cookies: Cookies = None,
 ) -> Response:
     """Send a POST request."""
-    return _post(url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
+    return _post(
+        url, content=content, data=data, json=json, files=files,
+        params=params, headers=headers, timeout=timeout,
+        auth=auth, follow_redirects=follow_redirects, cookies=cookies
+    )
 
 
 def put(
@@ -347,7 +414,11 @@ def put(
     cookies: Cookies = None,
 ) -> Response:
     """Send a PUT request."""
-    return _put(url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
+    return _put(
+        url, content=content, data=data, json=json, files=files,
+        params=params, headers=headers, timeout=timeout,
+        auth=auth, follow_redirects=follow_redirects, cookies=cookies
+    )
 
 
 def patch(
@@ -365,7 +436,11 @@ def patch(
     cookies: Cookies = None,
 ) -> Response:
     """Send a PATCH request."""
-    return _patch(url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
+    return _patch(
+        url, content=content, data=data, json=json, files=files,
+        params=params, headers=headers, timeout=timeout,
+        auth=auth, follow_redirects=follow_redirects, cookies=cookies
+    )
 
 
 def delete(
@@ -379,7 +454,10 @@ def delete(
     cookies: Cookies = None,
 ) -> Response:
     """Send a DELETE request."""
-    return _delete(url, params, headers, timeout, auth, follow_redirects, cookies)
+    return _delete(
+        url, params=params, headers=headers, timeout=timeout,
+        auth=auth, follow_redirects=follow_redirects, cookies=cookies
+    )
 
 
 def head(
@@ -393,7 +471,10 @@ def head(
     cookies: Cookies = None,
 ) -> Response:
     """Send a HEAD request."""
-    return _head(url, params, headers, timeout, auth, follow_redirects, cookies)
+    return _head(
+        url, params=params, headers=headers, timeout=timeout,
+        auth=auth, follow_redirects=follow_redirects, cookies=cookies
+    )
 
 
 def options(
@@ -407,7 +488,10 @@ def options(
     cookies: Cookies = None,
 ) -> Response:
     """Send an OPTIONS request."""
-    return _options(url, params, headers, timeout, auth, follow_redirects, cookies)
+    return _options(
+        url, params=params, headers=headers, timeout=timeout,
+        auth=auth, follow_redirects=follow_redirects, cookies=cookies
+    )
 
 
 def main():

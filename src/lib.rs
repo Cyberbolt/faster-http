@@ -4,7 +4,7 @@ use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
-use tokio::runtime::Runtime;
+
 use bytes::Bytes;
 use serde_json::Value;
 use pyo3_asyncio::tokio::future_into_py;
@@ -36,6 +36,57 @@ fn get_runtime() -> &'static tokio::runtime::Runtime {
     })
 }
 
+// Request 对象
+#[pyclass]
+pub struct HttpRequest {
+    method: String,
+    url: String,
+    headers: HashMap<String, String>,
+    content: Option<Bytes>,
+}
+
+#[pymethods]
+impl HttpRequest {
+    #[new]
+    pub fn new(
+        method: String,
+        url: String,
+        headers: Option<HashMap<String, String>>,
+        content: Option<Vec<u8>>,
+    ) -> Self {
+        HttpRequest {
+            method,
+            url,
+            headers: headers.unwrap_or_default(),
+            content: content.map(Bytes::from),
+        }
+    }
+
+    #[getter]
+    pub fn method(&self) -> &str {
+        &self.method
+    }
+
+    #[getter]
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    #[getter]
+    pub fn headers(&self) -> HashMap<String, String> {
+        self.headers.clone()
+    }
+
+    #[getter]
+    pub fn content(&self) -> Option<&[u8]> {
+        self.content.as_ref().map(|b| b.as_ref())
+    }
+
+    fn __repr__(&self) -> String {
+        format!("<Request('{}', '{}')>", self.method, self.url)
+    }
+}
+
 // 响应对象
 #[pyclass]
 pub struct HttpResponse {
@@ -47,6 +98,9 @@ pub struct HttpResponse {
     is_redirect_status: bool,
     http_version: String,
     cookies: HashMap<String, String>,
+    encoding: Option<String>, // 新增：编码属性
+    history: Vec<PyObject>, // 新增：重定向历史
+    request: Option<PyObject>, // 新增：原始请求对象
 }
 
 #[pymethods]
@@ -77,9 +131,39 @@ impl HttpResponse {
     }
 
     #[getter]
-    pub fn text(&self) -> PyResult<String> {
-        String::from_utf8(self.body.to_vec())
-            .map_err(|e| PyValueError::new_err(format!("Failed to decode response as UTF-8: {}", e)))
+    pub fn text(&self) -> String {
+        // 根据编码解码，默认使用 UTF-8
+        let encoding = self.encoding.as_deref().unwrap_or("utf-8");
+        match encoding.to_lowercase().as_str() {
+            "utf-8" | "utf8" => String::from_utf8_lossy(&self.body).to_string(),
+            _ => {
+                // 对于其他编码，暂时使用 UTF-8，未来可以添加更多编码支持
+                String::from_utf8_lossy(&self.body).to_string()
+            }
+        }
+    }
+
+    #[getter]
+    pub fn encoding(&self) -> Option<String> {
+        self.encoding.clone()
+    }
+
+    #[setter]
+    pub fn set_encoding(&mut self, encoding: Option<String>) {
+        self.encoding = encoding;
+    }
+
+    #[getter]
+    pub fn charset_encoding(&self) -> Option<String> {
+        // 从 Content-Type 头中提取字符集
+        if let Some(content_type) = self.headers.get("content-type").or_else(|| self.headers.get("Content-Type")) {
+            if let Some(charset_pos) = content_type.find("charset=") {
+                let charset = &content_type[charset_pos + 8..];
+                let charset = charset.split(';').next().unwrap_or(charset).trim();
+                return Some(charset.to_string());
+            }
+        }
+        None
     }
 
     #[getter]
@@ -112,8 +196,59 @@ impl HttpResponse {
         self.cookies.clone()
     }
 
+    #[getter]
+    pub fn history(&self) -> Vec<PyObject> {
+        self.history.clone()
+    }
+
+    #[getter]
+    pub fn request(&self) -> Option<PyObject> {
+        self.request.clone()
+    }
+
+    // 新增：响应迭代器方法
+    pub fn iter_bytes(&self, chunk_size: Option<usize>) -> PyResult<Vec<Vec<u8>>> {
+        let chunk_size = chunk_size.unwrap_or(8192);
+        let mut chunks = Vec::new();
+        let mut pos = 0;
+        
+        while pos < self.body.len() {
+            let end = std::cmp::min(pos + chunk_size, self.body.len());
+            chunks.push(self.body[pos..end].to_vec());
+            pos = end;
+        }
+        
+        Ok(chunks)
+    }
+
+    pub fn iter_text(&self, chunk_size: Option<usize>) -> PyResult<Vec<String>> {
+        let chunk_size = chunk_size.unwrap_or(8192);
+        let mut text_chunks = Vec::new();
+        let text = self.text();
+        let mut pos = 0;
+        
+        while pos < text.len() {
+            let end = std::cmp::min(pos + chunk_size, text.len());
+            text_chunks.push(text[pos..end].to_string());
+            pos = end;
+        }
+        
+        Ok(text_chunks)
+    }
+
+    pub fn iter_lines(&self) -> PyResult<Vec<String>> {
+        let text = self.text();
+        let lines: Vec<String> = text.lines().map(|line| line.to_string()).collect();
+        Ok(lines)
+    }
+
+    pub fn iter_raw(&self, chunk_size: Option<usize>) -> PyResult<Vec<Vec<u8>>> {
+        // 与 iter_bytes 相同，但表示未解码的原始数据
+        self.iter_bytes(chunk_size)
+    }
+
     pub fn json(&self, py: Python) -> PyResult<PyObject> {
-        let json_str = self.text()?;
+        let json_str = self.text();
         let json_value: Value = serde_json::from_str(&json_str)
             .map_err(|e| PyValueError::new_err(format!("Failed to parse JSON: {}", e)))?;
         pythonize::pythonize(py, &json_value)
@@ -153,6 +288,7 @@ pub struct HttpClient {
     auth: Option<AuthType>,
     proxy: Option<String>,
     default_cookies: HashMap<String, String>,
+    http2: bool, // 新增：HTTP/2 支持
 }
 
 #[pymethods]
@@ -167,9 +303,11 @@ impl HttpClient {
         auth: Option<(String, String)>,
         proxy: Option<String>,
         cookies: Option<HashMap<String, String>>,
+        http2: Option<bool>, // 新增：HTTP/2 支持
     ) -> PyResult<Self> {
         let verify = verify.unwrap_or(true);
         let follow_redirects = follow_redirects.unwrap_or(true);
+        let http2 = http2.unwrap_or(false);
         
         let mut builder = Client::builder()
             .danger_accept_invalid_certs(!verify)
@@ -178,6 +316,11 @@ impl HttpClient {
             } else { 
                 reqwest::redirect::Policy::none() 
             });
+
+        // 添加 HTTP/2 支持
+        if http2 {
+            builder = builder.http2_prior_knowledge();
+        }
 
         // 添加代理支持
         if let Some(proxy_url) = &proxy {
@@ -200,8 +343,151 @@ impl HttpClient {
             auth: auth_type,
             proxy,
             default_cookies: cookies.unwrap_or_default(),
+            http2,
         })
     }
+
+    // 新增：构建请求对象
+    pub fn build_request(
+        &self,
+        method: &str,
+        url: &str,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        content: Option<Vec<u8>>,
+    ) -> PyResult<HttpRequest> {
+        // 构建URL
+        let full_url = if let Some(base) = &self.base_url {
+            if url.starts_with("http://") || url.starts_with("https://") {
+                url.to_string()
+            } else {
+                format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'))
+            }
+        } else {
+            url.to_string()
+        };
+
+        // 添加查询参数
+        let final_url = if let Some(params) = params {
+            let mut url_with_params = reqwest::Url::parse(&full_url)
+                .map_err(|e| RequestError::new_err(format!("Invalid URL: {}", e)))?;
+            
+            for (key, value) in params {
+                url_with_params.query_pairs_mut().append_pair(&key, &value);
+            }
+            url_with_params.to_string()
+        } else {
+            full_url
+        };
+
+        // 合并headers
+        let mut final_headers = self.default_headers.clone();
+        if let Some(headers) = headers {
+            final_headers.extend(headers);
+        }
+
+        Ok(HttpRequest::new(
+            method.to_string(),
+            final_url,
+            Some(final_headers),
+            content,
+        ))
+    }
+
+    // 新增：发送预构建的请求
+    pub fn send(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
+        let rt = get_runtime();
+        
+        let client = &self.client;
+        let method = &request.method;
+        let url = &request.url;
+        let headers = Some(request.headers.clone());
+        let content = request.content.as_ref().map(|b| b.to_vec());
+        let default_timeout = self.default_timeout;
+        
+        rt.block_on(async {
+            let start_time = Instant::now();
+
+            // 构建请求
+            let method = method.parse::<reqwest::Method>()
+                .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
+            
+            let mut req = client.request(method, url);
+
+            // 添加headers
+            if let Some(headers) = headers {
+                for (key, value) in headers {
+                    req = req.header(key, value);
+                }
+            }
+
+            // 添加body
+            if let Some(content) = content {
+                req = req.body(content);
+            }
+
+            // 设置默认超时
+            if let Some(timeout) = default_timeout {
+                req = req.timeout(timeout);
+            }
+
+            // 发送请求
+            let response = req.send().await
+                .map_err(|e| {
+                    if e.is_timeout() {
+                        ReadTimeout::new_err(format!("Request timeout: {}", e))
+                    } else if e.is_connect() {
+                        ConnectTimeout::new_err(format!("Connection timeout: {}", e))
+                    } else {
+                        RequestError::new_err(format!("Request failed: {}", e))
+                    }
+                })?;
+
+            // 处理响应
+            let status_code = response.status().as_u16();
+            let url = response.url().to_string();
+            
+            let http_version = match response.version() {
+                reqwest::Version::HTTP_09 => "HTTP/0.9".to_string(),
+                reqwest::Version::HTTP_10 => "HTTP/1.0".to_string(),
+                reqwest::Version::HTTP_11 => "HTTP/1.1".to_string(),
+                reqwest::Version::HTTP_2 => "HTTP/2".to_string(),
+                reqwest::Version::HTTP_3 => "HTTP/3".to_string(),
+                _ => "Unknown".to_string(),
+            };
+            
+            let headers: HashMap<String, String> = response
+                .headers()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                .collect();
+
+            let body = response.bytes().await
+                .map_err(|e| RequestError::new_err(format!("Failed to read response body: {}", e)))?;
+
+            let elapsed = start_time.elapsed().as_secs_f64();
+            let is_redirect_status = matches!(status_code, 301 | 302 | 303 | 307 | 308);
+
+            // 检测编码
+            let encoding = detect_encoding(&headers);
+
+            Ok(HttpResponse {
+                status_code,
+                headers: headers.clone(),
+                body,
+                url,
+                elapsed,
+                is_redirect_status,
+                http_version,
+                cookies: parse_cookies_from_headers(&headers),
+                encoding,
+                history: Vec::new(),
+                request: None,
+            })
+        })
+    }
+
+
 
     fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
@@ -416,6 +702,20 @@ impl HttpClient {
     }
 }
 
+// 编码检测函数
+fn detect_encoding(headers: &HashMap<String, String>) -> Option<String> {
+    if let Some(content_type) = headers.get("content-type").or_else(|| headers.get("Content-Type")) {
+        if let Some(charset_pos) = content_type.find("charset=") {
+            let charset = &content_type[charset_pos + 8..];
+            let charset = charset.split(';').next().unwrap_or(charset).trim();
+            return Some(charset.to_string());
+        }
+    }
+    
+    // 默认返回 UTF-8
+    Some("utf-8".to_string())
+}
+
 // 核心请求构建和发送函数
 async fn build_and_send_request(
     client: &Client,
@@ -432,7 +732,7 @@ async fn build_and_send_request(
     default_headers: &HashMap<String, String>,
     default_timeout: Option<Duration>,
     auth: Option<(String, String)>,
-    follow_redirects: bool,  // 移除下划线，正确处理重定向参数
+    follow_redirects: bool,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let start_time = Instant::now();
@@ -562,6 +862,9 @@ async fn build_and_send_request(
 
     let elapsed = start_time.elapsed().as_secs_f64();
     let is_redirect_status = matches!(status_code, 301 | 302 | 303 | 307 | 308);
+    
+    // 检测编码
+    let encoding = detect_encoding(&headers);
 
     Ok(HttpResponse {
         status_code,
@@ -572,6 +875,9 @@ async fn build_and_send_request(
         is_redirect_status,
         http_version,
         cookies: parse_cookies_from_headers(&headers),
+        encoding,
+        history: Vec::new(),
+        request: None,
     })
 }
 
@@ -579,14 +885,14 @@ async fn build_and_send_request(
 fn parse_cookies_from_headers(headers: &HashMap<String, String>) -> HashMap<String, String> {
     let mut cookies = HashMap::new();
     
-    // 从 Set-Cookie 头中提取 cookies
     for (key, value) in headers {
         if key.to_lowercase() == "set-cookie" {
-            // 简单的 cookie 解析，只提取 name=value 部分
-            if let Some(cookie_pair) = value.split(';').next() {
-                if let Some((name, val)) = cookie_pair.split_once('=') {
-                    cookies.insert(name.trim().to_string(), val.trim().to_string());
-                }
+            // 简单的 cookie 解析，实际应用中可能需要更复杂的解析
+            if let Some(eq_pos) = value.find('=') {
+                let name = value[..eq_pos].trim();
+                let rest = &value[eq_pos + 1..];
+                let cookie_value = rest.split(';').next().unwrap_or(rest).trim();
+                cookies.insert(name.to_string(), cookie_value.to_string());
             }
         }
     }
@@ -594,33 +900,28 @@ fn parse_cookies_from_headers(headers: &HashMap<String, String>) -> HashMap<Stri
     cookies
 }
 
-// 构建 multipart form 用于文件上传
+// 辅助函数：构建 multipart form
 fn build_multipart_form(files_data: HashMap<String, PyObject>) -> PyResult<reqwest::multipart::Form> {
     let mut form = reqwest::multipart::Form::new();
     
     Python::with_gil(|py| {
-        for (key, value) in files_data {
-            // 简单的文件处理 - 假设值是字节串或文件路径
-            if let Ok(bytes_data) = value.extract::<Vec<u8>>(py) {
-                let part = reqwest::multipart::Part::bytes(bytes_data)
-                    .file_name("uploaded_file");
-                form = form.part(key, part);
-            } else if let Ok(file_path) = value.extract::<String>(py) {
-                // 如果是文件路径，我们只能传递路径字符串，实际文件读取需要在Python端处理
-                let part = reqwest::multipart::Part::text(file_path);
-                form = form.part(key, part);
-            } else {
-                // 其他类型作为文本处理
-                let text_value = format!("{}", value.as_ref(py));
-                let part = reqwest::multipart::Part::text(text_value);
-                form = form.part(key, part);
+        for (field_name, file_data) in files_data {
+            if let Ok(bytes) = file_data.extract::<Vec<u8>>(py) {
+                // 简单的字节数据上传
+                let part = reqwest::multipart::Part::bytes(bytes)
+                    .file_name("upload");
+                form = form.part(field_name, part);
+            } else if let Ok(text) = file_data.extract::<String>(py) {
+                // 文本数据上传
+                let part = reqwest::multipart::Part::text(text);
+                form = form.part(field_name, part);
             }
         }
         Ok(form)
     })
 }
 
-// 异步HTTP客户端
+// 异步 HTTP 客户端
 #[pyclass]
 pub struct AsyncHttpClient {
     client: Client,
@@ -631,6 +932,7 @@ pub struct AsyncHttpClient {
     auth: Option<AuthType>,
     proxy: Option<String>,
     default_cookies: HashMap<String, String>,
+    http2: bool, // 新增：HTTP/2 支持
 }
 
 #[pymethods]
@@ -645,9 +947,11 @@ impl AsyncHttpClient {
         auth: Option<(String, String)>,
         proxy: Option<String>,
         cookies: Option<HashMap<String, String>>,
+        http2: Option<bool>, // 新增：HTTP/2 支持
     ) -> PyResult<Self> {
         let verify = verify.unwrap_or(true);
         let follow_redirects = follow_redirects.unwrap_or(true);
+        let http2 = http2.unwrap_or(false);
         
         let mut builder = Client::builder()
             .danger_accept_invalid_certs(!verify)
@@ -656,6 +960,11 @@ impl AsyncHttpClient {
             } else { 
                 reqwest::redirect::Policy::none() 
             });
+
+        // 添加 HTTP/2 支持
+        if http2 {
+            builder = builder.http2_prior_knowledge();
+        }
 
         // 添加代理支持
         if let Some(proxy_url) = &proxy {
@@ -678,8 +987,150 @@ impl AsyncHttpClient {
             auth: auth_type,
             proxy,
             default_cookies: cookies.unwrap_or_default(),
+            http2,
         })
     }
+
+    // 新增：构建请求对象
+    pub fn build_request(
+        &self,
+        method: &str,
+        url: &str,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        content: Option<Vec<u8>>,
+    ) -> PyResult<HttpRequest> {
+        // 构建URL
+        let full_url = if let Some(base) = &self.base_url {
+            if url.starts_with("http://") || url.starts_with("https://") {
+                url.to_string()
+            } else {
+                format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'))
+            }
+        } else {
+            url.to_string()
+        };
+
+        // 添加查询参数
+        let final_url = if let Some(params) = params {
+            let mut url_with_params = reqwest::Url::parse(&full_url)
+                .map_err(|e| RequestError::new_err(format!("Invalid URL: {}", e)))?;
+            
+            for (key, value) in params {
+                url_with_params.query_pairs_mut().append_pair(&key, &value);
+            }
+            url_with_params.to_string()
+        } else {
+            full_url
+        };
+
+        // 合并headers
+        let mut final_headers = self.default_headers.clone();
+        if let Some(headers) = headers {
+            final_headers.extend(headers);
+        }
+
+        Ok(HttpRequest::new(
+            method.to_string(),
+            final_url,
+            Some(final_headers),
+            content,
+        ))
+    }
+
+    // 新增：发送预构建的请求 (异步)
+    pub fn send<'py>(&self, py: Python<'py>, request: &HttpRequest) -> PyResult<&'py PyAny> {
+        let request_clone = HttpRequest::new(
+            request.method.clone(),
+            request.url.clone(),
+            Some(request.headers.clone()),
+            request.content.as_ref().map(|b| b.to_vec()),
+        );
+        
+        let client = self.client.clone();
+        let default_timeout = self.default_timeout;
+        
+        future_into_py(py, async move {
+            let start_time = Instant::now();
+
+            // 构建请求
+            let method = request_clone.method.parse::<reqwest::Method>()
+                .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
+            
+            let mut req = client.request(method, &request_clone.url);
+
+            // 添加headers
+            for (key, value) in &request_clone.headers {
+                req = req.header(key, value);
+            }
+
+            // 添加body
+            if let Some(content) = &request_clone.content {
+                req = req.body(content.clone());
+            }
+
+            // 设置默认超时
+            if let Some(timeout) = default_timeout {
+                req = req.timeout(timeout);
+            }
+
+            // 发送请求
+            let response = req.send().await
+                .map_err(|e| {
+                    if e.is_timeout() {
+                        ReadTimeout::new_err(format!("Request timeout: {}", e))
+                    } else if e.is_connect() {
+                        ConnectTimeout::new_err(format!("Connection timeout: {}", e))
+                    } else {
+                        RequestError::new_err(format!("Request failed: {}", e))
+                    }
+                })?;
+
+            // 处理响应
+            let status_code = response.status().as_u16();
+            let url = response.url().to_string();
+            
+            let http_version = match response.version() {
+                reqwest::Version::HTTP_09 => "HTTP/0.9".to_string(),
+                reqwest::Version::HTTP_10 => "HTTP/1.0".to_string(),
+                reqwest::Version::HTTP_11 => "HTTP/1.1".to_string(),
+                reqwest::Version::HTTP_2 => "HTTP/2".to_string(),
+                reqwest::Version::HTTP_3 => "HTTP/3".to_string(),
+                _ => "Unknown".to_string(),
+            };
+            
+            let headers: HashMap<String, String> = response
+                .headers()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                .collect();
+
+            let body = response.bytes().await
+                .map_err(|e| RequestError::new_err(format!("Failed to read response body: {}", e)))?;
+
+            let elapsed = start_time.elapsed().as_secs_f64();
+            let is_redirect_status = matches!(status_code, 301 | 302 | 303 | 307 | 308);
+
+            // 检测编码
+            let encoding = detect_encoding(&headers);
+
+            Ok(HttpResponse {
+                status_code,
+                headers: headers.clone(),
+                body,
+                url,
+                elapsed,
+                is_redirect_status,
+                http_version,
+                cookies: parse_cookies_from_headers(&headers),
+                encoding,
+                history: Vec::new(),
+                request: None,
+            })
+        })
+    }
+
+
 
     fn __aenter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
@@ -711,27 +1162,33 @@ impl AsyncHttpClient {
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
+        // 合并 cookies
+        let merged_cookies = match cookies {
+            Some(request_cookies) => {
+                let mut merged = self.default_cookies.clone();
+                merged.extend(request_cookies);
+                Some(merged)
+            }
+            None if !self.default_cookies.is_empty() => Some(self.default_cookies.clone()),
+            _ => None,
+        };
+
         let client = self.client.clone();
         let base_url = self.base_url.clone();
-        let default_timeout = self.default_timeout;
         let default_headers = self.default_headers.clone();
-        let client_auth = self.auth.clone();
-        let client_follow_redirects = self.follow_redirects;
-        let default_cookies = self.default_cookies.clone();
+        let default_timeout = self.default_timeout;
         let method = method.to_string(); // 克隆方法字符串以避免生命周期问题
-
-        future_into_py(py, async move {
-            // 合并 cookies
-            let merged_cookies = match cookies {
-                Some(request_cookies) => {
-                    let mut merged = default_cookies;
-                    merged.extend(request_cookies);
-                    Some(merged)
-                }
-                None if !default_cookies.is_empty() => Some(default_cookies),
+        
+        let auth_option = auth.or_else(|| {
+            match &self.auth {
+                Some(AuthType::Basic { username, password }) => Some((username.clone(), password.clone())),
                 _ => None,
-            };
-
+            }
+        });
+        
+        let follow_redirects = follow_redirects.unwrap_or(self.follow_redirects);
+        
+        future_into_py(py, async move {
             build_and_send_request(
                 &client,
                 &method,
@@ -746,14 +1203,9 @@ impl AsyncHttpClient {
                 &base_url,
                 &default_headers,
                 default_timeout,
-                auth.or_else(|| {
-                    match &client_auth {
-                        Some(AuthType::Basic { username, password }) => Some((username.clone(), password.clone())),
-                        _ => None,
-                    }
-                }),
-                follow_redirects.unwrap_or(client_follow_redirects),
-                merged_cookies,
+                auth_option,
+                follow_redirects,
+                merged_cookies
             ).await
         })
     }
@@ -868,8 +1320,6 @@ impl AsyncHttpClient {
         self._async_request(py, "OPTIONS", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
     }
 }
-
-// 优化的全局函数，使用全局客户端实例
 
 // 辅助函数：将Python对象转换为JSON Value
 fn python_dict_to_json_value(data: HashMap<String, PyObject>) -> PyResult<Value> {
@@ -1069,6 +1519,7 @@ pub fn options(
 // Python模块定义
 #[pymodule]
 fn _core(py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_class::<HttpRequest>()?;
     m.add_class::<HttpResponse>()?;
     m.add_class::<HttpClient>()?;
     m.add_class::<AsyncHttpClient>()?;
