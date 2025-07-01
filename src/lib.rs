@@ -155,17 +155,15 @@ impl HttpClient {
         &self,
         method: &str,
         url: &str,
+        content: Option<Vec<u8>>,
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, String>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
     ) -> PyResult<HttpResponse> {
-        // 使用全局runtime执行异步代码
         let rt = get_runtime();
-        rt.block_on(async {
-            self._async_request(method, url, data, json, params, headers, timeout).await
-        })
+        rt.block_on(self._async_request(method, url, content, data, json, params, headers, timeout))
     }
 
     pub fn get(
@@ -175,43 +173,46 @@ impl HttpClient {
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
     ) -> PyResult<HttpResponse> {
-        self._request("GET", url, None, None, params, headers, timeout)
+        self._request("GET", url, None, None, None, params, headers, timeout)
     }
 
     pub fn post(
         &self,
         url: &str,
+        content: Option<Vec<u8>>,
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, String>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
     ) -> PyResult<HttpResponse> {
-        self._request("POST", url, data, json, params, headers, timeout)
+        self._request("POST", url, content, data, json, params, headers, timeout)
     }
 
     pub fn put(
         &self,
         url: &str,
+        content: Option<Vec<u8>>,
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, String>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
     ) -> PyResult<HttpResponse> {
-        self._request("PUT", url, data, json, params, headers, timeout)
+        self._request("PUT", url, content, data, json, params, headers, timeout)
     }
 
     pub fn patch(
         &self,
         url: &str,
+        content: Option<Vec<u8>>,
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, String>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
     ) -> PyResult<HttpResponse> {
-        self._request("PATCH", url, data, json, params, headers, timeout)
+        self._request("PATCH", url, content, data, json, params, headers, timeout)
     }
 
     pub fn delete(
@@ -221,7 +222,7 @@ impl HttpClient {
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
     ) -> PyResult<HttpResponse> {
-        self._request("DELETE", url, None, None, params, headers, timeout)
+        self._request("DELETE", url, None, None, None, params, headers, timeout)
     }
 
     pub fn head(
@@ -231,7 +232,7 @@ impl HttpClient {
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
     ) -> PyResult<HttpResponse> {
-        self._request("HEAD", url, None, None, params, headers, timeout)
+        self._request("HEAD", url, None, None, None, params, headers, timeout)
     }
 
     pub fn options(
@@ -241,7 +242,7 @@ impl HttpClient {
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
     ) -> PyResult<HttpResponse> {
-        self._request("OPTIONS", url, None, None, params, headers, timeout)
+        self._request("OPTIONS", url, None, None, None, params, headers, timeout)
     }
 }
 
@@ -250,6 +251,7 @@ impl HttpClient {
         &self,
         method: &str,
         url: &str,
+        content: Option<Vec<u8>>,
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, String>>,
@@ -290,8 +292,10 @@ impl HttpClient {
             }
         }
 
-        // 设置body
-        if let Some(json_data) = json {
+        // 设置body - 优先级：content > json > data
+        if let Some(content_bytes) = content {
+            request = request.body(content_bytes);
+        } else if let Some(json_data) = json {
             let json_value = python_dict_to_json_value(json_data)?;
             request = request.json(&json_value);
         } else if let Some(form_data) = data {
@@ -405,7 +409,7 @@ impl AsyncHttpClient {
         future_into_py(py, async move {
             let start_time = Instant::now();
             let request = AsyncHttpClient::build_request(
-                &client, "GET", &url, None, None, params, headers, 
+                &client, "GET", &url, None, None, None, params, headers, 
                 &base_url, default_timeout, &default_headers, timeout
             ).await?;
             
@@ -440,6 +444,7 @@ impl AsyncHttpClient {
         &self,
         py: Python<'py>,
         url: String,
+        content: Option<Vec<u8>>,
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, String>>,
@@ -454,7 +459,7 @@ impl AsyncHttpClient {
         future_into_py(py, async move {
             let start_time = Instant::now();
             let request = AsyncHttpClient::build_request(
-                &client, "POST", &url, data, json, params, headers,
+                &client, "POST", &url, content, data, json, params, headers,
                 &base_url, default_timeout, &default_headers, timeout
             ).await?;
             
@@ -488,6 +493,7 @@ impl AsyncHttpClient {
         &self,
         py: Python<'py>,
         url: String,
+        content: Option<Vec<u8>>,
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, String>>,
@@ -502,7 +508,7 @@ impl AsyncHttpClient {
         future_into_py(py, async move {
             let start_time = Instant::now();
             let request = AsyncHttpClient::build_request(
-                &client, "PUT", &url, data, json, params, headers,
+                &client, "PUT", &url, content, data, json, params, headers,
                 &base_url, default_timeout, &default_headers, timeout
             ).await?;
             
@@ -536,6 +542,7 @@ impl AsyncHttpClient {
         &self,
         py: Python<'py>,
         url: String,
+        content: Option<Vec<u8>>,
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, String>>,
@@ -550,7 +557,7 @@ impl AsyncHttpClient {
         future_into_py(py, async move {
             let start_time = Instant::now();
             let request = AsyncHttpClient::build_request(
-                &client, "PATCH", &url, data, json, params, headers,
+                &client, "PATCH", &url, content, data, json, params, headers,
                 &base_url, default_timeout, &default_headers, timeout
             ).await?;
             
@@ -596,7 +603,7 @@ impl AsyncHttpClient {
         future_into_py(py, async move {
             let start_time = Instant::now();
             let request = AsyncHttpClient::build_request(
-                &client, "DELETE", &url, None, None, params, headers,
+                &client, "DELETE", &url, None, None, None, params, headers,
                 &base_url, default_timeout, &default_headers, timeout
             ).await?;
             
@@ -642,7 +649,7 @@ impl AsyncHttpClient {
         future_into_py(py, async move {
             let start_time = Instant::now();
             let request = AsyncHttpClient::build_request(
-                &client, "HEAD", &url, None, None, params, headers,
+                &client, "HEAD", &url, None, None, None, params, headers,
                 &base_url, default_timeout, &default_headers, timeout
             ).await?;
             
@@ -688,7 +695,7 @@ impl AsyncHttpClient {
         future_into_py(py, async move {
             let start_time = Instant::now();
             let request = AsyncHttpClient::build_request(
-                &client, "OPTIONS", &url, None, None, params, headers,
+                &client, "OPTIONS", &url, None, None, None, params, headers,
                 &base_url, default_timeout, &default_headers, timeout
             ).await?;
             
@@ -724,6 +731,7 @@ impl AsyncHttpClient {
         client: &Client,
         method: &str,
         url: &str,
+        content: Option<Vec<u8>>,
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, String>>,
@@ -765,8 +773,10 @@ impl AsyncHttpClient {
             }
         }
 
-        // 设置body
-        if let Some(json_data) = json {
+        // 设置body - 优先级：content > json > data
+        if let Some(content_bytes) = content {
+            request = request.body(content_bytes);
+        } else if let Some(json_data) = json {
             let json_value = python_dict_to_json_value(json_data)?;
             request = request.json(&json_value);
         } else if let Some(form_data) = data {
@@ -859,6 +869,7 @@ pub fn get(
 #[pyfunction]
 pub fn post(
     url: &str,
+    content: Option<Vec<u8>>,
     data: Option<HashMap<String, PyObject>>,
     json: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, String>>,
@@ -866,12 +877,13 @@ pub fn post(
     timeout: Option<f64>,
 ) -> PyResult<HttpResponse> {
     let client = HttpClient::new(None, None, None, None)?;
-    client.post(url, data, json, params, headers, timeout)
+    client.post(url, content, data, json, params, headers, timeout)
 }
 
 #[pyfunction]
 pub fn put(
     url: &str,
+    content: Option<Vec<u8>>,
     data: Option<HashMap<String, PyObject>>,
     json: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, String>>,
@@ -879,12 +891,13 @@ pub fn put(
     timeout: Option<f64>,
 ) -> PyResult<HttpResponse> {
     let client = HttpClient::new(None, None, None, None)?;
-    client.put(url, data, json, params, headers, timeout)
+    client.put(url, content, data, json, params, headers, timeout)
 }
 
 #[pyfunction]
 pub fn patch(
     url: &str,
+    content: Option<Vec<u8>>,
     data: Option<HashMap<String, PyObject>>,
     json: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, String>>,
@@ -892,7 +905,7 @@ pub fn patch(
     timeout: Option<f64>,
 ) -> PyResult<HttpResponse> {
     let client = HttpClient::new(None, None, None, None)?;
-    client.patch(url, data, json, params, headers, timeout)
+    client.patch(url, content, data, json, params, headers, timeout)
 }
 
 #[pyfunction]

@@ -5,7 +5,7 @@ This library provides a drop-in replacement for httpx with significantly better 
 by leveraging Rust's reqwest library through PyO3 bindings.
 """
 
-from typing import Any, Dict, Optional, Union, Mapping
+from typing import Any, Dict, Optional, Union, Mapping, TypeAlias, Protocol
 import asyncio
 from ._core import (
     HttpClient as _HttpClient,
@@ -32,17 +32,71 @@ __all__ = [
 ]
 
 # Type aliases for better compatibility
-Headers = Optional[Dict[str, str]]
-Params = Optional[Dict[str, str]]
-Data = Optional[Dict[str, Any]]
-JSON = Optional[Dict[str, Any]]
-Timeout = Optional[float]
+Headers: TypeAlias = Optional[Dict[str, str]]
+Params: TypeAlias = Optional[Dict[str, str]]
+Data: TypeAlias = Optional[Dict[str, Any]]
+JSON: TypeAlias = Optional[Dict[str, Any]]
+Timeout: TypeAlias = Optional[float]
 
-# 直接使用 Rust 的 HttpResponse 类作为 Response
-Response = _HttpResponse
+# Response Protocol 定义
+class Response(Protocol):
+    """HTTP Response protocol compatible with httpx.Response."""
+    
+    @property
+    def status_code(self) -> int:
+        """HTTP status code."""
+        ...
+    
+    @property
+    def headers(self) -> Dict[str, str]:
+        """Response headers."""
+        ...
+    
+    @property
+    def url(self) -> str:
+        """Request URL."""
+        ...
+    
+    @property
+    def ok(self) -> bool:
+        """True if status_code < 400."""
+        ...
+    
+    @property
+    def content(self) -> bytes:
+        """Raw response content."""
+        ...
+    
+    @property
+    def text(self) -> str:
+        """Response content as text."""
+        ...
+    
+    @property
+    def elapsed(self) -> float:
+        """Request elapsed time in seconds."""
+        ...
+    
+    @property
+    def is_client_error(self) -> bool:
+        """True if 400 <= status_code < 500."""
+        ...
+    
+    @property
+    def is_server_error(self) -> bool:
+        """True if status_code >= 500."""
+        ...
+    
+    def json(self) -> Any:
+        """Parse response content as JSON."""
+        ...
+    
+    def raise_for_status(self) -> None:
+        """Raise HTTPError if status indicates error."""
+        ...
 
 # 直接使用 Rust 的 HttpClient 类作为 Client
-Client = _HttpClient
+Client: TypeAlias = _HttpClient
 
 class AsyncClient:
     """
@@ -104,7 +158,7 @@ class AsyncClient:
         timeout: Timeout = None,
     ) -> Response:
         """Send a POST request asynchronously."""
-        return await self._client.post(url, data=data, json=json, params=params, headers=headers, timeout=timeout)
+        return await self._client.post(url, content=content, data=data, json=json, params=params, headers=headers, timeout=timeout)
     
     async def put(
         self,
@@ -118,7 +172,7 @@ class AsyncClient:
         timeout: Timeout = None,
     ) -> Response:
         """Send a PUT request asynchronously."""
-        return await self._client.put(url, data=data, json=json, params=params, headers=headers, timeout=timeout)
+        return await self._client.put(url, content=content, data=data, json=json, params=params, headers=headers, timeout=timeout)
     
     async def patch(
         self,
@@ -132,7 +186,7 @@ class AsyncClient:
         timeout: Timeout = None,
     ) -> Response:
         """Send a PATCH request asynchronously."""
-        return await self._client.patch(url, data=data, json=json, params=params, headers=headers, timeout=timeout)
+        return await self._client.patch(url, content=content, data=data, json=json, params=params, headers=headers, timeout=timeout)
     
     async def delete(
         self,
@@ -191,7 +245,7 @@ def post(
     timeout: Timeout = None,
 ) -> Response:
     """Send a POST request."""
-    return _post(url, data, json, params, headers, timeout)
+    return _post(url, content, data, json, params, headers, timeout)
 
 
 def put(
@@ -205,7 +259,7 @@ def put(
     timeout: Timeout = None,
 ) -> Response:
     """Send a PUT request."""
-    return _put(url, data, json, params, headers, timeout)
+    return _put(url, content, data, json, params, headers, timeout)
 
 
 def patch(
@@ -219,7 +273,7 @@ def patch(
     timeout: Timeout = None,
 ) -> Response:
     """Send a PATCH request."""
-    return _patch(url, data, json, params, headers, timeout)
+    return _patch(url, content, data, json, params, headers, timeout)
 
 
 def delete(
