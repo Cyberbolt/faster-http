@@ -1,3 +1,6 @@
+// 允许 PyO3 宏产生的警告
+#![allow(non_local_definitions)]
+
 use pyo3::prelude::*;
 use pyo3::exceptions::{PyException, PyValueError};
 use reqwest::Client;
@@ -286,8 +289,10 @@ pub struct HttpClient {
     default_headers: HashMap<String, String>,
     follow_redirects: bool,
     auth: Option<AuthType>,
+    #[allow(dead_code)]
     proxy: Option<String>,
     default_cookies: HashMap<String, String>,
+    #[allow(dead_code)]
     http2: bool, // 新增：HTTP/2 支持
 }
 
@@ -930,8 +935,10 @@ pub struct AsyncHttpClient {
     default_headers: HashMap<String, String>,
     follow_redirects: bool,
     auth: Option<AuthType>,
+    #[allow(dead_code)]
     proxy: Option<String>,
     default_cookies: HashMap<String, String>,
+    #[allow(dead_code)]
     http2: bool, // 新增：HTTP/2 支持
 }
 

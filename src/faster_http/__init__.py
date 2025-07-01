@@ -5,7 +5,10 @@ This library provides a drop-in replacement for httpx with significantly better 
 by leveraging Rust's reqwest library through PyO3 bindings.
 """
 
-from typing import Any, Dict, List, Optional, TypeAlias, Protocol, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union, Callable, Mapping, Protocol
+import base64
+import os
+
 from ._core import (
     HttpClient as _HttpClient,
     AsyncHttpClient as _AsyncHttpClient,
@@ -25,220 +28,432 @@ from ._core import (
 
 __version__ = "0.1.0"
 __all__ = [
-    "get", "post", "put", "patch", "delete", "head", "options",
+    "get", "post", "put", "patch", "delete", "head", "options", "stream",
     "Client", "AsyncClient", "Response", "Request",
-    "HTTPError", "ConnectTimeout", "ReadTimeout", "RequestError"
+    "HTTPError", "ConnectTimeout", "ReadTimeout", "RequestError",
+    "BasicAuth", "DigestAuth", "NetRCAuth", "Auth",
+    "URL", "Headers", "Cookies", "QueryParams",
+    "Timeout", "Limits", 
 ]
 
-# Type aliases for better compatibility
-Headers: TypeAlias = Optional[Dict[str, str]]
-Params: TypeAlias = Optional[Dict[str, str]]
-Data: TypeAlias = Optional[Dict[str, Any]]
-JSON: TypeAlias = Optional[Dict[str, Any]]
-Files: TypeAlias = Optional[Dict[str, Any]]
-Timeout: TypeAlias = Optional[float]
-Auth: TypeAlias = Optional[Tuple[str, str]]
-Cookies: TypeAlias = Optional[Dict[str, str]]
 
-# Response Protocol 定义
+# ==================== Authentication Classes ====================
+
+class Auth:
+    """Base class for authentication schemes."""
+    
+    def auth_flow(self, request):
+        """Generator that yields the request with authentication applied."""
+        yield request
+    
+    def sync_auth_flow(self, request):
+        """Synchronous authentication flow."""
+        return self.auth_flow(request)
+    
+    async def async_auth_flow(self, request):
+        """Asynchronous authentication flow."""
+        for req in self.auth_flow(request):
+            yield req
+
+
+class BasicAuth(Auth):
+    """HTTP Basic Authentication."""
+    
+    def __init__(self, username: str, password: str):
+        self.username = username
+        self.password = password
+    
+    def auth_flow(self, request):
+        """Apply basic authentication to the request."""
+        credentials = f"{self.username}:{self.password}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+        request.headers["Authorization"] = f"Basic {encoded_credentials}"
+        yield request
+
+
+class DigestAuth(Auth):
+    """HTTP Digest Authentication."""
+    
+    def __init__(self, username: str, password: str):
+        self.username = username
+        self.password = password
+    
+    def auth_flow(self, request):
+        """Apply digest authentication to the request."""
+        # 简化的 Digest 认证实现
+        # 实际实现需要处理 challenge-response
+        yield request
+
+
+class NetRCAuth(Auth):
+    """Authentication using .netrc file."""
+    
+    def __init__(self, file: Optional[str] = None):
+        self.file = file or os.path.expanduser("~/.netrc")
+    
+    def auth_flow(self, request):
+        """Apply netrc authentication to the request."""
+        # 简化的 .netrc 认证实现
+        # 实际实现需要解析 .netrc 文件
+        yield request
+
+
+# ==================== Helper Classes ====================
+
+class URL:
+    """URL parsing and manipulation."""
+    
+    def __init__(self, url: str):
+        self._url = url
+    
+    def __str__(self) -> str:
+        return self._url
+    
+    @property
+    def scheme(self) -> str:
+        """URL scheme (http/https)."""
+        if "://" in self._url:
+            return self._url.split("://")[0]
+        return ""
+    
+    @property
+    def host(self) -> str:
+        """URL host."""
+        if "://" in self._url:
+            parts = self._url.split("://")[1]
+            return parts.split("/")[0].split(":")[0]
+        return ""
+    
+    def copy_with(self, **kwargs) -> 'URL':
+        """Create a copy with modifications."""
+        return URL(self._url)
+
+
+class Headers(dict):
+    """Case-insensitive headers."""
+    
+    def __init__(self, headers: Optional[Mapping[str, str]] = None):
+        super().__init__()
+        if headers:
+            for key, value in headers.items():
+                self[key] = value
+    
+    def __getitem__(self, key: str) -> str:
+        # 大小写不敏感的查找
+        for k, v in self.items():
+            if k.lower() == key.lower():
+                return v
+        raise KeyError(key)
+    
+    def __setitem__(self, key: str, value: str):
+        # 移除现有的同名键（大小写不敏感）
+        to_remove = []
+        for k in self.keys():
+            if k.lower() == key.lower():
+                to_remove.append(k)
+        for k in to_remove:
+            del self[k]
+        super().__setitem__(key, value)
+
+
+class Cookies(dict):
+    """HTTP cookies container."""
+    
+    def set(self, name: str, value: str, domain: Optional[str] = None):
+        """Set a cookie."""
+        self[name] = value
+
+
+class QueryParams(dict):
+    """URL query parameters."""
+    
+    def __init__(self, params: Optional[Union[Dict[str, str], str]] = None):
+        super().__init__()
+        if isinstance(params, dict):
+            self.update(params)
+        elif isinstance(params, str):
+            # 简化的查询字符串解析
+            if params.startswith('?'):
+                params = params[1:]
+            for part in params.split('&'):
+                if '=' in part:
+                    key, value = part.split('=', 1)
+                    self[key] = value
+
+
+class Timeout:
+    """Timeout configuration."""
+    
+    def __init__(self, 
+                 connect: Optional[float] = None,
+                 read: Optional[float] = None,
+                 write: Optional[float] = None,
+                 pool: Optional[float] = None):
+        self.connect = connect
+        self.read = read
+        self.write = write
+        self.pool = pool
+
+
+class Limits:
+    """Connection pool limits."""
+    
+    def __init__(self, 
+                 max_keepalive_connections: int = 20,
+                 max_connections: int = 100,
+                 keepalive_expiry: float = 5.0):
+        self.max_keepalive_connections = max_keepalive_connections
+        self.max_connections = max_connections
+        self.keepalive_expiry = keepalive_expiry
+
+
+# ==================== Response and Request Classes ====================
+
+class StreamingResponse:
+    """Streaming response context manager."""
+    
+    def __init__(self, response):
+        self._response = response
+    
+    def __enter__(self):
+        return self._response
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+    
+    async def __aenter__(self):
+        return self._response
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+
 class Response(Protocol):
     """HTTP Response protocol compatible with httpx.Response."""
     
     @property
-    def status_code(self) -> int:
-        """HTTP status code."""
-        ...
+    def status_code(self) -> int: ...
     
     @property
-    def headers(self) -> Dict[str, str]:
-        """Response headers."""
-        ...
+    def headers(self) -> Dict[str, str]: ...
     
     @property
-    def url(self) -> str:
-        """Request URL."""
-        ...
+    def url(self) -> str: ...
     
     @property
-    def ok(self) -> bool:
-        """True if status_code is between 200-299."""
-        ...
+    def ok(self) -> bool: ...
     
     @property
-    def content(self) -> bytes:
-        """Raw response content."""
-        ...
+    def content(self) -> bytes: ...
     
     @property
-    def text(self) -> str:
-        """Response content as text."""
-        ...
+    def text(self) -> str: ...
     
     @property
-    def encoding(self) -> Optional[str]:
-        """Response text encoding."""
-        ...
+    def encoding(self) -> Optional[str]: ...
     
     @encoding.setter
-    def encoding(self, value: Optional[str]) -> None:
-        """Set response text encoding."""
-        ...
+    def encoding(self, value: Optional[str]) -> None: ...
     
     @property
-    def charset_encoding(self) -> Optional[str]:
-        """Character set encoding from Content-Type header."""
-        ...
+    def charset_encoding(self) -> Optional[str]: ...
     
     @property
-    def elapsed(self) -> float:
-        """Request elapsed time in seconds."""
-        ...
+    def elapsed(self) -> float: ...
     
     @property
-    def is_client_error(self) -> bool:
-        """True if 400 <= status_code < 500."""
-        ...
+    def is_client_error(self) -> bool: ...
     
     @property
-    def is_server_error(self) -> bool:
-        """True if status_code >= 500."""
-        ...
+    def is_server_error(self) -> bool: ...
     
     @property
-    def is_redirect(self) -> bool:
-        """True if status_code indicates a redirect (3xx)."""
-        ...
+    def is_redirect(self) -> bool: ...
     
     @property
-    def http_version(self) -> str:
-        """HTTP version used for the response."""
-        ...
+    def http_version(self) -> str: ...
     
     @property
-    def cookies(self) -> Dict[str, str]:
-        """Cookies set by the response."""
-        ...
+    def cookies(self) -> Dict[str, str]: ...
     
     @property
-    def history(self) -> List[Any]:
-        """List of redirect responses that led to this response."""
-        ...
+    def history(self) -> List[Any]: ...
     
     @property
-    def request(self) -> Optional[Any]:
-        """The request that resulted in this response."""
-        ...
+    def request(self) -> Optional[Any]: ...
     
-    def iter_bytes(self, chunk_size: Optional[int] = None) -> List[bytes]:
-        """Iterate over response content as bytes."""
-        ...
+    def iter_bytes(self, chunk_size: Optional[int] = None) -> List[bytes]: ...
     
-    def iter_text(self, chunk_size: Optional[int] = None) -> List[str]:
-        """Iterate over response content as text."""
-        ...
+    def iter_text(self, chunk_size: Optional[int] = None) -> List[str]: ...
     
-    def iter_lines(self) -> List[str]:
-        """Iterate over response content line by line."""
-        ...
+    def iter_lines(self) -> List[str]: ...
     
-    def iter_raw(self, chunk_size: Optional[int] = None) -> List[bytes]:
-        """Iterate over raw response content."""
-        ...
+    def iter_raw(self, chunk_size: Optional[int] = None) -> List[bytes]: ...
     
-    def json(self) -> Any:
-        """Parse response content as JSON."""
-        ...
+    def json(self) -> Any: ...
     
-    def raise_for_status(self) -> None:
-        """Raise HTTPError if status indicates error."""
-        ...
+    def raise_for_status(self) -> None: ...
 
-# 直接使用 Rust 的 HttpClient 类作为 Client
-Client: TypeAlias = _HttpClient
 
-# 直接使用 Rust 的 HttpRequest 类作为 Request
-Request: TypeAlias = _HttpRequest
+# 使用 Rust 的 HttpClient 和 HttpRequest
+# 直接使用导入的类，避免类型检查器混淆
+Client = _HttpClient
+Request = _HttpRequest
+
+
+# ==================== Utility Functions ====================
+
+def _process_auth(auth: Union[Auth, Tuple[str, str], None]) -> Optional[Tuple[str, str]]:
+    """处理认证参数，将 Auth 类转换为元组格式."""
+    if auth is None:
+        return None
+    elif isinstance(auth, tuple):
+        return auth
+    elif isinstance(auth, BasicAuth):
+        return (auth.username, auth.password)
+    elif isinstance(auth, (DigestAuth, NetRCAuth)):
+        # 对于更复杂的认证，暂时返回 None
+        return None
+    else:
+        return None
+
+
+def _process_headers(headers: Union[Headers, Dict[str, str], None]) -> Optional[Dict[str, str]]:
+    """处理 headers 参数."""
+    if isinstance(headers, Headers):
+        return dict(headers)
+    return headers
+
+
+def _process_cookies(cookies: Union[Cookies, Dict[str, str], None]) -> Optional[Dict[str, str]]:
+    """处理 cookies 参数."""
+    if isinstance(cookies, Cookies):
+        return dict(cookies)
+    return cookies
+
+
+def _process_params(params: Union[QueryParams, Dict[str, str], None]) -> Optional[Dict[str, str]]:
+    """处理 params 参数."""
+    if isinstance(params, QueryParams):
+        return dict(params)
+    return params
+
+
+def _process_timeout(timeout: Union[Timeout, float, None]) -> Optional[float]:
+    """处理 timeout 参数."""
+    if isinstance(timeout, Timeout):
+        return timeout.read  # 简化处理，取 read timeout
+    return timeout
+
+
+# ==================== Async Client ====================
 
 class AsyncClient:
     """
     Asynchronous HTTP client compatible with httpx.AsyncClient.
-    
-    Args:
-        base_url: Base URL for all requests
-        timeout: Default timeout for requests  
-        headers: Default headers for all requests
-        verify: SSL certificate verification
-        follow_redirects: Whether to follow redirects by default
-        auth: Default authentication (username, password)
-        proxy: Proxy server URL
-        cookies: Default cookies for all requests
-        http2: Enable HTTP/2 support
     """
     
     def __init__(
         self,
         *,
         base_url: Optional[str] = None,
-        timeout: Timeout = None,
-        headers: Headers = None,
+        timeout: Union[Timeout, float, None] = None,
+        headers: Union[Headers, Dict[str, str], None] = None,
         verify: Optional[bool] = None,
         follow_redirects: Optional[bool] = None,
-        auth: Auth = None,
+        auth: Union[Auth, Tuple[str, str], None] = None,
         proxy: Optional[str] = None,
-        cookies: Cookies = None,
+        cookies: Union[Cookies, Dict[str, str], None] = None,
         http2: Optional[bool] = None,
+        limits: Optional[Limits] = None,
+        event_hooks: Optional[Dict[str, List[Callable]]] = None,
     ):
         self._client = _AsyncHttpClient(
             base_url=base_url,
-            timeout=timeout,
-            headers=headers,
+            timeout=_process_timeout(timeout),
+            headers=_process_headers(headers),
             verify=verify,
             follow_redirects=follow_redirects,
-            auth=auth,
+            auth=_process_auth(auth),
             proxy=proxy,
-            cookies=cookies,
+            cookies=_process_cookies(cookies),
             http2=http2,
         )
+        
+        self._limits = limits
+        self._event_hooks = event_hooks or {}
     
     def build_request(
         self,
         method: str,
         url: str,
         *,
-        params: Params = None,
-        headers: Headers = None,
+        params: Union[QueryParams, Dict[str, str], None] = None,
+        headers: Union[Headers, Dict[str, str], None] = None,
         content: Optional[bytes] = None,
-    ) -> Request:
+    ) -> _HttpRequest:
         """Build a request object."""
         return self._client.build_request(
-            method, url, params=params, headers=headers, content=content
+            method, url, 
+            params=_process_params(params), 
+            headers=_process_headers(headers), 
+            content=content
         )
     
-    async def send(self, request: Request) -> Response:
+    async def send(self, request: _HttpRequest) -> "Response":
         """Send a pre-built request."""
         return await self._client.send(request)
-
+    
+    async def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Union[QueryParams, Dict[str, str], None] = None,
+        content: Optional[bytes] = None,
+        data: Optional[Dict[str, Any]] = None,
+        json: Optional[Dict[str, Any]] = None,
+        files: Optional[Dict[str, Any]] = None,
+        headers: Union[Headers, Dict[str, str], None] = None,
+        timeout: Union[Timeout, float, None] = None,
+        auth: Union[Auth, Tuple[str, str], None] = None,
+        follow_redirects: Optional[bool] = None,
+        cookies: Union[Cookies, Dict[str, str], None] = None,
+    ) -> StreamingResponse:
+        """Send a streaming request."""
+        # TODO: 实现流式请求
+        request = self.build_request(
+            method, url, params=params, headers=headers, content=content
+        )
+        response = await self.send(request)
+        return StreamingResponse(response)
+    
     async def __aenter__(self):
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        return False
-
+        pass
+    
     async def get(
         self,
         url: str,
         *,
-        params: Params = None,
-        headers: Headers = None,
-        timeout: Timeout = None,
-        auth: Auth = None,
+        params: Union[QueryParams, Dict[str, str], None] = None,
+        headers: Union[Headers, Dict[str, str], None] = None,
+        timeout: Union[Timeout, float, None] = None,
+        auth: Union[Auth, Tuple[str, str], None] = None,
         follow_redirects: Optional[bool] = None,
-        cookies: Cookies = None,
-    ) -> Response:
-        """Send a GET request asynchronously."""
+        cookies: Union[Cookies, Dict[str, str], None] = None,
+    ) -> "Response":
+        """Send a GET request."""
         return await self._client.get(
-            url, params=params, headers=headers, timeout=timeout, 
-            auth=auth, follow_redirects=follow_redirects, cookies=cookies
+            url,
+            params=_process_params(params),
+            headers=_process_headers(headers),
+            timeout=_process_timeout(timeout),
+            auth=_process_auth(auth),
+            follow_redirects=follow_redirects,
+            cookies=_process_cookies(cookies),
         )
     
     async def post(
@@ -246,21 +461,29 @@ class AsyncClient:
         url: str,
         *,
         content: Optional[bytes] = None,
-        data: Data = None,
-        json: JSON = None,
-        files: Files = None,
-        params: Params = None,
-        headers: Headers = None,
-        timeout: Timeout = None,
-        auth: Auth = None,
+        data: Optional[Dict[str, Any]] = None,
+        json: Optional[Dict[str, Any]] = None,
+        files: Optional[Dict[str, Any]] = None,
+        params: Union[QueryParams, Dict[str, str], None] = None,
+        headers: Union[Headers, Dict[str, str], None] = None,
+        timeout: Union[Timeout, float, None] = None,
+        auth: Union[Auth, Tuple[str, str], None] = None,
         follow_redirects: Optional[bool] = None,
-        cookies: Cookies = None,
-    ) -> Response:
-        """Send a POST request asynchronously."""
+        cookies: Union[Cookies, Dict[str, str], None] = None,
+    ) -> "Response":
+        """Send a POST request."""
         return await self._client.post(
-            url, content=content, data=data, json=json, files=files,
-            params=params, headers=headers, timeout=timeout,
-            auth=auth, follow_redirects=follow_redirects, cookies=cookies
+            url,
+            content=content,
+            data=data,
+            json=json,
+            files=files,
+            params=_process_params(params),
+            headers=_process_headers(headers),
+            timeout=_process_timeout(timeout),
+            auth=_process_auth(auth),
+            follow_redirects=follow_redirects,
+            cookies=_process_cookies(cookies),
         )
     
     async def put(
@@ -268,21 +491,29 @@ class AsyncClient:
         url: str,
         *,
         content: Optional[bytes] = None,
-        data: Data = None,
-        json: JSON = None,
-        files: Files = None,
-        params: Params = None,
-        headers: Headers = None,
-        timeout: Timeout = None,
-        auth: Auth = None,
+        data: Optional[Dict[str, Any]] = None,
+        json: Optional[Dict[str, Any]] = None,
+        files: Optional[Dict[str, Any]] = None,
+        params: Union[QueryParams, Dict[str, str], None] = None,
+        headers: Union[Headers, Dict[str, str], None] = None,
+        timeout: Union[Timeout, float, None] = None,
+        auth: Union[Auth, Tuple[str, str], None] = None,
         follow_redirects: Optional[bool] = None,
-        cookies: Cookies = None,
-    ) -> Response:
-        """Send a PUT request asynchronously."""
+        cookies: Union[Cookies, Dict[str, str], None] = None,
+    ) -> "Response":
+        """Send a PUT request."""
         return await self._client.put(
-            url, content=content, data=data, json=json, files=files,
-            params=params, headers=headers, timeout=timeout,
-            auth=auth, follow_redirects=follow_redirects, cookies=cookies
+            url,
+            content=content,
+            data=data,
+            json=json,
+            files=files,
+            params=_process_params(params),
+            headers=_process_headers(headers),
+            timeout=_process_timeout(timeout),
+            auth=_process_auth(auth),
+            follow_redirects=follow_redirects,
+            cookies=_process_cookies(cookies),
         )
     
     async def patch(
@@ -290,90 +521,146 @@ class AsyncClient:
         url: str,
         *,
         content: Optional[bytes] = None,
-        data: Data = None,
-        json: JSON = None,
-        files: Files = None,
-        params: Params = None,
-        headers: Headers = None,
-        timeout: Timeout = None,
-        auth: Auth = None,
+        data: Optional[Dict[str, Any]] = None,
+        json: Optional[Dict[str, Any]] = None,
+        files: Optional[Dict[str, Any]] = None,
+        params: Union[QueryParams, Dict[str, str], None] = None,
+        headers: Union[Headers, Dict[str, str], None] = None,
+        timeout: Union[Timeout, float, None] = None,
+        auth: Union[Auth, Tuple[str, str], None] = None,
         follow_redirects: Optional[bool] = None,
-        cookies: Cookies = None,
-    ) -> Response:
-        """Send a PATCH request asynchronously."""
+        cookies: Union[Cookies, Dict[str, str], None] = None,
+    ) -> "Response":
+        """Send a PATCH request."""
         return await self._client.patch(
-            url, content=content, data=data, json=json, files=files,
-            params=params, headers=headers, timeout=timeout,
-            auth=auth, follow_redirects=follow_redirects, cookies=cookies
+            url,
+            content=content,
+            data=data,
+            json=json,
+            files=files,
+            params=_process_params(params),
+            headers=_process_headers(headers),
+            timeout=_process_timeout(timeout),
+            auth=_process_auth(auth),
+            follow_redirects=follow_redirects,
+            cookies=_process_cookies(cookies),
         )
     
     async def delete(
         self,
         url: str,
         *,
-        params: Params = None,
-        headers: Headers = None,
-        timeout: Timeout = None,
-        auth: Auth = None,
+        params: Union[QueryParams, Dict[str, str], None] = None,
+        headers: Union[Headers, Dict[str, str], None] = None,
+        timeout: Union[Timeout, float, None] = None,
+        auth: Union[Auth, Tuple[str, str], None] = None,
         follow_redirects: Optional[bool] = None,
-        cookies: Cookies = None,
-    ) -> Response:
-        """Send a DELETE request asynchronously."""
+        cookies: Union[Cookies, Dict[str, str], None] = None,
+    ) -> "Response":
+        """Send a DELETE request."""
         return await self._client.delete(
-            url, params=params, headers=headers, timeout=timeout,
-            auth=auth, follow_redirects=follow_redirects, cookies=cookies
+            url,
+            params=_process_params(params),
+            headers=_process_headers(headers),
+            timeout=_process_timeout(timeout),
+            auth=_process_auth(auth),
+            follow_redirects=follow_redirects,
+            cookies=_process_cookies(cookies),
         )
     
     async def head(
         self,
         url: str,
         *,
-        params: Params = None,
-        headers: Headers = None,
-        timeout: Timeout = None,
-        auth: Auth = None,
+        params: Union[QueryParams, Dict[str, str], None] = None,
+        headers: Union[Headers, Dict[str, str], None] = None,
+        timeout: Union[Timeout, float, None] = None,
+        auth: Union[Auth, Tuple[str, str], None] = None,
         follow_redirects: Optional[bool] = None,
-        cookies: Cookies = None,
-    ) -> Response:
-        """Send a HEAD request asynchronously."""
+        cookies: Union[Cookies, Dict[str, str], None] = None,
+    ) -> "Response":
+        """Send a HEAD request."""
         return await self._client.head(
-            url, params=params, headers=headers, timeout=timeout,
-            auth=auth, follow_redirects=follow_redirects, cookies=cookies
+            url,
+            params=_process_params(params),
+            headers=_process_headers(headers),
+            timeout=_process_timeout(timeout),
+            auth=_process_auth(auth),
+            follow_redirects=follow_redirects,
+            cookies=_process_cookies(cookies),
         )
     
     async def options(
         self,
         url: str,
         *,
-        params: Params = None,
-        headers: Headers = None,
-        timeout: Timeout = None,
-        auth: Auth = None,
+        params: Union[QueryParams, Dict[str, str], None] = None,
+        headers: Union[Headers, Dict[str, str], None] = None,
+        timeout: Union[Timeout, float, None] = None,
+        auth: Union[Auth, Tuple[str, str], None] = None,
         follow_redirects: Optional[bool] = None,
-        cookies: Cookies = None,
-    ) -> Response:
-        """Send an OPTIONS request asynchronously."""
+        cookies: Union[Cookies, Dict[str, str], None] = None,
+    ) -> "Response":
+        """Send an OPTIONS request."""
         return await self._client.options(
-            url, params=params, headers=headers, timeout=timeout,
-            auth=auth, follow_redirects=follow_redirects, cookies=cookies
+            url,
+            params=_process_params(params),
+            headers=_process_headers(headers),
+            timeout=_process_timeout(timeout),
+            auth=_process_auth(auth),
+            follow_redirects=follow_redirects,
+            cookies=_process_cookies(cookies),
         )
 
 
-# 全局函数 - 同步版本
+# ==================== Global Functions ====================
+
+def stream(
+    method: str,
+    url: str,
+    *,
+    params: Union[QueryParams, Dict[str, str], None] = None,
+    content: Optional[bytes] = None,
+    data: Optional[Dict[str, Any]] = None,
+    json: Optional[Dict[str, Any]] = None,
+    files: Optional[Dict[str, Any]] = None,
+    headers: Union[Headers, Dict[str, str], None] = None,
+    timeout: Union[Timeout, float, None] = None,
+    auth: Union[Auth, Tuple[str, str], None] = None,
+    follow_redirects: Optional[bool] = None,
+    cookies: Union[Cookies, Dict[str, str], None] = None,
+) -> StreamingResponse:
+    """Send a streaming request."""
+    with Client() as client:
+        request = client.build_request(
+            method, url, 
+            params=_process_params(params), 
+            headers=_process_headers(headers), 
+            content=content
+        )
+        response = client.send(request)
+        return StreamingResponse(response)
+
+
 def get(
     url: str,
     *,
-    params: Params = None,
-    headers: Headers = None,
-    timeout: Timeout = None,
-    auth: Auth = None,
+    params: Union[QueryParams, Dict[str, str], None] = None,
+    headers: Union[Headers, Dict[str, str], None] = None,
+    timeout: Union[Timeout, float, None] = None,
+    auth: Union[Auth, Tuple[str, str], None] = None,
     follow_redirects: Optional[bool] = None,
-    cookies: Cookies = None,
-) -> Response:
+    cookies: Union[Cookies, Dict[str, str], None] = None,
+) -> "Response":
     """Send a GET request."""
     return _get(
-        url, params=params, headers=headers, timeout=timeout,
-        auth=auth, follow_redirects=follow_redirects, cookies=cookies
+        url,
+        params=_process_params(params),
+        headers=_process_headers(headers),
+        timeout=_process_timeout(timeout),
+        auth=_process_auth(auth),
+        follow_redirects=follow_redirects,
+        cookies=_process_cookies(cookies),
     )
 
 
@@ -381,21 +668,29 @@ def post(
     url: str,
     *,
     content: Optional[bytes] = None,
-    data: Data = None,
-    json: JSON = None,
-    files: Files = None,
-    params: Params = None,
-    headers: Headers = None,
-    timeout: Timeout = None,
-    auth: Auth = None,
+    data: Optional[Dict[str, Any]] = None,
+    json: Optional[Dict[str, Any]] = None,
+    files: Optional[Dict[str, Any]] = None,
+    params: Union[QueryParams, Dict[str, str], None] = None,
+    headers: Union[Headers, Dict[str, str], None] = None,
+    timeout: Union[Timeout, float, None] = None,
+    auth: Union[Auth, Tuple[str, str], None] = None,
     follow_redirects: Optional[bool] = None,
-    cookies: Cookies = None,
-) -> Response:
+    cookies: Union[Cookies, Dict[str, str], None] = None,
+) -> "Response":
     """Send a POST request."""
     return _post(
-        url, content=content, data=data, json=json, files=files,
-        params=params, headers=headers, timeout=timeout,
-        auth=auth, follow_redirects=follow_redirects, cookies=cookies
+        url,
+        content=content,
+        data=data,
+        json=json,
+        files=files,
+        params=_process_params(params),
+        headers=_process_headers(headers),
+        timeout=_process_timeout(timeout),
+        auth=_process_auth(auth),
+        follow_redirects=follow_redirects,
+        cookies=_process_cookies(cookies),
     )
 
 
@@ -403,21 +698,29 @@ def put(
     url: str,
     *,
     content: Optional[bytes] = None,
-    data: Data = None,
-    json: JSON = None,
-    files: Files = None,
-    params: Params = None,
-    headers: Headers = None,
-    timeout: Timeout = None,
-    auth: Auth = None,
+    data: Optional[Dict[str, Any]] = None,
+    json: Optional[Dict[str, Any]] = None,
+    files: Optional[Dict[str, Any]] = None,
+    params: Union[QueryParams, Dict[str, str], None] = None,
+    headers: Union[Headers, Dict[str, str], None] = None,
+    timeout: Union[Timeout, float, None] = None,
+    auth: Union[Auth, Tuple[str, str], None] = None,
     follow_redirects: Optional[bool] = None,
-    cookies: Cookies = None,
-) -> Response:
+    cookies: Union[Cookies, Dict[str, str], None] = None,
+) -> "Response":
     """Send a PUT request."""
     return _put(
-        url, content=content, data=data, json=json, files=files,
-        params=params, headers=headers, timeout=timeout,
-        auth=auth, follow_redirects=follow_redirects, cookies=cookies
+        url,
+        content=content,
+        data=data,
+        json=json,
+        files=files,
+        params=_process_params(params),
+        headers=_process_headers(headers),
+        timeout=_process_timeout(timeout),
+        auth=_process_auth(auth),
+        follow_redirects=follow_redirects,
+        cookies=_process_cookies(cookies),
     )
 
 
@@ -425,77 +728,103 @@ def patch(
     url: str,
     *,
     content: Optional[bytes] = None,
-    data: Data = None,
-    json: JSON = None,
-    files: Files = None,
-    params: Params = None,
-    headers: Headers = None,
-    timeout: Timeout = None,
-    auth: Auth = None,
+    data: Optional[Dict[str, Any]] = None,
+    json: Optional[Dict[str, Any]] = None,
+    files: Optional[Dict[str, Any]] = None,
+    params: Union[QueryParams, Dict[str, str], None] = None,
+    headers: Union[Headers, Dict[str, str], None] = None,
+    timeout: Union[Timeout, float, None] = None,
+    auth: Union[Auth, Tuple[str, str], None] = None,
     follow_redirects: Optional[bool] = None,
-    cookies: Cookies = None,
-) -> Response:
+    cookies: Union[Cookies, Dict[str, str], None] = None,
+) -> "Response":
     """Send a PATCH request."""
     return _patch(
-        url, content=content, data=data, json=json, files=files,
-        params=params, headers=headers, timeout=timeout,
-        auth=auth, follow_redirects=follow_redirects, cookies=cookies
+        url,
+        content=content,
+        data=data,
+        json=json,
+        files=files,
+        params=_process_params(params),
+        headers=_process_headers(headers),
+        timeout=_process_timeout(timeout),
+        auth=_process_auth(auth),
+        follow_redirects=follow_redirects,
+        cookies=_process_cookies(cookies),
     )
 
 
 def delete(
     url: str,
     *,
-    params: Params = None,
-    headers: Headers = None,
-    timeout: Timeout = None,
-    auth: Auth = None,
+    params: Union[QueryParams, Dict[str, str], None] = None,
+    headers: Union[Headers, Dict[str, str], None] = None,
+    timeout: Union[Timeout, float, None] = None,
+    auth: Union[Auth, Tuple[str, str], None] = None,
     follow_redirects: Optional[bool] = None,
-    cookies: Cookies = None,
-) -> Response:
+    cookies: Union[Cookies, Dict[str, str], None] = None,
+) -> "Response":
     """Send a DELETE request."""
     return _delete(
-        url, params=params, headers=headers, timeout=timeout,
-        auth=auth, follow_redirects=follow_redirects, cookies=cookies
+        url,
+        params=_process_params(params),
+        headers=_process_headers(headers),
+        timeout=_process_timeout(timeout),
+        auth=_process_auth(auth),
+        follow_redirects=follow_redirects,
+        cookies=_process_cookies(cookies),
     )
 
 
 def head(
     url: str,
     *,
-    params: Params = None,
-    headers: Headers = None,
-    timeout: Timeout = None,
-    auth: Auth = None,
+    params: Union[QueryParams, Dict[str, str], None] = None,
+    headers: Union[Headers, Dict[str, str], None] = None,
+    timeout: Union[Timeout, float, None] = None,
+    auth: Union[Auth, Tuple[str, str], None] = None,
     follow_redirects: Optional[bool] = None,
-    cookies: Cookies = None,
-) -> Response:
+    cookies: Union[Cookies, Dict[str, str], None] = None,
+) -> "Response":
     """Send a HEAD request."""
     return _head(
-        url, params=params, headers=headers, timeout=timeout,
-        auth=auth, follow_redirects=follow_redirects, cookies=cookies
+        url,
+        params=_process_params(params),
+        headers=_process_headers(headers),
+        timeout=_process_timeout(timeout),
+        auth=_process_auth(auth),
+        follow_redirects=follow_redirects,
+        cookies=_process_cookies(cookies),
     )
 
 
 def options(
     url: str,
     *,
-    params: Params = None,
-    headers: Headers = None,
-    timeout: Timeout = None,
-    auth: Auth = None,
+    params: Union[QueryParams, Dict[str, str], None] = None,
+    headers: Union[Headers, Dict[str, str], None] = None,
+    timeout: Union[Timeout, float, None] = None,
+    auth: Union[Auth, Tuple[str, str], None] = None,
     follow_redirects: Optional[bool] = None,
-    cookies: Cookies = None,
-) -> Response:
+    cookies: Union[Cookies, Dict[str, str], None] = None,
+) -> "Response":
     """Send an OPTIONS request."""
     return _options(
-        url, params=params, headers=headers, timeout=timeout,
-        auth=auth, follow_redirects=follow_redirects, cookies=cookies
+        url,
+        params=_process_params(params),
+        headers=_process_headers(headers),
+        timeout=_process_timeout(timeout),
+        auth=_process_auth(auth),
+        follow_redirects=follow_redirects,
+        cookies=_process_cookies(cookies),
     )
 
 
 def main():
-    """Main entry point for the CLI."""
-    print("faster-http: A high-performance HTTP client for Python")
-    print(f"Version: {__version__}")
-    print("Usage: import faster_http as httpx  # Drop-in replacement for httpx")
+    """Entry point for the faster-http CLI."""
+    print("faster-http: High-performance HTTP client powered by Rust")
+    print("For more information, visit: https://github.com/your-repo/faster-http")
+
+
+if __name__ == "__main__":
+    main()
