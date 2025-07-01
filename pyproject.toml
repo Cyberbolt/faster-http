@@ -50,4 +50,6 @@ dev = [
     "requests>=2.31.0",
     "pytest-benchmark>=4.0.0",
     "maturin>=1.9.0",
+    "fastapi>=0.115.14",
+    "uvicorn>=0.35.0",
 ]

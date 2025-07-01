@@ -6,7 +6,6 @@
 
 import asyncio
 import tempfile
-import os
 import io
 from pathlib import Path
 import faster_http

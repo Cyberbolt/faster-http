@@ -4,11 +4,8 @@ faster-http: A high-performance HTTP client for Python, powered by Rust's reqwes
 This library provides a drop-in replacement for httpx with significantly better performance
 by leveraging Rust's reqwest library through PyO3 bindings.
 """
-import uuid
-
 from typing import Any, Dict, List, Optional, Tuple, Union, Callable, Mapping, Protocol
 import base64
-import codecs
 import os
 import io
 import mimetypes
