@@ -929,23 +929,147 @@ fn parse_cookies_from_headers(headers: &HashMap<String, String>) -> HashMap<Stri
 
 // 辅助函数：构建 multipart form
 fn build_multipart_form(files_data: HashMap<String, PyObject>) -> PyResult<reqwest::multipart::Form> {
-    let mut form = reqwest::multipart::Form::new();
-    
     Python::with_gil(|py| {
-        for (field_name, file_data) in files_data {
-            if let Ok(bytes) = file_data.extract::<Vec<u8>>(py) {
-                // 简单的字节数据上传
-                let part = reqwest::multipart::Part::bytes(bytes)
-                    .file_name("upload");
+        let mut form = reqwest::multipart::Form::new();
+        
+        for (field_name, file_obj) in files_data {
+            // 处理不同的文件输入格式
+            if let Ok(bytes_data) = file_obj.extract::<Vec<u8>>(py) {
+                // 字节数据
+                let part = reqwest::multipart::Part::bytes(bytes_data)
+                    .file_name(format!("{}.bin", field_name))
+                    .mime_str("application/octet-stream")
+                    .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
                 form = form.part(field_name, part);
-            } else if let Ok(text) = file_data.extract::<String>(py) {
-                // 文本数据上传
-                let part = reqwest::multipart::Part::text(text);
+            } else if let Ok(string_data) = file_obj.extract::<String>(py) {
+                // 字符串数据
+                let part = reqwest::multipart::Part::text(string_data)
+                    .file_name(format!("{}.txt", field_name))
+                    .mime_str("text/plain")
+                    .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
                 form = form.part(field_name, part);
+            } else if let Ok(tuple_data) = file_obj.extract::<(Option<String>, PyObject)>(py) {
+                // (filename, content) 格式
+                let (filename, content_obj) = tuple_data;
+                
+                if let Ok(bytes_content) = content_obj.extract::<Vec<u8>>(py) {
+                    let mut part = reqwest::multipart::Part::bytes(bytes_content);
+                    
+                    if let Some(fname) = filename {
+                        part = part.file_name(fname.clone());
+                        
+                        // 根据文件扩展名推测MIME类型
+                        if let Some(mime_type) = guess_mime_type(&fname) {
+                            part = part.mime_str(&mime_type)
+                                .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
+                        }
+                    }
+                    
+                    form = form.part(field_name, part);
+                } else if let Ok(string_content) = content_obj.extract::<String>(py) {
+                    let mut part = reqwest::multipart::Part::text(string_content);
+                    
+                    if let Some(fname) = filename {
+                        part = part.file_name(fname);
+                    }
+                    
+                    form = form.part(field_name, part);
+                }
+            } else if let Ok(triple_data) = file_obj.extract::<(Option<String>, PyObject, String)>(py) {
+                // (filename, content, content_type) 格式
+                let (filename, content_obj, content_type) = triple_data;
+                
+                if let Ok(bytes_content) = content_obj.extract::<Vec<u8>>(py) {
+                    let mut part = reqwest::multipart::Part::bytes(bytes_content)
+                        .mime_str(&content_type)
+                        .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
+                    
+                    if let Some(fname) = filename {
+                        part = part.file_name(fname);
+                    }
+                    
+                    form = form.part(field_name, part);
+                } else if let Ok(string_content) = content_obj.extract::<String>(py) {
+                    let mut part = reqwest::multipart::Part::text(string_content)
+                        .mime_str(&content_type)
+                        .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
+                    
+                    if let Some(fname) = filename {
+                        part = part.file_name(fname);
+                    }
+                    
+                    form = form.part(field_name, part);
+                }
+            } else {
+                // 尝试调用Python对象的方法获取字节数据
+                // 这可能是一个FileUpload对象或其他类型
+                if let Ok(to_bytes_method) = file_obj.getattr(py, "to_bytes") {
+                    if let Ok(bytes_data) = to_bytes_method.call0(py)?.extract::<Vec<u8>>(py) {
+                        // 尝试获取文件名和内容类型
+                        let filename = file_obj.getattr(py, "filename")
+                            .ok()
+                            .and_then(|f| f.extract::<Option<String>>(py).ok())
+                            .flatten();
+                            
+                        let content_type = file_obj.getattr(py, "get_content_type")
+                            .ok()
+                            .and_then(|method| method.call0(py).ok())
+                            .and_then(|ct| ct.extract::<String>(py).ok());
+                        
+                        let mut part = reqwest::multipart::Part::bytes(bytes_data);
+                        
+                        if let Some(fname) = filename {
+                            part = part.file_name(fname);
+                        }
+                        
+                        if let Some(ct) = content_type {
+                            part = part.mime_str(&ct)
+                                .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
+                        }
+                        
+                        form = form.part(field_name, part);
+                        continue;
+                    }
+                }
+                
+                return Err(RequestError::new_err(format!(
+                    "Unsupported file format for field '{}'. Expected bytes, string, tuple, or FileUpload object.",
+                    field_name
+                )));
             }
         }
+        
         Ok(form)
     })
+}
+
+// 新增：MIME类型推测函数
+fn guess_mime_type(filename: &str) -> Option<String> {
+    let extension = std::path::Path::new(filename)
+        .extension()?
+        .to_str()?
+        .to_lowercase();
+    
+    match extension.as_str() {
+        "txt" => Some("text/plain".to_string()),
+        "html" | "htm" => Some("text/html".to_string()),
+        "css" => Some("text/css".to_string()),
+        "js" => Some("application/javascript".to_string()),
+        "json" => Some("application/json".to_string()),
+        "xml" => Some("application/xml".to_string()),
+        "pdf" => Some("application/pdf".to_string()),
+        "png" => Some("image/png".to_string()),
+        "jpg" | "jpeg" => Some("image/jpeg".to_string()),
+        "gif" => Some("image/gif".to_string()),
+        "svg" => Some("image/svg+xml".to_string()),
+        "mp4" => Some("video/mp4".to_string()),
+        "mp3" => Some("audio/mpeg".to_string()),
+        "zip" => Some("application/zip".to_string()),
+        "csv" => Some("text/csv".to_string()),
+        "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string()),
+        "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string()),
+        _ => Some("application/octet-stream".to_string()),
+    }
 }
 
 // 异步 HTTP 客户端

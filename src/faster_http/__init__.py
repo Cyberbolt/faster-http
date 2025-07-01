@@ -4,9 +4,15 @@ faster-http: A high-performance HTTP client for Python, powered by Rust's reqwes
 This library provides a drop-in replacement for httpx with significantly better performance
 by leveraging Rust's reqwest library through PyO3 bindings.
 """
+import uuid
 
 from typing import Any, Dict, List, Optional, Tuple, Union, Callable, Mapping, Protocol
 import base64
+import codecs
+import os
+import io
+import mimetypes
+from pathlib import Path
 
 from ._core import (
     HttpClient as _HttpClient,
@@ -92,7 +98,6 @@ class NetRCAuth(Auth):
     """Authentication using .netrc file."""
     
     def __init__(self, file: Optional[str] = None):
-        import os
         self.file = file or os.path.expanduser("~/.netrc")
     
     def auth_flow(self, request):
@@ -232,63 +237,276 @@ class Limits:
         self.keepalive_expiry = keepalive_expiry
 
 
+# ==================== File Upload Utilities ====================
+
+class FileUpload:
+    """File upload helper class supporting multiple input formats."""
+    
+    def __init__(self, filename: Optional[str] = None, content: Union[bytes, str, io.IOBase] = None, 
+                 content_type: Optional[str] = None):
+        self.filename = filename
+        self.content = content
+        self.content_type = content_type
+    
+    def to_bytes(self) -> bytes:
+        """Convert content to bytes."""
+        if isinstance(self.content, bytes):
+            return self.content
+        elif isinstance(self.content, str):
+            return self.content.encode('utf-8')
+        elif hasattr(self.content, 'read'):
+            # File-like object
+            try:
+                # Try to seek to beginning if possible
+                if hasattr(self.content, 'seek'):
+                    try:
+                        self.content.seek(0)
+                    except (OSError, io.UnsupportedOperation):
+                        pass
+                
+                content_data = self.content.read()
+                
+                # Handle both text and binary file objects
+                if isinstance(content_data, str):
+                    return content_data.encode('utf-8')
+                elif isinstance(content_data, bytes):
+                    return content_data
+                else:
+                    # Convert any other type to string first
+                    return str(content_data).encode('utf-8')
+                    
+            except Exception as e:
+                raise ValueError(f"Failed to read content from file-like object: {e}")
+        else:
+            # Convert any other type to string and then to bytes
+            return str(self.content).encode('utf-8')
+    
+    def get_content_type(self) -> str:
+        """Get content type, auto-detecting if not specified."""
+        if self.content_type:
+            return self.content_type
+        
+        if self.filename:
+            guessed_type, _ = mimetypes.guess_type(self.filename)
+            if guessed_type:
+                return guessed_type
+        
+        return 'application/octet-stream'
+
+
+def process_files_parameter(files: Optional[Dict[str, Any]]) -> Optional[Dict[str, FileUpload]]:
+    """
+    Process files parameter to handle various httpx-compatible formats:
+    
+    - files = {'upload-file': open('report.xls', 'rb')}
+    - files = {'upload-file': b'file content'}
+    - files = {'upload-file': 'text content'}
+    - files = {'upload-file': ('filename.txt', open('file.txt', 'rb'))}
+    - files = {'upload-file': ('filename.txt', b'content', 'text/plain')}
+    - files = {'upload-file': (None, 'text content', 'text/plain')}
+    - files = {'upload-file': '/path/to/file.txt'}
+    """
+    if not files:
+        return None
+    
+    processed_files = {}
+    
+    for field_name, file_spec in files.items():
+        if isinstance(file_spec, bytes):
+            # Raw bytes content
+            processed_files[field_name] = FileUpload(
+                filename=None,
+                content=file_spec,
+                content_type=None
+            )
+        
+        elif isinstance(file_spec, (str, Path)):
+            # String can be either file path or content
+            if isinstance(file_spec, Path) or (isinstance(file_spec, str) and len(file_spec) < 260):
+                # Try as file path first
+                try:
+                    file_path = Path(file_spec)
+                    if file_path.exists() and file_path.is_file():
+                        with open(file_path, 'rb') as f:
+                            content = f.read()
+                        
+                        processed_files[field_name] = FileUpload(
+                            filename=file_path.name,
+                            content=content,
+                            content_type=None  # Will be auto-detected
+                        )
+                        continue
+                except (OSError, PermissionError):
+                    pass
+            
+            # Treat as string content
+            processed_files[field_name] = FileUpload(
+                filename=None,
+                content=file_spec,
+                content_type=None
+            )
+        
+        elif hasattr(file_spec, 'read'):
+            # File-like object (including BytesIO, StringIO, file objects)
+            filename = getattr(file_spec, 'name', None)
+            if filename and hasattr(filename, 'split'):
+                filename = os.path.basename(filename)
+            
+            # Try to seek to beginning if possible
+            if hasattr(file_spec, 'seek'):
+                try:
+                    file_spec.seek(0)
+                except (OSError, io.UnsupportedOperation):
+                    pass
+            
+            processed_files[field_name] = FileUpload(
+                filename=filename,
+                content=file_spec,
+                content_type=None
+            )
+        
+        elif isinstance(file_spec, (tuple, list)) and len(file_spec) >= 2:
+            # Tuple format: (filename, content) or (filename, content, content_type)
+            filename = file_spec[0]
+            content = file_spec[1]
+            content_type = file_spec[2] if len(file_spec) > 2 else None
+            
+            # Handle file path in content
+            if isinstance(content, (str, Path)) and len(str(content)) < 260:  # Likely a file path
+                try:
+                    content_path = Path(content)
+                    if content_path.exists():
+                        with open(content_path, 'rb') as f:
+                            content = f.read()
+                        if not filename:
+                            filename = content_path.name
+                except (OSError, PermissionError):
+                    # If it fails, treat as content string
+                    pass
+            
+            processed_files[field_name] = FileUpload(
+                filename=filename,
+                content=content,
+                content_type=content_type
+            )
+        
+        else:
+            raise ValueError(f"Unsupported file specification for '{field_name}': {type(file_spec)}")
+    
+    return processed_files
+
+
+def create_form_data_payload(
+    data: Optional[Dict[str, Any]] = None,
+    files: Optional[Dict[str, FileUpload]] = None
+) -> Tuple[bytes, str]:
+    """
+    Create multipart/form-data payload.
+    Returns (payload_bytes, content_type_with_boundary)
+    """
+    boundary = uuid.uuid4().hex
+    content_type = f'multipart/form-data; boundary={boundary}'
+    
+    parts = []
+    
+    # Add regular form fields
+    if data:
+        for name, value in data.items():
+            part = f'--{boundary}\r\n'
+            part += f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+            part += str(value) + '\r\n'
+            parts.append(part.encode('utf-8'))
+    
+    # Add file fields
+    if files:
+        for field_name, file_upload in files.items():
+            part = f'--{boundary}\r\n'
+            
+            if file_upload.filename:
+                part += f'Content-Disposition: form-data; name="{field_name}"; filename="{file_upload.filename}"\r\n'
+            else:
+                part += f'Content-Disposition: form-data; name="{field_name}"\r\n'
+            
+            content_type_header = file_upload.get_content_type()
+            part += f'Content-Type: {content_type_header}\r\n\r\n'
+            
+            parts.append(part.encode('utf-8'))
+            parts.append(file_upload.to_bytes())
+            parts.append(b'\r\n')
+    
+    # Add final boundary
+    parts.append(f'--{boundary}--\r\n'.encode('utf-8'))
+    
+    payload = b''.join(parts)
+    return payload, content_type
+
+
+def prepare_request_data(
+    content: Optional[bytes] = None,
+    data: Optional[Dict[str, Any]] = None,
+    json: Optional[Dict[str, Any]] = None,
+    files: Optional[Dict[str, Any]] = None
+) -> Tuple[Optional[bytes], Optional[str]]:
+    """
+    Prepare request data with proper content type.
+    Returns (body_bytes, content_type)
+    
+    Priority: content > files > json > data
+    """
+    # Priority 1: Raw content
+    if content is not None:
+        return content, None
+    
+    # Priority 2: Files (multipart/form-data)  
+    if files is not None:
+        processed_files = process_files_parameter(files)
+        if processed_files or data:
+            body, content_type = create_form_data_payload(data, processed_files)
+            return body, content_type
+        elif processed_files:
+            # 只有文件，没有其他数据
+            body, content_type = create_form_data_payload(None, processed_files)
+            return body, content_type
+    
+    # Priority 3: JSON
+    if json is not None:
+        import json as json_module
+        json_str = json_module.dumps(json)
+        return json_str.encode('utf-8'), 'application/json'
+    
+    # Priority 4: Form data
+    if data is not None:
+        from urllib.parse import urlencode
+        form_str = urlencode(data)
+        return form_str.encode('utf-8'), 'application/x-www-form-urlencoded'
+    
+    return None, None
+
+
 # ==================== Response and Request Classes ====================
 
 class StreamingResponse:
-    """Streaming response context manager with enhanced functionality."""
+    """Enhanced streaming response with full httpx compatibility."""
     
-    def __init__(self, response):
+    def __init__(self, response, request=None):
         self._response = response
+        self._request = request
         self._consumed = False
-    
+        self._stream_consumed = False
+        
     def __enter__(self):
-        return self._response
+        return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        pass
+        self.close()
     
     async def __aenter__(self):
-        return self._response
+        return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        pass
+        await self.aclose()
     
-    def iter_bytes(self, chunk_size: Optional[int] = None):
-        """迭代响应的字节内容。"""
-        if self._consumed:
-            raise RuntimeError("Response stream has been consumed")
-        return self._response.iter_bytes(chunk_size)
-    
-    def iter_text(self, chunk_size: Optional[int] = None):
-        """迭代响应的文本内容。"""
-        if self._consumed:
-            raise RuntimeError("Response stream has been consumed")
-        return self._response.iter_text(chunk_size)
-    
-    def iter_lines(self):
-        """迭代响应的行内容。"""
-        if self._consumed:
-            raise RuntimeError("Response stream has been consumed")
-        return self._response.iter_lines()
-    
-    def iter_sse_events(self):
-        """迭代 Server-Sent Events (SSE) 事件。"""
-        if self._consumed:
-            raise RuntimeError("Response stream has been consumed")
-        
-        # 如果响应对象有 iter_sse_lines 方法，使用它
-        if hasattr(self._response, 'iter_sse_lines'):
-            return self._response.iter_sse_lines()
-        
-        # 否则手动解析 SSE 事件
-        events = []
-        for line in self._response.iter_lines():
-            if line.startswith('data:'):
-                events.append(line)
-            elif line.startswith(('event:', 'id:', 'retry:')):
-                events.append(line)
-        return events
-    
+    # ========== 基础属性 ==========
     @property
     def status_code(self):
         return self._response.status_code
@@ -300,10 +518,322 @@ class StreamingResponse:
     @property
     def url(self):
         return self._response.url
+        
+    @property
+    def ok(self):
+        return self._response.ok
+        
+    @property
+    def http_version(self):
+        return self._response.http_version
+        
+    @property
+    def is_redirect(self):
+        return self._response.is_redirect
+        
+    @property
+    def is_client_error(self):
+        return self._response.is_client_error
+        
+    @property
+    def is_server_error(self):
+        return self._response.is_server_error
     
+    @property
+    def request(self):
+        return self._request
+    
+    @property
+    def num_bytes_downloaded(self) -> int:
+        """已下载的字节数 (httpx 兼容)"""
+        if hasattr(self._response, 'num_bytes_downloaded'):
+            return self._response.num_bytes_downloaded
+        return len(self._response.content) if not self._stream_consumed else 0
+    
+    # ========== 内容访问 ==========
+    @property
+    def content(self) -> bytes:
+        """获取响应内容（一次性读取）"""
+        if self._stream_consumed:
+            raise RuntimeError("Response stream has been consumed")
+        return self._response.content
+    
+    @property
+    def text(self) -> str:
+        """获取响应文本（一次性读取）"""
+        if self._stream_consumed:
+            raise RuntimeError("Response stream has been consumed")
+        return self._response.text
+    
+    def json(self):
+        """解析 JSON 响应"""
+        if self._stream_consumed:
+            raise RuntimeError("Response stream has been consumed")
+        return self._response.json()
+    
+    def read(self) -> bytes:
+        """读取完整响应内容（httpx 兼容）"""
+        if self._stream_consumed:
+            raise RuntimeError("Response stream has been consumed")
+        self._stream_consumed = True
+        return self._response.content
+    
+    # ========== 同步流式迭代 ==========
+    def iter_bytes(self, chunk_size: int = 8192):
+        """迭代响应的字节内容"""
+        if self._stream_consumed or self._consumed:
+            raise RuntimeError("Response stream has been consumed")
+        
+        # 标记为已消费
+        self._stream_consumed = True
+        
+        # 如果响应对象支持真正的流式处理
+        if hasattr(self._response, 'stream_bytes'):
+            return self._response.stream_bytes(chunk_size)
+        else:
+            # 模拟分块读取
+            content = self._response.content
+            chunks = []
+            for i in range(0, len(content), chunk_size):
+                chunks.append(content[i:i + chunk_size])
+            return chunks
+    
+    def iter_text(self, chunk_size: int = 8192, decode_unicode: bool = True):
+        """迭代响应的文本内容"""
+        if self._stream_consumed or self._consumed:
+            raise RuntimeError("Response stream has been consumed")
+        
+        # 标记为已消费
+        self._stream_consumed = True
+            
+        # 如果响应对象支持真正的流式文本处理
+        if hasattr(self._response, 'stream_text'):
+            return self._response.stream_text(chunk_size, decode_unicode)
+        else:
+            # 基于字节块解码文本
+            decoder = codecs.getincrementaldecoder(self._response.encoding or 'utf-8')()
+            content = self._response.content
+            text_chunks = []
+            for i in range(0, len(content), chunk_size):
+                chunk = content[i:i + chunk_size]
+                text_chunk = decoder.decode(chunk, False)
+                if text_chunk:
+                    text_chunks.append(text_chunk)
+            # 处理剩余字节
+            final_chunk = decoder.decode(b'', True)
+            if final_chunk:
+                text_chunks.append(final_chunk)
+            return text_chunks
+    
+    def iter_lines(self, chunk_size: int = 8192, decode_unicode: bool = True, delimiter: str = '\n'):
+        """迭代响应的行内容"""
+        if self._stream_consumed or self._consumed:
+            raise RuntimeError("Response stream has been consumed")
+        
+        # 标记为已消费
+        self._stream_consumed = True
+            
+        buffer = ""
+        decoder = codecs.getincrementaldecoder(self._response.encoding or 'utf-8')()
+        content = self._response.content
+        lines = []
+        
+        for i in range(0, len(content), chunk_size):
+            chunk = content[i:i + chunk_size]
+            text_chunk = decoder.decode(chunk, False)
+            buffer += text_chunk
+            while delimiter in buffer:
+                line, buffer = buffer.split(delimiter, 1)
+                lines.append(line)
+        
+        # 处理剩余字节和最后一行
+        final_chunk = decoder.decode(b'', True)
+        buffer += final_chunk
+        if buffer:
+            lines.append(buffer)
+        
+        return lines
+    
+    def iter_raw(self, chunk_size: int = 8192):
+        """迭代原始字节内容（与 iter_bytes 相同，httpx 兼容）"""
+        yield from self.iter_bytes(chunk_size)
+    
+    # ========== 异步流式迭代 ==========
+    async def aiter_bytes(self, chunk_size: int = 8192):
+        """异步迭代响应的字节内容"""
+        if self._stream_consumed:
+            raise RuntimeError("Response stream has been consumed")
+        
+        # 如果响应对象支持异步流式处理
+        if hasattr(self._response, 'astream_bytes'):
+            self._stream_consumed = True
+            async for chunk in self._response.astream_bytes(chunk_size):
+                yield chunk
+        else:
+            # 模拟异步分块读取
+            content = self._response.content
+            self._stream_consumed = True
+            for i in range(0, len(content), chunk_size):
+                yield content[i:i + chunk_size]
+    
+    async def aiter_text(self, chunk_size: int = 8192, decode_unicode: bool = True):
+        """异步迭代响应的文本内容"""
+        if self._stream_consumed:
+            raise RuntimeError("Response stream has been consumed")
+            
+        decoder = codecs.getincrementaldecoder(self._response.encoding or 'utf-8')()
+        async for chunk in self.aiter_bytes(chunk_size):
+            text_chunk = decoder.decode(chunk, False)
+            if text_chunk:
+                yield text_chunk
+        # 处理剩余字节
+        final_chunk = decoder.decode(b'', True)
+        if final_chunk:
+            yield final_chunk
+    
+    async def aiter_lines(self, chunk_size: int = 8192, decode_unicode: bool = True, delimiter: str = '\n'):
+        """异步迭代响应的行内容"""
+        if self._stream_consumed:
+            raise RuntimeError("Response stream has been consumed")
+            
+        buffer = ""
+        async for text_chunk in self.aiter_text(chunk_size, decode_unicode):
+            buffer += text_chunk
+            while delimiter in buffer:
+                line, buffer = buffer.split(delimiter, 1)
+                yield line
+        
+        # 返回最后一行（如果有的话）
+        if buffer:
+            yield buffer
+    
+    async def aiter_raw(self, chunk_size: int = 8192):
+        """异步迭代原始字节内容"""
+        async for chunk in self.aiter_bytes(chunk_size):
+            yield chunk
+    
+    # ========== SSE 支持 ==========
+    def iter_sse_events(self):
+        """迭代 Server-Sent Events (SSE) 事件"""
+        if self._stream_consumed:
+            raise RuntimeError("Response stream has been consumed")
+        
+        # 如果响应对象有专门的 SSE 支持
+        if hasattr(self._response, 'iter_sse_events'):
+            self._stream_consumed = True
+            yield from self._response.iter_sse_events()
+        else:
+            # 手动解析 SSE 事件
+            current_event = {}
+            for line in self.iter_lines():
+                line = line.strip()
+                
+                if not line:
+                    # 空行表示事件结束
+                    if current_event:
+                        yield SSEEvent(**current_event)
+                        current_event = {}
+                    continue
+                
+                if line.startswith(':'):
+                    # 注释行，忽略
+                    continue
+                
+                if ':' in line:
+                    field, value = line.split(':', 1)
+                    value = value.lstrip()
+                else:
+                    field, value = line, ''
+                
+                if field == 'data':
+                    if 'data' in current_event:
+                        current_event['data'] += '\n' + value
+                    else:
+                        current_event['data'] = value
+                elif field in ('event', 'id', 'retry'):
+                    current_event[field] = value
+            
+            # 处理最后一个事件
+            if current_event:
+                yield SSEEvent(**current_event)
+    
+    async def aiter_sse_events(self):
+        """异步迭代 Server-Sent Events (SSE) 事件"""
+        if self._stream_consumed:
+            raise RuntimeError("Response stream has been consumed")
+        
+        current_event = {}
+        async for line in self.aiter_lines():
+            line = line.strip()
+            
+            if not line:
+                # 空行表示事件结束
+                if current_event:
+                    yield SSEEvent(**current_event)
+                    current_event = {}
+                continue
+            
+            if line.startswith(':'):
+                # 注释行，忽略
+                continue
+            
+            if ':' in line:
+                field, value = line.split(':', 1)
+                value = value.lstrip()
+            else:
+                field, value = line, ''
+            
+            if field == 'data':
+                if 'data' in current_event:
+                    current_event['data'] += '\n' + value
+                else:
+                    current_event['data'] = value
+            elif field in ('event', 'id', 'retry'):
+                current_event[field] = value
+        
+        # 处理最后一个事件
+        if current_event:
+            yield SSEEvent(**current_event)
+    
+    # ========== 流控制方法 ==========
     def close(self):
-        """关闭流式响应。"""
+        """关闭流式响应"""
         self._consumed = True
+        self._stream_consumed = True
+        if hasattr(self._response, 'close'):
+            self._response.close()
+    
+    async def aclose(self):
+        """异步关闭流式响应"""
+        self._consumed = True
+        self._stream_consumed = True
+        if hasattr(self._response, 'aclose'):
+            await self._response.aclose()
+        elif hasattr(self._response, 'close'):
+            self._response.close()
+    
+    def raise_for_status(self):
+        """检查状态码并抛出异常"""
+        return self._response.raise_for_status()
+
+
+# SSE 事件类
+class SSEEvent:
+    """Server-Sent Event"""
+    
+    def __init__(self, data='', event=None, id=None, retry=None):
+        self.data = data
+        self.event = event
+        self.id = id
+        self.retry = int(retry) if retry else None
+    
+    def __repr__(self):
+        return f"SSEEvent(data={self.data!r}, event={self.event!r}, id={self.id!r})"
+    
+    def json(self):
+        """解析 data 字段为 JSON"""
+        import json
+        return json.loads(self.data)
 
 
 class Response(Protocol):
@@ -385,14 +915,18 @@ def _process_auth(auth: Union[Auth, Tuple[str, str], None]) -> Optional[Tuple[st
     """处理认证参数，将 Auth 类转换为元组格式."""
     if auth is None:
         return None
-    elif isinstance(auth, tuple):
-        return auth
+    elif isinstance(auth, tuple) and len(auth) == 2:
+        # 确保元组格式正确
+        return (str(auth[0]), str(auth[1]))
     elif isinstance(auth, BasicAuth):
         return (auth.username, auth.password)
     elif isinstance(auth, (DigestAuth, NetRCAuth)):
         # 对于更复杂的认证，暂时返回 None
         return None
     else:
+        # 尝试提取用户名和密码属性
+        if hasattr(auth, 'username') and hasattr(auth, 'password'):
+            return (auth.username, auth.password)
         return None
 
 
@@ -550,6 +1084,13 @@ class AsyncClient:
         cookies: Union[Cookies, Dict[str, str], None] = None,
     ) -> "Response":
         """Send a POST request."""
+        # 预处理文件数据
+        processed_files = None
+        if files is not None:
+            processed_files = process_files_parameter(files)
+            if processed_files:
+                files = {field_name: file_upload for field_name, file_upload in processed_files.items()}
+        
         return await self._client.post(
             url,
             content=content,
@@ -580,6 +1121,12 @@ class AsyncClient:
         cookies: Union[Cookies, Dict[str, str], None] = None,
     ) -> "Response":
         """Send a PUT request."""
+        # 预处理文件数据
+        if files is not None:
+            processed_files = process_files_parameter(files)
+            if processed_files:
+                files = {field_name: file_upload for field_name, file_upload in processed_files.items()}
+        
         return await self._client.put(
             url,
             content=content,
@@ -610,6 +1157,12 @@ class AsyncClient:
         cookies: Union[Cookies, Dict[str, str], None] = None,
     ) -> "Response":
         """Send a PATCH request."""
+        # 预处理文件数据
+        if files is not None:
+            processed_files = process_files_parameter(files)
+            if processed_files:
+                files = {field_name: file_upload for field_name, file_upload in processed_files.items()}
+        
         return await self._client.patch(
             url,
             content=content,
@@ -757,6 +1310,14 @@ def post(
     cookies: Union[Cookies, Dict[str, str], None] = None,
 ) -> "Response":
     """Send a POST request."""
+    # 预处理文件数据
+    processed_files = None
+    if files is not None:
+        processed_files = process_files_parameter(files)
+        if processed_files:
+            # 将处理后的文件转换为可传递给Rust的格式
+            files = {field_name: file_upload for field_name, file_upload in processed_files.items()}
+    
     return _post(
         url,
         content=content,
@@ -787,6 +1348,12 @@ def put(
     cookies: Union[Cookies, Dict[str, str], None] = None,
 ) -> "Response":
     """Send a PUT request."""
+    # 预处理文件数据
+    if files is not None:
+        processed_files = process_files_parameter(files)
+        if processed_files:
+            files = {field_name: file_upload for field_name, file_upload in processed_files.items()}
+    
     return _put(
         url,
         content=content,
@@ -817,6 +1384,12 @@ def patch(
     cookies: Union[Cookies, Dict[str, str], None] = None,
 ) -> "Response":
     """Send a PATCH request."""
+    # 预处理文件数据
+    if files is not None:
+        processed_files = process_files_parameter(files)
+        if processed_files:
+            files = {field_name: file_upload for field_name, file_upload in processed_files.items()}
+    
     return _patch(
         url,
         content=content,
