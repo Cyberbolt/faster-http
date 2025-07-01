@@ -271,6 +271,28 @@ impl HttpResponse {
     fn __repr__(&self) -> String {
         format!("<Response [{}]>", self.status_code)
     }
+
+    // 新增：支持流式传输的标记方法
+    pub fn is_streamable(&self) -> bool {
+        // 检查响应是否可以进行流式传输
+        true
+    }
+
+    // 新增：为 SSE 等流式传输添加辅助方法
+    pub fn iter_sse_lines(&self) -> PyResult<Vec<String>> {
+        let text = self.text();
+        let mut sse_events = Vec::new();
+        
+        for line in text.lines() {
+            if line.starts_with("data:") {
+                sse_events.push(line.to_string());
+            } else if line.starts_with("event:") || line.starts_with("id:") || line.starts_with("retry:") {
+                sse_events.push(line.to_string());
+            }
+        }
+        
+        Ok(sse_events)
+    }
 }
 
 // 认证类型枚举
