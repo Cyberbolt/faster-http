@@ -1,11 +1,11 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyAnyMethods};
-use pyo3::{exceptions::PyException, PyErr, PyResult};
+use pyo3::{exceptions::PyException, PyResult};
+use pyo3_asyncio::tokio::future_into_py;
 use reqwest::{Client, Method, Url};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 use bytes::Bytes;
 
 // 创建自定义异常类型
@@ -14,52 +14,84 @@ pyo3::create_exception!(faster_http, ConnectTimeout, HTTPError);
 pyo3::create_exception!(faster_http, ReadTimeout, HTTPError);
 pyo3::create_exception!(faster_http, RequestError, HTTPError);
 
+// 全局运行时，用于同步客户端
+static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+
+fn get_runtime() -> &'static tokio::runtime::Runtime {
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Runtime::new().expect("Failed to create tokio runtime")
+    })
+}
+
 // 响应对象
 #[pyclass]
 pub struct HttpResponse {
-    #[pyo3(get)]
     status_code: u16,
-    #[pyo3(get)]
     headers: HashMap<String, String>,
-    #[pyo3(get)]
+    body: Bytes,
     url: String,
-    content: Bytes,
-    #[pyo3(get)]
-    encoding: Option<String>,
-    #[pyo3(get)]
     elapsed: f64,
 }
 
 #[pymethods]
 impl HttpResponse {
     #[getter]
-    fn content(&self) -> &[u8] {
-        &self.content
+    pub fn status_code(&self) -> u16 {
+        self.status_code
     }
 
     #[getter]
-    fn text(&self) -> PyResult<String> {
-        match std::str::from_utf8(&self.content) {
-            Ok(text) => Ok(text.to_string()),
-            Err(_) => {
-                // 尝试使用指定的编码或默认使用 UTF-8
-                Ok(String::from_utf8_lossy(&self.content).into_owned())
-            }
-        }
+    pub fn headers(&self) -> HashMap<String, String> {
+        self.headers.clone()
     }
 
-    fn json(&self, py: Python) -> PyResult<PyObject> {
+    #[getter]
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    #[getter]
+    pub fn ok(&self) -> bool {
+        self.status_code < 400
+    }
+
+    #[getter]
+    pub fn content(&self) -> &[u8] {
+        &self.body
+    }
+
+    #[getter]
+    pub fn text(&self) -> PyResult<String> {
+        String::from_utf8(self.body.to_vec())
+            .map_err(|e| RequestError::new_err(format!("Invalid UTF-8: {}", e)))
+    }
+
+    #[getter]
+    pub fn elapsed(&self) -> f64 {
+        self.elapsed
+    }
+
+    #[getter]
+    pub fn is_client_error(&self) -> bool {
+        self.status_code >= 400 && self.status_code < 500
+    }
+
+    #[getter]
+    pub fn is_server_error(&self) -> bool {
+        self.status_code >= 500
+    }
+
+    pub fn json(&self, py: Python) -> PyResult<PyObject> {
         let text = self.text()?;
         let value: Value = serde_json::from_str(&text)
-            .map_err(|e| PyErr::new::<PyException, _>(format!("JSON decode error: {}", e)))?;
-        
-        // 手动转换 serde_json::Value 到 Python 对象
-        json_value_to_python(py, &value)
+            .map_err(|e| RequestError::new_err(format!("JSON decode error: {}", e)))?;
+        pythonize::pythonize(py, &value)
+            .map_err(|e| RequestError::new_err(format!("Python conversion error: {}", e)))
     }
 
-    fn raise_for_status(&self) -> PyResult<()> {
+    pub fn raise_for_status(&self) -> PyResult<()> {
         if self.status_code >= 400 {
-            return Err(PyErr::new::<HTTPError, _>(format!(
+            return Err(HTTPError::new_err(format!(
                 "HTTP {} Error: {} for url: {}",
                 self.status_code,
                 self.status_code,
@@ -69,216 +101,41 @@ impl HttpResponse {
         Ok(())
     }
 
-    #[getter]
-    fn ok(&self) -> bool {
-        self.status_code < 400
-    }
-
-    #[getter]
-    fn is_redirect(&self) -> bool {
-        matches!(self.status_code, 301 | 302 | 303 | 307 | 308)
-    }
-
-    #[getter]
-    fn is_client_error(&self) -> bool {
-        (400..500).contains(&self.status_code)
-    }
-
-    #[getter]
-    fn is_server_error(&self) -> bool {
-        (500..600).contains(&self.status_code)
-    }
-
-    fn __repr__(&self) -> String {
+    pub fn __repr__(&self) -> String {
         format!("<Response [{}]>", self.status_code)
     }
 }
 
-// 辅助函数：将 serde_json::Value 转换为 Python 对象
-fn json_value_to_python(py: Python, value: &Value) -> PyResult<PyObject> {
-    match value {
-        Value::Null => Ok(py.None()),
-        Value::Bool(b) => Ok(b.into_py(py)),
-        Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Ok(i.into_py(py))
-            } else if let Some(u) = n.as_u64() {
-                Ok(u.into_py(py))
-            } else if let Some(f) = n.as_f64() {
-                Ok(f.into_py(py))
-            } else {
-                Ok(py.None())
-            }
-        },
-        Value::String(s) => Ok(s.into_py(py)),
-        Value::Array(arr) => {
-            let py_list = pyo3::types::PyList::empty_bound(py);
-            for item in arr {
-                py_list.append(json_value_to_python(py, item)?)?;
-            }
-            Ok(py_list.into())
-        },
-        Value::Object(obj) => {
-            let py_dict = pyo3::types::PyDict::new_bound(py);
-            for (key, value) in obj {
-                py_dict.set_item(key, json_value_to_python(py, value)?)?;
-            }
-            Ok(py_dict.into())
-        }
-    }
-}
-
-// 同步客户端
+// 同步HTTP客户端 - 使用全局runtime
 #[pyclass]
 pub struct HttpClient {
-    client: Arc<Client>,
+    client: Client,
     base_url: Option<String>,
-    timeout: Option<Duration>,
-    headers: HashMap<String, String>,
-}
-
-impl Default for HttpClient {
-    fn default() -> Self {
-        Self::new(None, None, None, None)
-    }
+    default_timeout: Option<Duration>,
+    default_headers: HashMap<String, String>,
 }
 
 #[pymethods]
 impl HttpClient {
     #[new]
-    #[pyo3(signature = (base_url=None, timeout=None, headers=None, verify=None))]
-    fn new(
+    pub fn new(
         base_url: Option<String>,
         timeout: Option<f64>,
         headers: Option<HashMap<String, String>>,
         verify: Option<bool>,
-    ) -> Self {
-        let mut client_builder = Client::builder()
-            .user_agent("faster-http/0.1.0");
+    ) -> PyResult<Self> {
+        let verify = verify.unwrap_or(true);
+        let client = Client::builder()
+            .danger_accept_invalid_certs(!verify)
+            .build()
+            .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))?;
 
-        if let Some(timeout_secs) = timeout {
-            client_builder = client_builder.timeout(Duration::from_secs_f64(timeout_secs));
-        }
-
-        if let Some(verify_ssl) = verify {
-            client_builder = client_builder.danger_accept_invalid_certs(!verify_ssl);
-        }
-
-        let client = client_builder.build().unwrap();
-
-        Self {
-            client: Arc::new(client),
+        Ok(HttpClient {
+            client,
             base_url,
-            timeout: timeout.map(Duration::from_secs_f64),
-            headers: headers.unwrap_or_default(),
-        }
-    }
-
-    #[pyo3(signature = (url, params=None, headers=None, timeout=None))]
-    fn get(
-        &self,
-        url: &str,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-    ) -> PyResult<HttpResponse> {
-        self.request("GET", url, None, None, params, headers, timeout)
-    }
-
-    #[pyo3(signature = (url, data=None, json=None, params=None, headers=None, timeout=None))]
-    fn post(
-        &self,
-        py: Python,
-        url: &str,
-        data: Option<Bound<PyDict>>,
-        json: Option<Bound<PyDict>>,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-    ) -> PyResult<HttpResponse> {
-        let (body, content_type) = if let Some(json_data) = json {
-            (Some(self.dict_to_json_bytes(py, &json_data)?), Some("application/json"))
-        } else if let Some(form_data) = data {
-            (Some(self.dict_to_form_bytes(py, &form_data)?), Some("application/x-www-form-urlencoded"))
-        } else {
-            (None, None)
-        };
-        self.request("POST", url, body, content_type, params, headers, timeout)
-    }
-
-    #[pyo3(signature = (url, data=None, json=None, params=None, headers=None, timeout=None))]
-    fn put(
-        &self,
-        py: Python,
-        url: &str,
-        data: Option<Bound<PyDict>>,
-        json: Option<Bound<PyDict>>,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-    ) -> PyResult<HttpResponse> {
-        let (body, content_type) = if let Some(json_data) = json {
-            (Some(self.dict_to_json_bytes(py, &json_data)?), Some("application/json"))
-        } else if let Some(form_data) = data {
-            (Some(self.dict_to_form_bytes(py, &form_data)?), Some("application/x-www-form-urlencoded"))
-        } else {
-            (None, None)
-        };
-        self.request("PUT", url, body, content_type, params, headers, timeout)
-    }
-
-    #[pyo3(signature = (url, data=None, json=None, params=None, headers=None, timeout=None))]
-    fn patch(
-        &self,
-        py: Python,
-        url: &str,
-        data: Option<Bound<PyDict>>,
-        json: Option<Bound<PyDict>>,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-    ) -> PyResult<HttpResponse> {
-        let (body, content_type) = if let Some(json_data) = json {
-            (Some(self.dict_to_json_bytes(py, &json_data)?), Some("application/json"))
-        } else if let Some(form_data) = data {
-            (Some(self.dict_to_form_bytes(py, &form_data)?), Some("application/x-www-form-urlencoded"))
-        } else {
-            (None, None)
-        };
-        self.request("PATCH", url, body, content_type, params, headers, timeout)
-    }
-
-    #[pyo3(signature = (url, params=None, headers=None, timeout=None))]
-    fn delete(
-        &self,
-        url: &str,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-    ) -> PyResult<HttpResponse> {
-        self.request("DELETE", url, None, None, params, headers, timeout)
-    }
-
-    #[pyo3(signature = (url, params=None, headers=None, timeout=None))]
-    fn head(
-        &self,
-        url: &str,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-    ) -> PyResult<HttpResponse> {
-        self.request("HEAD", url, None, None, params, headers, timeout)
-    }
-
-    #[pyo3(signature = (url, params=None, headers=None, timeout=None))]
-    fn options(
-        &self,
-        url: &str,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-    ) -> PyResult<HttpResponse> {
-        self.request("OPTIONS", url, None, None, params, headers, timeout)
+            default_timeout: timeout.map(Duration::from_secs_f64),
+            default_headers: headers.unwrap_or_default(),
+        })
     }
 
     fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -293,360 +150,791 @@ impl HttpClient {
     ) -> PyResult<bool> {
         Ok(false)
     }
-}
 
-impl HttpClient {
-    fn dict_to_json_bytes(&self, py: Python, dict: &Bound<PyDict>) -> PyResult<Bytes> {
-        // 手动转换 PyDict 到 serde_json::Value
-        let value = python_dict_to_json_value(py, dict)?;
-        let json_str = serde_json::to_string(&value)
-            .map_err(|e| PyErr::new::<PyException, _>(format!("JSON encode error: {}", e)))?;
-        Ok(Bytes::from(json_str))
-    }
-
-    fn dict_to_form_bytes(&self, _py: Python, dict: &Bound<PyDict>) -> PyResult<Bytes> {
-        let mut form_data = Vec::new();
-        for (key, value) in dict.iter() {
-            let key_str: String = key.extract()?;
-            let value_str: String = value.extract()?;
-            if !form_data.is_empty() {
-                form_data.push(b'&');
-            }
-            form_data.extend_from_slice(
-                urlencoding::encode(&key_str).as_bytes()
-            );
-            form_data.push(b'=');
-            form_data.extend_from_slice(
-                urlencoding::encode(&value_str).as_bytes()
-            );
-        }
-        Ok(Bytes::from(form_data))
-    }
-
-    fn build_url(&self, url: &str, params: Option<HashMap<String, String>>) -> PyResult<Url> {
-        let full_url = if let Some(base) = &self.base_url {
-            if url.starts_with("http://") || url.starts_with("https://") {
-                url.to_string()
-            } else {
-                format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'))
-            }
-        } else {
-            url.to_string()
-        };
-
-        let mut parsed_url = Url::parse(&full_url)
-            .map_err(|e| PyErr::new::<PyException, _>(format!("Invalid URL: {}", e)))?;
-
-        if let Some(params) = params {
-            let mut query_pairs = parsed_url.query_pairs_mut();
-            for (key, value) in params {
-                query_pairs.append_pair(&key, &value);
-            }
-        }
-
-        Ok(parsed_url)
-    }
-
-    fn request(
+    fn _request(
         &self,
         method: &str,
         url: &str,
-        body: Option<Bytes>,
-        content_type: Option<&str>,
+        data: Option<HashMap<String, PyObject>>,
+        json: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, String>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
     ) -> PyResult<HttpResponse> {
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| PyErr::new::<PyException, _>(format!("Failed to create runtime: {}", e)))?;
-
+        // 使用全局runtime执行异步代码
+        let rt = get_runtime();
         rt.block_on(async {
-            let start_time = std::time::Instant::now();
-            
-            let url = self.build_url(url, params)?;
-            let method = Method::from_bytes(method.as_bytes())
-                .map_err(|e| PyErr::new::<PyException, _>(format!("Invalid method: {}", e)))?;
+            self._async_request(method, url, data, json, params, headers, timeout).await
+        })
+    }
 
-            let mut request_builder = self.client.request(method, url.clone());
+    pub fn get(
+        &self,
+        url: &str,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+    ) -> PyResult<HttpResponse> {
+        self._request("GET", url, None, None, params, headers, timeout)
+    }
 
-            // 添加默认头部
-            for (key, value) in &self.headers {
-                request_builder = request_builder.header(key, value);
+    pub fn post(
+        &self,
+        url: &str,
+        data: Option<HashMap<String, PyObject>>,
+        json: Option<HashMap<String, PyObject>>,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+    ) -> PyResult<HttpResponse> {
+        self._request("POST", url, data, json, params, headers, timeout)
+    }
+
+    pub fn put(
+        &self,
+        url: &str,
+        data: Option<HashMap<String, PyObject>>,
+        json: Option<HashMap<String, PyObject>>,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+    ) -> PyResult<HttpResponse> {
+        self._request("PUT", url, data, json, params, headers, timeout)
+    }
+
+    pub fn patch(
+        &self,
+        url: &str,
+        data: Option<HashMap<String, PyObject>>,
+        json: Option<HashMap<String, PyObject>>,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+    ) -> PyResult<HttpResponse> {
+        self._request("PATCH", url, data, json, params, headers, timeout)
+    }
+
+    pub fn delete(
+        &self,
+        url: &str,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+    ) -> PyResult<HttpResponse> {
+        self._request("DELETE", url, None, None, params, headers, timeout)
+    }
+
+    pub fn head(
+        &self,
+        url: &str,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+    ) -> PyResult<HttpResponse> {
+        self._request("HEAD", url, None, None, params, headers, timeout)
+    }
+
+    pub fn options(
+        &self,
+        url: &str,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+    ) -> PyResult<HttpResponse> {
+        self._request("OPTIONS", url, None, None, params, headers, timeout)
+    }
+}
+
+impl HttpClient {
+    async fn _async_request(
+        &self,
+        method: &str,
+        url: &str,
+        data: Option<HashMap<String, PyObject>>,
+        json: Option<HashMap<String, PyObject>>,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+    ) -> PyResult<HttpResponse> {
+        let start_time = Instant::now();
+        
+        let method = Method::from_bytes(method.as_bytes())
+            .map_err(|e| RequestError::new_err(format!("Invalid method: {}", e)))?;
+
+        let full_url = if let Some(base) = &self.base_url {
+            format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'))
+        } else {
+            url.to_string()
+        };
+
+        let mut url_with_params = Url::parse(&full_url)
+            .map_err(|e| RequestError::new_err(format!("Invalid URL: {}", e)))?;
+
+        if let Some(params) = params {
+            for (key, value) in params {
+                url_with_params.query_pairs_mut().append_pair(&key, &value);
             }
+        }
 
-            // 添加请求特定的头部
-            if let Some(req_headers) = headers {
-                for (key, value) in req_headers {
-                    request_builder = request_builder.header(key, value);
+        let mut request = self.client.request(method, url_with_params);
+
+        // 设置默认headers
+        for (key, value) in &self.default_headers {
+            request = request.header(key, value);
+        }
+
+        // 设置请求特定的headers
+        if let Some(headers) = headers {
+            for (key, value) in headers {
+                request = request.header(key, value);
+            }
+        }
+
+        // 设置body
+        if let Some(json_data) = json {
+            let json_value = python_dict_to_json_value(json_data)?;
+            request = request.json(&json_value);
+        } else if let Some(form_data) = data {
+            // 使用 form encoded 而不是 multipart
+            let form_string = python_dict_to_form_string(form_data)?;
+            request = request
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .body(form_string);
+        }
+
+        // 设置超时
+        let timeout_duration = timeout
+            .map(Duration::from_secs_f64)
+            .or(self.default_timeout)
+            .unwrap_or(Duration::from_secs(30));
+        request = request.timeout(timeout_duration);
+
+        let response = request.send().await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    ReadTimeout::new_err(format!("Request timeout: {}", e))
+                } else if e.is_connect() {
+                    ConnectTimeout::new_err(format!("Connection timeout: {}", e))
+                } else {
+                    RequestError::new_err(format!("Request failed: {}", e))
                 }
-            }
+            })?;
 
-            // 添加 Content-Type 头部
-            if let Some(ct) = content_type {
-                request_builder = request_builder.header("Content-Type", ct);
-            }
+        // 先获取response的信息再读取body
+        let status_code = response.status().as_u16();
+        let url = response.url().to_string();
+        let headers = response
+            .headers()
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+            .collect();
 
-            // 添加请求体
-            if let Some(body_data) = body {
-                request_builder = request_builder.body(body_data);
-            }
+        let body = response.bytes().await
+            .map_err(|e| RequestError::new_err(format!("Failed to read response body: {}", e)))?;
 
-            // 设置超时
-            if let Some(timeout_secs) = timeout {
-                request_builder = request_builder.timeout(Duration::from_secs_f64(timeout_secs));
-            } else if let Some(default_timeout) = self.timeout {
-                request_builder = request_builder.timeout(default_timeout);
-            }
+        let elapsed = start_time.elapsed().as_secs_f64();
 
-            let response = request_builder.send().await
-                .map_err(|e| {
-                    if e.is_timeout() {
-                        PyErr::new::<ReadTimeout, _>("Request timeout")
-                    } else if e.is_connect() {
-                        PyErr::new::<ConnectTimeout, _>("Connection timeout")
-                    } else {
-                        PyErr::new::<RequestError, _>(format!("Request error: {}", e))
-                    }
-                })?;
+        Ok(HttpResponse {
+            status_code,
+            headers,
+            body,
+            url,
+            elapsed,
+        })
+    }
+}
 
+// 异步HTTP客户端 - 真正的异步方法
+#[pyclass]
+pub struct AsyncHttpClient {
+    client: Client,
+    base_url: Option<String>,
+    default_timeout: Option<Duration>,
+    default_headers: HashMap<String, String>,
+}
+
+#[pymethods]
+impl AsyncHttpClient {
+    #[new]
+    pub fn new(
+        base_url: Option<String>,
+        timeout: Option<f64>,
+        headers: Option<HashMap<String, String>>,
+        verify: Option<bool>,
+    ) -> PyResult<Self> {
+        let verify = verify.unwrap_or(true);
+        let client = Client::builder()
+            .danger_accept_invalid_certs(!verify)
+            .build()
+            .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))?;
+
+        Ok(AsyncHttpClient {
+            client,
+            base_url,
+            default_timeout: timeout.map(Duration::from_secs_f64),
+            default_headers: headers.unwrap_or_default(),
+        })
+    }
+
+    fn __aenter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __aexit__(
+        &self,
+        _exc_type: Option<PyObject>,
+        _exc_val: Option<PyObject>,
+        _exc_tb: Option<PyObject>,
+    ) -> PyResult<bool> {
+        Ok(false)
+    }
+
+    pub fn get<'py>(
+        &self,
+        py: Python<'py>,
+        url: String,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+    ) -> PyResult<&'py PyAny> {
+        let client = self.client.clone();
+        let base_url = self.base_url.clone();
+        let default_timeout = self.default_timeout;
+        let default_headers = self.default_headers.clone();
+
+        future_into_py(py, async move {
+            let start_time = Instant::now();
+            let request = AsyncHttpClient::build_request(
+                &client, "GET", &url, None, None, params, headers, 
+                &base_url, default_timeout, &default_headers, timeout
+            ).await?;
+            
+            let response = request.send().await
+                .map_err(|e| RequestError::new_err(format!("Request failed: {}", e)))?;
+            
+            // 先获取response信息
             let status_code = response.status().as_u16();
-            let headers = response.headers().iter()
+            let url = response.url().to_string();
+            let headers = response
+                .headers()
+                .iter()
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect();
 
-            let content = response.bytes().await
-                .map_err(|e| PyErr::new::<RequestError, _>(format!("Failed to read response: {}", e)))?;
+            let body = response.bytes().await
+                .map_err(|e| RequestError::new_err(format!("Failed to read response: {}", e)))?;
 
             let elapsed = start_time.elapsed().as_secs_f64();
 
             Ok(HttpResponse {
                 status_code,
                 headers,
-                url: url.to_string(),
-                content,
-                encoding: None, // TODO: 检测编码
+                body,
+                url,
+                elapsed,
+            })
+        })
+    }
+
+    pub fn post<'py>(
+        &self,
+        py: Python<'py>,
+        url: String,
+        data: Option<HashMap<String, PyObject>>,
+        json: Option<HashMap<String, PyObject>>,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+    ) -> PyResult<&'py PyAny> {
+        let client = self.client.clone();
+        let base_url = self.base_url.clone();
+        let default_timeout = self.default_timeout;
+        let default_headers = self.default_headers.clone();
+
+        future_into_py(py, async move {
+            let start_time = Instant::now();
+            let request = AsyncHttpClient::build_request(
+                &client, "POST", &url, data, json, params, headers,
+                &base_url, default_timeout, &default_headers, timeout
+            ).await?;
+            
+            let response = request.send().await
+                .map_err(|e| RequestError::new_err(format!("Request failed: {}", e)))?;
+            
+            let status_code = response.status().as_u16();
+            let url = response.url().to_string();
+            let headers = response
+                .headers()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                .collect();
+
+            let body = response.bytes().await
+                .map_err(|e| RequestError::new_err(format!("Failed to read response: {}", e)))?;
+
+            let elapsed = start_time.elapsed().as_secs_f64();
+
+            Ok(HttpResponse {
+                status_code,
+                headers,
+                body,
+                url,
+                elapsed,
+            })
+        })
+    }
+
+    pub fn put<'py>(
+        &self,
+        py: Python<'py>,
+        url: String,
+        data: Option<HashMap<String, PyObject>>,
+        json: Option<HashMap<String, PyObject>>,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+    ) -> PyResult<&'py PyAny> {
+        let client = self.client.clone();
+        let base_url = self.base_url.clone();
+        let default_timeout = self.default_timeout;
+        let default_headers = self.default_headers.clone();
+
+        future_into_py(py, async move {
+            let start_time = Instant::now();
+            let request = AsyncHttpClient::build_request(
+                &client, "PUT", &url, data, json, params, headers,
+                &base_url, default_timeout, &default_headers, timeout
+            ).await?;
+            
+            let response = request.send().await
+                .map_err(|e| RequestError::new_err(format!("Request failed: {}", e)))?;
+            
+            let status_code = response.status().as_u16();
+            let url = response.url().to_string();
+            let headers = response
+                .headers()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                .collect();
+
+            let body = response.bytes().await
+                .map_err(|e| RequestError::new_err(format!("Failed to read response: {}", e)))?;
+
+            let elapsed = start_time.elapsed().as_secs_f64();
+
+            Ok(HttpResponse {
+                status_code,
+                headers,
+                body,
+                url,
+                elapsed,
+            })
+        })
+    }
+
+    pub fn patch<'py>(
+        &self,
+        py: Python<'py>,
+        url: String,
+        data: Option<HashMap<String, PyObject>>,
+        json: Option<HashMap<String, PyObject>>,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+    ) -> PyResult<&'py PyAny> {
+        let client = self.client.clone();
+        let base_url = self.base_url.clone();
+        let default_timeout = self.default_timeout;
+        let default_headers = self.default_headers.clone();
+
+        future_into_py(py, async move {
+            let start_time = Instant::now();
+            let request = AsyncHttpClient::build_request(
+                &client, "PATCH", &url, data, json, params, headers,
+                &base_url, default_timeout, &default_headers, timeout
+            ).await?;
+            
+            let response = request.send().await
+                .map_err(|e| RequestError::new_err(format!("Request failed: {}", e)))?;
+            
+            let status_code = response.status().as_u16();
+            let url = response.url().to_string();
+            let headers = response
+                .headers()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                .collect();
+
+            let body = response.bytes().await
+                .map_err(|e| RequestError::new_err(format!("Failed to read response: {}", e)))?;
+
+            let elapsed = start_time.elapsed().as_secs_f64();
+
+            Ok(HttpResponse {
+                status_code,
+                headers,
+                body,
+                url,
+                elapsed,
+            })
+        })
+    }
+
+    pub fn delete<'py>(
+        &self,
+        py: Python<'py>,
+        url: String,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+    ) -> PyResult<&'py PyAny> {
+        let client = self.client.clone();
+        let base_url = self.base_url.clone();
+        let default_timeout = self.default_timeout;
+        let default_headers = self.default_headers.clone();
+
+        future_into_py(py, async move {
+            let start_time = Instant::now();
+            let request = AsyncHttpClient::build_request(
+                &client, "DELETE", &url, None, None, params, headers,
+                &base_url, default_timeout, &default_headers, timeout
+            ).await?;
+            
+            let response = request.send().await
+                .map_err(|e| RequestError::new_err(format!("Request failed: {}", e)))?;
+            
+            let status_code = response.status().as_u16();
+            let url = response.url().to_string();
+            let headers = response
+                .headers()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                .collect();
+
+            let body = response.bytes().await
+                .map_err(|e| RequestError::new_err(format!("Failed to read response: {}", e)))?;
+
+            let elapsed = start_time.elapsed().as_secs_f64();
+
+            Ok(HttpResponse {
+                status_code,
+                headers,
+                body,
+                url,
+                elapsed,
+            })
+        })
+    }
+
+    pub fn head<'py>(
+        &self,
+        py: Python<'py>,
+        url: String,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+    ) -> PyResult<&'py PyAny> {
+        let client = self.client.clone();
+        let base_url = self.base_url.clone();
+        let default_timeout = self.default_timeout;
+        let default_headers = self.default_headers.clone();
+
+        future_into_py(py, async move {
+            let start_time = Instant::now();
+            let request = AsyncHttpClient::build_request(
+                &client, "HEAD", &url, None, None, params, headers,
+                &base_url, default_timeout, &default_headers, timeout
+            ).await?;
+            
+            let response = request.send().await
+                .map_err(|e| RequestError::new_err(format!("Request failed: {}", e)))?;
+            
+            let status_code = response.status().as_u16();
+            let url = response.url().to_string();
+            let headers = response
+                .headers()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                .collect();
+
+            let body = response.bytes().await
+                .map_err(|e| RequestError::new_err(format!("Failed to read response: {}", e)))?;
+
+            let elapsed = start_time.elapsed().as_secs_f64();
+
+            Ok(HttpResponse {
+                status_code,
+                headers,
+                body,
+                url,
+                elapsed,
+            })
+        })
+    }
+
+    pub fn options<'py>(
+        &self,
+        py: Python<'py>,
+        url: String,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+    ) -> PyResult<&'py PyAny> {
+        let client = self.client.clone();
+        let base_url = self.base_url.clone();
+        let default_timeout = self.default_timeout;
+        let default_headers = self.default_headers.clone();
+
+        future_into_py(py, async move {
+            let start_time = Instant::now();
+            let request = AsyncHttpClient::build_request(
+                &client, "OPTIONS", &url, None, None, params, headers,
+                &base_url, default_timeout, &default_headers, timeout
+            ).await?;
+            
+            let response = request.send().await
+                .map_err(|e| RequestError::new_err(format!("Request failed: {}", e)))?;
+            
+            let status_code = response.status().as_u16();
+            let url = response.url().to_string();
+            let headers = response
+                .headers()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                .collect();
+
+            let body = response.bytes().await
+                .map_err(|e| RequestError::new_err(format!("Failed to read response: {}", e)))?;
+
+            let elapsed = start_time.elapsed().as_secs_f64();
+
+            Ok(HttpResponse {
+                status_code,
+                headers,
+                body,
+                url,
                 elapsed,
             })
         })
     }
 }
 
-// 辅助函数：将 Python dict 转换为 serde_json::Value
-fn python_dict_to_json_value(py: Python, dict: &Bound<PyDict>) -> PyResult<Value> {
-    let mut map = serde_json::Map::new();
-    for (key, value) in dict.iter() {
-        let key_str: String = key.extract()?;
-        let json_value = python_to_json_value(py, &value)?;
-        map.insert(key_str, json_value);
+impl AsyncHttpClient {
+    async fn build_request(
+        client: &Client,
+        method: &str,
+        url: &str,
+        data: Option<HashMap<String, PyObject>>,
+        json: Option<HashMap<String, PyObject>>,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        base_url: &Option<String>,
+        default_timeout: Option<Duration>,
+        default_headers: &HashMap<String, String>,
+        timeout: Option<f64>,
+    ) -> PyResult<reqwest::RequestBuilder> {
+        let method = Method::from_bytes(method.as_bytes())
+            .map_err(|e| RequestError::new_err(format!("Invalid method: {}", e)))?;
+
+        let full_url = if let Some(base) = base_url {
+            format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'))
+        } else {
+            url.to_string()
+        };
+
+        let mut url_with_params = Url::parse(&full_url)
+            .map_err(|e| RequestError::new_err(format!("Invalid URL: {}", e)))?;
+
+        if let Some(params) = params {
+            for (key, value) in params {
+                url_with_params.query_pairs_mut().append_pair(&key, &value);
+            }
+        }
+
+        let mut request = client.request(method, url_with_params);
+
+        // 设置默认headers
+        for (key, value) in default_headers {
+            request = request.header(key, value);
+        }
+
+        // 设置请求特定的headers
+        if let Some(headers) = headers {
+            for (key, value) in headers {
+                request = request.header(key, value);
+            }
+        }
+
+        // 设置body
+        if let Some(json_data) = json {
+            let json_value = python_dict_to_json_value(json_data)?;
+            request = request.json(&json_value);
+        } else if let Some(form_data) = data {
+            // 使用 form encoded 而不是 multipart
+            let form_string = python_dict_to_form_string(form_data)?;
+            request = request
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .body(form_string);
+        }
+
+        // 设置超时
+        let timeout_duration = timeout
+            .map(Duration::from_secs_f64)
+            .or(default_timeout)
+            .unwrap_or(Duration::from_secs(30));
+        request = request.timeout(timeout_duration);
+
+        Ok(request)
     }
-    Ok(Value::Object(map))
 }
 
-// 辅助函数：将 Python 对象转换为 serde_json::Value
-fn python_to_json_value(py: Python, obj: &Bound<PyAny>) -> PyResult<Value> {
-    if obj.is_none() {
+// 辅助函数：将Python对象转换为JSON Value
+fn python_dict_to_json_value(data: HashMap<String, PyObject>) -> PyResult<Value> {
+    let mut map = serde_json::Map::new();
+    
+    Python::with_gil(|py| {
+        for (key, value) in data {
+            let json_value = python_to_json_value(py, &value)?;
+            map.insert(key, json_value);
+        }
+        Ok(Value::Object(map))
+    })
+}
+
+// 辅助函数：将Python对象转换为表单字符串
+fn python_dict_to_form_string(data: HashMap<String, PyObject>) -> PyResult<String> {
+    let mut form_pairs = Vec::new();
+    
+    Python::with_gil(|py| {
+        for (key, value) in data {
+            let value_str = if value.is_none(py) {
+                "".to_string()
+            } else {
+                // 使用format!处理PyObject到字符串的转换
+                format!("{}", value.as_ref(py))
+            };
+            form_pairs.push(format!("{}={}", 
+                urlencoding::encode(&key), 
+                urlencoding::encode(&value_str)
+            ));
+        }
+        Ok(form_pairs.join("&"))
+    })
+}
+
+// 辅助函数：将Python对象转换为JSON Value
+fn python_to_json_value(py: Python, obj: &PyObject) -> PyResult<Value> {
+    if obj.is_none(py) {
         Ok(Value::Null)
-    } else if let Ok(b) = obj.extract::<bool>() {
+    } else if let Ok(b) = obj.extract::<bool>(py) {
         Ok(Value::Bool(b))
-    } else if let Ok(i) = obj.extract::<i64>() {
+    } else if let Ok(i) = obj.extract::<i64>(py) {
         Ok(Value::Number(serde_json::Number::from(i)))
-    } else if let Ok(f) = obj.extract::<f64>() {
+    } else if let Ok(f) = obj.extract::<f64>(py) {
         if let Some(n) = serde_json::Number::from_f64(f) {
             Ok(Value::Number(n))
         } else {
             Ok(Value::Null)
         }
-    } else if let Ok(s) = obj.extract::<String>() {
+    } else if let Ok(s) = obj.extract::<String>(py) {
         Ok(Value::String(s))
-    } else if let Ok(list) = obj.downcast::<pyo3::types::PyList>() {
-        let mut vec = Vec::new();
-        for item in list.iter() {
-            vec.push(python_to_json_value(py, &item)?);
-        }
-        Ok(Value::Array(vec))
-    } else if let Ok(dict) = obj.downcast::<PyDict>() {
-        python_dict_to_json_value(py, dict)
     } else {
         // 对于其他类型，尝试转换为字符串
-        if let Ok(s) = obj.str() {
-            Ok(Value::String(s.to_string()))
-        } else {
-            Ok(Value::Null)
-        }
+        Ok(Value::String(format!("{}", obj.as_ref(py))))
     }
 }
 
-// 异步客户端
-#[pyclass]
-pub struct AsyncHttpClient {
-    client: Arc<Client>,
-    base_url: Option<String>,
-    timeout: Option<Duration>,
-    headers: HashMap<String, String>,
-}
-
-impl Default for AsyncHttpClient {
-    fn default() -> Self {
-        Self::new(None, None, None, None)
-    }
-}
-
-#[pymethods]
-impl AsyncHttpClient {
-    #[new]
-    #[pyo3(signature = (base_url=None, timeout=None, headers=None, verify=None))]
-    fn new(
-        base_url: Option<String>,
-        timeout: Option<f64>,
-        headers: Option<HashMap<String, String>>,
-        verify: Option<bool>,
-    ) -> Self {
-        let mut client_builder = Client::builder()
-            .user_agent("faster-http/0.1.0");
-
-        if let Some(timeout_secs) = timeout {
-            client_builder = client_builder.timeout(Duration::from_secs_f64(timeout_secs));
-        }
-
-        if let Some(verify_ssl) = verify {
-            client_builder = client_builder.danger_accept_invalid_certs(!verify_ssl);
-        }
-
-        let client = client_builder.build().unwrap();
-
-        Self {
-            client: Arc::new(client),
-            base_url,
-            timeout: timeout.map(Duration::from_secs_f64),
-            headers: headers.unwrap_or_default(),
-        }
-    }
-
-    fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    fn __exit__(
-        &self,
-        _exc_type: Option<PyObject>,
-        _exc_val: Option<PyObject>,
-        _exc_tb: Option<PyObject>,
-    ) -> PyResult<bool> {
-        Ok(false)
-    }
-}
-
-// 顶级函数
+// 全局函数
 #[pyfunction]
-#[pyo3(signature = (url, params=None, headers=None, timeout=None))]
-fn get(
+pub fn get(
     url: &str,
     params: Option<HashMap<String, String>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
 ) -> PyResult<HttpResponse> {
-    let client = HttpClient::default();
+    let client = HttpClient::new(None, None, None, None)?;
     client.get(url, params, headers, timeout)
 }
 
 #[pyfunction]
-#[pyo3(signature = (url, data=None, json=None, params=None, headers=None, timeout=None))]
-fn post(
-    py: Python,
+pub fn post(
     url: &str,
-    data: Option<Bound<PyDict>>,
-    json: Option<Bound<PyDict>>,
+    data: Option<HashMap<String, PyObject>>,
+    json: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, String>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
 ) -> PyResult<HttpResponse> {
-    let client = HttpClient::default();
-    client.post(py, url, data, json, params, headers, timeout)
+    let client = HttpClient::new(None, None, None, None)?;
+    client.post(url, data, json, params, headers, timeout)
 }
 
 #[pyfunction]
-#[pyo3(signature = (url, data=None, json=None, params=None, headers=None, timeout=None))]
-fn put(
-    py: Python,
+pub fn put(
     url: &str,
-    data: Option<Bound<PyDict>>,
-    json: Option<Bound<PyDict>>,
+    data: Option<HashMap<String, PyObject>>,
+    json: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, String>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
 ) -> PyResult<HttpResponse> {
-    let client = HttpClient::default();
-    client.put(py, url, data, json, params, headers, timeout)
+    let client = HttpClient::new(None, None, None, None)?;
+    client.put(url, data, json, params, headers, timeout)
 }
 
 #[pyfunction]
-#[pyo3(signature = (url, data=None, json=None, params=None, headers=None, timeout=None))]
-fn patch(
-    py: Python,
+pub fn patch(
     url: &str,
-    data: Option<Bound<PyDict>>,
-    json: Option<Bound<PyDict>>,
+    data: Option<HashMap<String, PyObject>>,
+    json: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, String>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
 ) -> PyResult<HttpResponse> {
-    let client = HttpClient::default();
-    client.patch(py, url, data, json, params, headers, timeout)
+    let client = HttpClient::new(None, None, None, None)?;
+    client.patch(url, data, json, params, headers, timeout)
 }
 
 #[pyfunction]
-#[pyo3(signature = (url, params=None, headers=None, timeout=None))]
-fn delete(
+pub fn delete(
     url: &str,
     params: Option<HashMap<String, String>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
 ) -> PyResult<HttpResponse> {
-    let client = HttpClient::default();
+    let client = HttpClient::new(None, None, None, None)?;
     client.delete(url, params, headers, timeout)
 }
 
 #[pyfunction]
-#[pyo3(signature = (url, params=None, headers=None, timeout=None))]
-fn head(
+pub fn head(
     url: &str,
     params: Option<HashMap<String, String>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
 ) -> PyResult<HttpResponse> {
-    let client = HttpClient::default();
+    let client = HttpClient::new(None, None, None, None)?;
     client.head(url, params, headers, timeout)
 }
 
 #[pyfunction]
-#[pyo3(signature = (url, params=None, headers=None, timeout=None))]
-fn options(
+pub fn options(
     url: &str,
     params: Option<HashMap<String, String>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
 ) -> PyResult<HttpResponse> {
-    let client = HttpClient::default();
+    let client = HttpClient::new(None, None, None, None)?;
     client.options(url, params, headers, timeout)
 }
 
-/// A Python module implemented in Rust. The name of this function must match
-/// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
-/// import the module.
+// Python模块定义
 #[pymodule]
-fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    // 添加异常类
-    m.add("HTTPError", m.py().get_type_bound::<HTTPError>())?;
-    m.add("ConnectTimeout", m.py().get_type_bound::<ConnectTimeout>())?;
-    m.add("ReadTimeout", m.py().get_type_bound::<ReadTimeout>())?;
-    m.add("RequestError", m.py().get_type_bound::<RequestError>())?;
-
-    // 添加类
+fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<HttpResponse>()?;
     m.add_class::<HttpClient>()?;
     m.add_class::<AsyncHttpClient>()?;
-
-    // 添加顶级函数
+    
     m.add_function(wrap_pyfunction!(get, m)?)?;
     m.add_function(wrap_pyfunction!(post, m)?)?;
     m.add_function(wrap_pyfunction!(put, m)?)?;
@@ -654,6 +942,11 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(delete, m)?)?;
     m.add_function(wrap_pyfunction!(head, m)?)?;
     m.add_function(wrap_pyfunction!(options, m)?)?;
-
+    
+    m.add("HTTPError", py.get_type::<HTTPError>())?;
+    m.add("ConnectTimeout", py.get_type::<ConnectTimeout>())?;
+    m.add("ReadTimeout", py.get_type::<ReadTimeout>())?;
+    m.add("RequestError", py.get_type::<RequestError>())?;
+    
     Ok(())
 }

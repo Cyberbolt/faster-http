@@ -69,9 +69,6 @@ class AsyncClient:
             headers=headers,
             verify=verify,
         )
-        self._base_url = base_url
-        self._timeout = timeout
-        self._headers = headers
     
     async def __aenter__(self):
         return self
@@ -93,18 +90,7 @@ class AsyncClient:
         timeout: Timeout = None,
     ) -> Response:
         """Send a GET request asynchronously."""
-        # For now, we'll use the sync client in a thread pool
-        # TODO: Implement proper async support in Rust
-        loop = asyncio.get_event_loop()
-        sync_client = Client(
-            base_url=self._base_url,
-            timeout=self._timeout,
-            headers=self._headers,
-        )
-        return await loop.run_in_executor(
-            None, 
-            lambda: sync_client.get(url, params=params, headers=headers, timeout=timeout)
-        )
+        return await self._client.get(url, params=params, headers=headers, timeout=timeout)
     
     async def post(
         self,
@@ -118,16 +104,7 @@ class AsyncClient:
         timeout: Timeout = None,
     ) -> Response:
         """Send a POST request asynchronously."""
-        loop = asyncio.get_event_loop()
-        sync_client = Client(
-            base_url=self._base_url,
-            timeout=self._timeout,
-            headers=self._headers,
-        )
-        return await loop.run_in_executor(
-            None,
-            lambda: sync_client.post(url, data=data, json=json, params=params, headers=headers, timeout=timeout)
-        )
+        return await self._client.post(url, data=data, json=json, params=params, headers=headers, timeout=timeout)
     
     async def put(
         self,
@@ -141,16 +118,7 @@ class AsyncClient:
         timeout: Timeout = None,
     ) -> Response:
         """Send a PUT request asynchronously."""
-        loop = asyncio.get_event_loop()
-        sync_client = Client(
-            base_url=self._base_url,
-            timeout=self._timeout,
-            headers=self._headers,
-        )
-        return await loop.run_in_executor(
-            None,
-            lambda: sync_client.put(url, data=data, json=json, params=params, headers=headers, timeout=timeout)
-        )
+        return await self._client.put(url, data=data, json=json, params=params, headers=headers, timeout=timeout)
     
     async def patch(
         self,
@@ -164,16 +132,7 @@ class AsyncClient:
         timeout: Timeout = None,
     ) -> Response:
         """Send a PATCH request asynchronously."""
-        loop = asyncio.get_event_loop()
-        sync_client = Client(
-            base_url=self._base_url,
-            timeout=self._timeout,
-            headers=self._headers,
-        )
-        return await loop.run_in_executor(
-            None,
-            lambda: sync_client.patch(url, data=data, json=json, params=params, headers=headers, timeout=timeout)
-        )
+        return await self._client.patch(url, data=data, json=json, params=params, headers=headers, timeout=timeout)
     
     async def delete(
         self,
@@ -184,16 +143,7 @@ class AsyncClient:
         timeout: Timeout = None,
     ) -> Response:
         """Send a DELETE request asynchronously."""
-        loop = asyncio.get_event_loop()
-        sync_client = Client(
-            base_url=self._base_url,
-            timeout=self._timeout,
-            headers=self._headers,
-        )
-        return await loop.run_in_executor(
-            None,
-            lambda: sync_client.delete(url, params=params, headers=headers, timeout=timeout)
-        )
+        return await self._client.delete(url, params=params, headers=headers, timeout=timeout)
     
     async def head(
         self,
@@ -204,16 +154,7 @@ class AsyncClient:
         timeout: Timeout = None,
     ) -> Response:
         """Send a HEAD request asynchronously."""
-        loop = asyncio.get_event_loop()
-        sync_client = Client(
-            base_url=self._base_url,
-            timeout=self._timeout,
-            headers=self._headers,
-        )
-        return await loop.run_in_executor(
-            None,
-            lambda: sync_client.head(url, params=params, headers=headers, timeout=timeout)
-        )
+        return await self._client.head(url, params=params, headers=headers, timeout=timeout)
     
     async def options(
         self,
@@ -224,16 +165,7 @@ class AsyncClient:
         timeout: Timeout = None,
     ) -> Response:
         """Send an OPTIONS request asynchronously."""
-        loop = asyncio.get_event_loop()
-        sync_client = Client(
-            base_url=self._base_url,
-            timeout=self._timeout,
-            headers=self._headers,
-        )
-        return await loop.run_in_executor(
-            None,
-            lambda: sync_client.options(url, params=params, headers=headers, timeout=timeout)
-        )
+        return await self._client.options(url, params=params, headers=headers, timeout=timeout)
 
 
 # Top-level convenience functions
