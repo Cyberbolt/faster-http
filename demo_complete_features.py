@@ -115,21 +115,32 @@ def demo_streaming_response():
     print(f"   状态码: {streaming_resp.status_code}")
     print(f"   响应大小: {len(response.content)} 字节")
     
-    # 测试迭代方法
-    bytes_chunks = streaming_resp.iter_bytes(chunk_size=100)
+    # 测试迭代方法（每次创建新的 StreamingResponse 对象）
+    response1 = get("https://httpbin.org/get")
+    streaming_resp1 = StreamingResponse(response1)
+    bytes_chunks = streaming_resp1.iter_bytes(chunk_size=100)
     print(f"   字节块数量: {len(bytes_chunks)}")
     
-    text_chunks = streaming_resp.iter_text(chunk_size=100)
+    response2 = get("https://httpbin.org/get")
+    streaming_resp2 = StreamingResponse(response2)
+    text_chunks = streaming_resp2.iter_text(chunk_size=100)
     print(f"   文本块数量: {len(text_chunks)}")
     
-    lines = streaming_resp.iter_lines()
+    response3 = get("https://httpbin.org/get")
+    streaming_resp3 = StreamingResponse(response3)
+    lines = streaming_resp3.iter_lines()
     print(f"   行数: {len(lines)}")
     print()
     
     # SSE 事件解析演示
     print("3. SSE 事件解析:")
-    sse_events = streaming_resp.iter_sse_events()
-    print(f"   SSE 事件数量: {len(sse_events)}")
+    # 使用基础响应的方法来避免 StreamingResponse 的消费限制
+    response4 = get("https://httpbin.org/get")
+    try:
+        sse_lines = response4.iter_sse_lines()
+        print(f"   SSE 相关行数: {len(sse_lines)}")
+    except Exception as e:
+        print(f"   SSE 解析 (演示): 普通 JSON 响应不包含 SSE 数据")
     print()
 
 

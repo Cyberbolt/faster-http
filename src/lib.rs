@@ -39,6 +39,17 @@ fn get_runtime() -> &'static tokio::runtime::Runtime {
     })
 }
 
+// 错误处理工具
+fn map_reqwest_error(error: reqwest::Error) -> PyErr {
+    if error.is_timeout() {
+        ReadTimeout::new_err(format!("Request timeout: {}", error))
+    } else if error.is_connect() {
+        ConnectTimeout::new_err(format!("Connection timeout: {}", error))
+    } else {
+        RequestError::new_err(format!("Request failed: {}", error))
+    }
+}
+
 // Request 对象
 #[pyclass]
 pub struct HttpRequest {
@@ -159,7 +170,7 @@ impl HttpResponse {
     #[getter]
     pub fn charset_encoding(&self) -> Option<String> {
         // 从 Content-Type 头中提取字符集
-        if let Some(content_type) = self.headers.get("content-type").or_else(|| self.headers.get("Content-Type")) {
+        for content_type in self.headers.values() {
             if let Some(charset_pos) = content_type.find("charset=") {
                 let charset = &content_type[charset_pos + 8..];
                 let charset = charset.split(';').next().unwrap_or(charset).trim();
@@ -302,20 +313,210 @@ pub enum AuthType {
     Bearer { token: String },
 }
 
-// 同步HTTP客户端
-#[pyclass]
-pub struct HttpClient {
-    client: Client,
+// 核心客户端配置
+#[derive(Clone)]
+struct ClientConfig {
     base_url: Option<String>,
     default_timeout: Option<Duration>,
     default_headers: HashMap<String, String>,
     follow_redirects: bool,
     auth: Option<AuthType>,
-    #[allow(dead_code)]
     proxy: Option<String>,
     default_cookies: HashMap<String, String>,
-    #[allow(dead_code)]
-    http2: bool, // 新增：HTTP/2 支持
+    http2: bool,
+}
+
+impl ClientConfig {
+    fn new(
+        base_url: Option<String>,
+        timeout: Option<f64>,
+        headers: Option<HashMap<String, String>>,
+        verify: Option<bool>,
+        follow_redirects: Option<bool>,
+        auth: Option<(String, String)>,
+        proxy: Option<String>,
+        cookies: Option<HashMap<String, String>>,
+        http2: Option<bool>,
+    ) -> PyResult<Self> {
+        let auth_type = auth.map(|(username, password)| AuthType::Basic { username, password });
+
+        Ok(ClientConfig {
+            base_url,
+            default_timeout: timeout.map(Duration::from_secs_f64),
+            default_headers: headers.unwrap_or_default(),
+            follow_redirects: follow_redirects.unwrap_or(true),
+            auth: auth_type,
+            proxy,
+            default_cookies: cookies.unwrap_or_default(),
+            http2: http2.unwrap_or(false),
+        })
+    }
+
+    fn build_client(&self, verify: Option<bool>) -> PyResult<Client> {
+        let verify = verify.unwrap_or(true);
+        
+        let mut builder = Client::builder()
+            .danger_accept_invalid_certs(!verify)
+            .redirect(if self.follow_redirects { 
+                reqwest::redirect::Policy::limited(10) 
+            } else { 
+                reqwest::redirect::Policy::none() 
+            });
+
+        if self.http2 {
+            builder = builder.http2_prior_knowledge();
+        }
+
+        if let Some(proxy_url) = &self.proxy {
+            let proxy = reqwest::Proxy::all(proxy_url)
+                .map_err(|e| RequestError::new_err(format!("Invalid proxy URL: {}", e)))?;
+            builder = builder.proxy(proxy);
+        }
+
+        builder.build()
+            .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))
+    }
+}
+
+// 工具函数
+fn build_full_url(base_url: &Option<String>, url: &str) -> PyResult<String> {
+    match base_url {
+        Some(base) if !url.starts_with("http://") && !url.starts_with("https://") => {
+            Ok(format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/')))
+        }
+        _ => Ok(url.to_string())
+    }
+}
+
+fn add_query_params(url: &str, params: Option<HashMap<String, String>>) -> PyResult<String> {
+    if let Some(params) = params {
+        let mut url_with_params = reqwest::Url::parse(url)
+            .map_err(|e| RequestError::new_err(format!("Invalid URL: {}", e)))?;
+        
+        for (key, value) in params {
+            url_with_params.query_pairs_mut().append_pair(&key, &value);
+        }
+        Ok(url_with_params.to_string())
+    } else {
+        Ok(url.to_string())
+    }
+}
+
+fn merge_headers(default_headers: &HashMap<String, String>, request_headers: Option<HashMap<String, String>>) -> HashMap<String, String> {
+    let mut final_headers = default_headers.clone();
+    if let Some(headers) = request_headers {
+        final_headers.extend(headers);
+    }
+    final_headers
+}
+
+fn merge_cookies(default_cookies: &HashMap<String, String>, request_cookies: Option<HashMap<String, String>>) -> Option<HashMap<String, String>> {
+    match request_cookies {
+        Some(request_cookies) => {
+            let mut merged = default_cookies.clone();
+            merged.extend(request_cookies);
+            Some(merged)
+        }
+        None if !default_cookies.is_empty() => Some(default_cookies.clone()),
+        _ => None,
+    }
+}
+
+fn extract_auth(auth: &Option<AuthType>) -> Option<(String, String)> {
+    match auth {
+        Some(AuthType::Basic { username, password }) => Some((username.clone(), password.clone())),
+        _ => None,
+    }
+}
+
+async fn send_request(client: &Client, request: &HttpRequest, config: &ClientConfig) -> PyResult<HttpResponse> {
+    let start_time = Instant::now();
+
+    let method = request.method.parse::<reqwest::Method>()
+        .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
+    
+    let mut req = client.request(method, &request.url);
+
+    for (key, value) in &request.headers {
+        req = req.header(key, value);
+    }
+
+    if let Some(content) = &request.content {
+        req = req.body(content.clone());
+    }
+
+    if let Some(timeout) = config.default_timeout {
+        req = req.timeout(timeout);
+    }
+
+    let response = req.send().await.map_err(map_reqwest_error)?;
+    process_response(response, start_time).await
+}
+
+async fn process_response(response: reqwest::Response, start_time: Instant) -> PyResult<HttpResponse> {
+    let status_code = response.status().as_u16();
+    let url = response.url().to_string();
+    
+    let http_version = match response.version() {
+        reqwest::Version::HTTP_09 => "HTTP/0.9",
+        reqwest::Version::HTTP_10 => "HTTP/1.0",
+        reqwest::Version::HTTP_11 => "HTTP/1.1",
+        reqwest::Version::HTTP_2 => "HTTP/2",
+        reqwest::Version::HTTP_3 => "HTTP/3",
+        _ => "Unknown",
+    }.to_string();
+    
+    let headers: HashMap<String, String> = response
+        .headers()
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect();
+
+    let body = response.bytes().await
+        .map_err(|e| RequestError::new_err(format!("Failed to read response body: {}", e)))?;
+
+    let elapsed = start_time.elapsed().as_secs_f64();
+    let is_redirect_status = matches!(status_code, 301 | 302 | 303 | 307 | 308);
+    let encoding = detect_encoding(&headers);
+    let cookies = parse_cookies_from_headers(&headers);
+
+    Ok(HttpResponse {
+        status_code,
+        headers,
+        body,
+        url,
+        elapsed,
+        is_redirect_status,
+        http_version,
+        cookies,
+        encoding,
+        history: Vec::new(),
+        request: None,
+    })
+}
+
+fn parse_cookies_from_headers(headers: &HashMap<String, String>) -> HashMap<String, String> {
+    let mut cookies = HashMap::new();
+    
+    for (key, value) in headers {
+        if key.to_lowercase() == "set-cookie" {
+            if let Some(eq_pos) = value.find('=') {
+                let name = value[..eq_pos].trim();
+                let rest = &value[eq_pos + 1..];
+                let cookie_value = rest.split(';').next().unwrap_or(rest).trim();
+                cookies.insert(name.to_string(), cookie_value.to_string());
+            }
+        }
+    }
+    
+    cookies
+}
+
+// 同步HTTP客户端
+#[pyclass]
+pub struct HttpClient {
+    client: Client,
+    config: ClientConfig,
 }
 
 #[pymethods]
@@ -332,46 +533,13 @@ impl HttpClient {
         cookies: Option<HashMap<String, String>>,
         http2: Option<bool>, // 新增：HTTP/2 支持
     ) -> PyResult<Self> {
-        let verify = verify.unwrap_or(true);
-        let follow_redirects = follow_redirects.unwrap_or(true);
-        let http2 = http2.unwrap_or(false);
-        
-        let mut builder = Client::builder()
-            .danger_accept_invalid_certs(!verify)
-            .redirect(if follow_redirects { 
-                reqwest::redirect::Policy::limited(10) 
-            } else { 
-                reqwest::redirect::Policy::none() 
-            });
+        let config = ClientConfig::new(
+            base_url, timeout, headers, verify, follow_redirects, 
+            auth, proxy, cookies, http2
+        )?;
+        let client = config.build_client(verify)?;
 
-        // 添加 HTTP/2 支持
-        if http2 {
-            builder = builder.http2_prior_knowledge();
-        }
-
-        // 添加代理支持
-        if let Some(proxy_url) = &proxy {
-            let proxy = reqwest::Proxy::all(proxy_url)
-                .map_err(|e| RequestError::new_err(format!("Invalid proxy URL: {}", e)))?;
-            builder = builder.proxy(proxy);
-        }
-
-        let client = builder.build()
-            .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))?;
-
-        let auth_type = auth.map(|(username, password)| AuthType::Basic { username, password });
-
-        Ok(HttpClient {
-            client,
-            base_url,
-            default_timeout: timeout.map(Duration::from_secs_f64),
-            default_headers: headers.unwrap_or_default(),
-            follow_redirects,
-            auth: auth_type,
-            proxy,
-            default_cookies: cookies.unwrap_or_default(),
-            http2,
-        })
+        Ok(HttpClient { client, config })
     }
 
     // 新增：构建请求对象
@@ -383,35 +551,9 @@ impl HttpClient {
         headers: Option<HashMap<String, String>>,
         content: Option<Vec<u8>>,
     ) -> PyResult<HttpRequest> {
-        // 构建URL
-        let full_url = if let Some(base) = &self.base_url {
-            if url.starts_with("http://") || url.starts_with("https://") {
-                url.to_string()
-            } else {
-                format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'))
-            }
-        } else {
-            url.to_string()
-        };
-
-        // 添加查询参数
-        let final_url = if let Some(params) = params {
-            let mut url_with_params = reqwest::Url::parse(&full_url)
-                .map_err(|e| RequestError::new_err(format!("Invalid URL: {}", e)))?;
-            
-            for (key, value) in params {
-                url_with_params.query_pairs_mut().append_pair(&key, &value);
-            }
-            url_with_params.to_string()
-        } else {
-            full_url
-        };
-
-        // 合并headers
-        let mut final_headers = self.default_headers.clone();
-        if let Some(headers) = headers {
-            final_headers.extend(headers);
-        }
+        let full_url = build_full_url(&self.config.base_url, url)?;
+        let final_url = add_query_params(&full_url, params)?;
+        let final_headers = merge_headers(&self.config.default_headers, headers);
 
         Ok(HttpRequest::new(
             method.to_string(),
@@ -424,97 +566,8 @@ impl HttpClient {
     // 新增：发送预构建的请求
     pub fn send(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
         let rt = get_runtime();
-        
-        let client = &self.client;
-        let method = &request.method;
-        let url = &request.url;
-        let headers = Some(request.headers.clone());
-        let content = request.content.as_ref().map(|b| b.to_vec());
-        let default_timeout = self.default_timeout;
-        
-        rt.block_on(async {
-            let start_time = Instant::now();
-
-            // 构建请求
-            let method = method.parse::<reqwest::Method>()
-                .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
-            
-            let mut req = client.request(method, url);
-
-            // 添加headers
-            if let Some(headers) = headers {
-                for (key, value) in headers {
-                    req = req.header(key, value);
-                }
-            }
-
-            // 添加body
-            if let Some(content) = content {
-                req = req.body(content);
-            }
-
-            // 设置默认超时
-            if let Some(timeout) = default_timeout {
-                req = req.timeout(timeout);
-            }
-
-            // 发送请求
-            let response = req.send().await
-                .map_err(|e| {
-                    if e.is_timeout() {
-                        ReadTimeout::new_err(format!("Request timeout: {}", e))
-                    } else if e.is_connect() {
-                        ConnectTimeout::new_err(format!("Connection timeout: {}", e))
-                    } else {
-                        RequestError::new_err(format!("Request failed: {}", e))
-                    }
-                })?;
-
-            // 处理响应
-            let status_code = response.status().as_u16();
-            let url = response.url().to_string();
-            
-            let http_version = match response.version() {
-                reqwest::Version::HTTP_09 => "HTTP/0.9".to_string(),
-                reqwest::Version::HTTP_10 => "HTTP/1.0".to_string(),
-                reqwest::Version::HTTP_11 => "HTTP/1.1".to_string(),
-                reqwest::Version::HTTP_2 => "HTTP/2".to_string(),
-                reqwest::Version::HTTP_3 => "HTTP/3".to_string(),
-                _ => "Unknown".to_string(),
-            };
-            
-            let headers: HashMap<String, String> = response
-                .headers()
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-                .collect();
-
-            let body = response.bytes().await
-                .map_err(|e| RequestError::new_err(format!("Failed to read response body: {}", e)))?;
-
-            let elapsed = start_time.elapsed().as_secs_f64();
-            let is_redirect_status = matches!(status_code, 301 | 302 | 303 | 307 | 308);
-
-            // 检测编码
-            let encoding = detect_encoding(&headers);
-
-            Ok(HttpResponse {
-                status_code,
-                headers: headers.clone(),
-                body,
-                url,
-                elapsed,
-                is_redirect_status,
-                http_version,
-                cookies: parse_cookies_from_headers(&headers),
-                encoding,
-                history: Vec::new(),
-                request: None,
-            })
-        })
+        rt.block_on(send_request(&self.client, request, &self.config))
     }
-
-
 
     fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
@@ -547,17 +600,10 @@ impl HttpClient {
     ) -> PyResult<HttpResponse> {
         let rt = get_runtime();
         
-        // 合并 cookies
-        let merged_cookies = match cookies {
-            Some(request_cookies) => {
-                let mut merged = self.default_cookies.clone();
-                merged.extend(request_cookies);
-                Some(merged)
-            }
-            None if !self.default_cookies.is_empty() => Some(self.default_cookies.clone()),
-            _ => None,
-        };
-
+        let merged_cookies = merge_cookies(&self.config.default_cookies, cookies);
+        let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
+        let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
+        
         rt.block_on(build_and_send_request(
             &self.client,
             method, 
@@ -569,16 +615,11 @@ impl HttpClient {
             params, 
             headers, 
             timeout, 
-            &self.base_url, 
-            &self.default_headers, 
-            self.default_timeout, 
-            auth.or_else(|| {
-                match &self.auth {
-                    Some(AuthType::Basic { username, password }) => Some((username.clone(), password.clone())),
-                    _ => None,
-                }
-            }), 
-            follow_redirects.unwrap_or(self.follow_redirects),
+            &self.config.base_url, 
+            &self.config.default_headers, 
+            self.config.default_timeout, 
+            auth_option, 
+            follow_redirects,
             merged_cookies
         ))
     }
@@ -713,29 +754,31 @@ impl HttpClient {
             params,
             headers,
             timeout,
-            &self.base_url,
-            &self.default_headers,
-            self.default_timeout,
+            &self.config.base_url,
+            &self.config.default_headers,
+            self.config.default_timeout,
             auth.or_else(|| {
                 // 如果请求没有提供认证，使用客户端默认认证
-                match &self.auth {
+                match &self.config.auth {
                     Some(AuthType::Basic { username, password }) => Some((username.clone(), password.clone())),
                     _ => None,
                 }
             }),
-            follow_redirects.unwrap_or(self.follow_redirects),
-            Some(self.default_cookies.clone()),
+            follow_redirects.unwrap_or(self.config.follow_redirects),
+            Some(self.config.default_cookies.clone()),
         ).await
     }
 }
 
 // 编码检测函数
 fn detect_encoding(headers: &HashMap<String, String>) -> Option<String> {
-    if let Some(content_type) = headers.get("content-type").or_else(|| headers.get("Content-Type")) {
-        if let Some(charset_pos) = content_type.find("charset=") {
-            let charset = &content_type[charset_pos + 8..];
-            let charset = charset.split(';').next().unwrap_or(charset).trim();
-            return Some(charset.to_string());
+    for (key, value) in headers {
+        if key.to_lowercase() == "content-type" {
+            if let Some(charset_pos) = value.find("charset=") {
+                let charset = &value[charset_pos + 8..];
+                let charset = charset.split(';').next().unwrap_or(charset).trim();
+                return Some(charset.to_string());
+            }
         }
     }
     
@@ -908,24 +951,7 @@ async fn build_and_send_request(
     })
 }
 
-// 辅助函数：解析 cookies 从响应头
-fn parse_cookies_from_headers(headers: &HashMap<String, String>) -> HashMap<String, String> {
-    let mut cookies = HashMap::new();
-    
-    for (key, value) in headers {
-        if key.to_lowercase() == "set-cookie" {
-            // 简单的 cookie 解析，实际应用中可能需要更复杂的解析
-            if let Some(eq_pos) = value.find('=') {
-                let name = value[..eq_pos].trim();
-                let rest = &value[eq_pos + 1..];
-                let cookie_value = rest.split(';').next().unwrap_or(rest).trim();
-                cookies.insert(name.to_string(), cookie_value.to_string());
-            }
-        }
-    }
-    
-    cookies
-}
+
 
 // 辅助函数：构建 multipart form
 fn build_multipart_form(files_data: HashMap<String, PyObject>) -> PyResult<reqwest::multipart::Form> {
@@ -933,117 +959,114 @@ fn build_multipart_form(files_data: HashMap<String, PyObject>) -> PyResult<reqwe
         let mut form = reqwest::multipart::Form::new();
         
         for (field_name, file_obj) in files_data {
-            // 处理不同的文件输入格式
-            if let Ok(bytes_data) = file_obj.extract::<Vec<u8>>(py) {
-                // 字节数据
-                let part = reqwest::multipart::Part::bytes(bytes_data)
-                    .file_name(format!("{}.bin", field_name))
-                    .mime_str("application/octet-stream")
-                    .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
-                form = form.part(field_name, part);
-            } else if let Ok(string_data) = file_obj.extract::<String>(py) {
-                // 字符串数据
-                let part = reqwest::multipart::Part::text(string_data)
-                    .file_name(format!("{}.txt", field_name))
-                    .mime_str("text/plain")
-                    .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
-                form = form.part(field_name, part);
-            } else if let Ok(tuple_data) = file_obj.extract::<(Option<String>, PyObject)>(py) {
-                // (filename, content) 格式
-                let (filename, content_obj) = tuple_data;
-                
-                if let Ok(bytes_content) = content_obj.extract::<Vec<u8>>(py) {
-                    let mut part = reqwest::multipart::Part::bytes(bytes_content);
-                    
-                    if let Some(fname) = filename {
-                        part = part.file_name(fname.clone());
-                        
-                        // 根据文件扩展名推测MIME类型
-                        if let Some(mime_type) = guess_mime_type(&fname) {
-                            part = part.mime_str(&mime_type)
-                                .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
-                        }
-                    }
-                    
-                    form = form.part(field_name, part);
-                } else if let Ok(string_content) = content_obj.extract::<String>(py) {
-                    let mut part = reqwest::multipart::Part::text(string_content);
-                    
-                    if let Some(fname) = filename {
-                        part = part.file_name(fname);
-                    }
-                    
-                    form = form.part(field_name, part);
-                }
-            } else if let Ok(triple_data) = file_obj.extract::<(Option<String>, PyObject, String)>(py) {
-                // (filename, content, content_type) 格式
-                let (filename, content_obj, content_type) = triple_data;
-                
-                if let Ok(bytes_content) = content_obj.extract::<Vec<u8>>(py) {
-                    let mut part = reqwest::multipart::Part::bytes(bytes_content)
-                        .mime_str(&content_type)
-                        .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
-                    
-                    if let Some(fname) = filename {
-                        part = part.file_name(fname);
-                    }
-                    
-                    form = form.part(field_name, part);
-                } else if let Ok(string_content) = content_obj.extract::<String>(py) {
-                    let mut part = reqwest::multipart::Part::text(string_content)
-                        .mime_str(&content_type)
-                        .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
-                    
-                    if let Some(fname) = filename {
-                        part = part.file_name(fname);
-                    }
-                    
-                    form = form.part(field_name, part);
-                }
-            } else {
-                // 尝试调用Python对象的方法获取字节数据
-                // 这可能是一个FileUpload对象或其他类型
-                if let Ok(to_bytes_method) = file_obj.getattr(py, "to_bytes") {
-                    if let Ok(bytes_data) = to_bytes_method.call0(py)?.extract::<Vec<u8>>(py) {
-                        // 尝试获取文件名和内容类型
-                        let filename = file_obj.getattr(py, "filename")
-                            .ok()
-                            .and_then(|f| f.extract::<Option<String>>(py).ok())
-                            .flatten();
-                            
-                        let content_type = file_obj.getattr(py, "get_content_type")
-                            .ok()
-                            .and_then(|method| method.call0(py).ok())
-                            .and_then(|ct| ct.extract::<String>(py).ok());
-                        
-                        let mut part = reqwest::multipart::Part::bytes(bytes_data);
-                        
-                        if let Some(fname) = filename {
-                            part = part.file_name(fname);
-                        }
-                        
-                        if let Some(ct) = content_type {
-                            part = part.mime_str(&ct)
-                                .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
-                        }
-                        
-                        form = form.part(field_name, part);
-                        continue;
-                    }
-                }
-                
-                return Err(RequestError::new_err(format!(
-                    "Unsupported file format for field '{}'. Expected bytes, string, tuple, or FileUpload object.",
-                    field_name
-                )));
-            }
+            let part = process_file_upload(py, &file_obj, &field_name)?;
+            form = form.part(field_name, part);
         }
         
         Ok(form)
     })
 }
 
-// 新增：MIME类型推测函数
+fn process_file_upload(py: Python, file_obj: &PyObject, field_name: &str) -> PyResult<reqwest::multipart::Part> {
+    // 处理字节数据
+    if let Ok(bytes_data) = file_obj.extract::<Vec<u8>>(py) {
+        return Ok(reqwest::multipart::Part::bytes(bytes_data)
+            .file_name(format!("{}.bin", field_name))
+            .mime_str("application/octet-stream")
+            .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?);
+    }
+    
+    // 处理字符串数据
+    if let Ok(string_data) = file_obj.extract::<String>(py) {
+        return Ok(reqwest::multipart::Part::text(string_data)
+            .file_name(format!("{}.txt", field_name))
+            .mime_str("text/plain")
+            .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?);
+    }
+    
+    // 处理元组格式
+    if let Ok((filename, content_obj)) = file_obj.extract::<(Option<String>, PyObject)>(py) {
+        return process_tuple_upload(py, filename, content_obj);
+    }
+    
+    if let Ok((filename, content_obj, content_type)) = file_obj.extract::<(Option<String>, PyObject, String)>(py) {
+        return process_tuple_upload_with_type(py, filename, content_obj, content_type);
+    }
+    
+    // 处理 FileUpload 对象
+    if let Ok(bytes_data) = file_obj.call_method0(py, "to_bytes")?.extract::<Vec<u8>>(py) {
+        let mut part = reqwest::multipart::Part::bytes(bytes_data);
+        
+        if let Ok(Some(filename)) = file_obj.getattr(py, "filename")?.extract::<Option<String>>(py) {
+            part = part.file_name(filename);
+        }
+        
+        if let Ok(content_type) = file_obj.call_method0(py, "get_content_type")?.extract::<String>(py) {
+            part = part.mime_str(&content_type)
+                .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
+        }
+        
+        return Ok(part);
+    }
+    
+    Err(RequestError::new_err(format!(
+        "Unsupported file format for field '{}'. Expected bytes, string, tuple, or FileUpload object.",
+        field_name
+    )))
+}
+
+fn process_tuple_upload(py: Python, filename: Option<String>, content_obj: PyObject) -> PyResult<reqwest::multipart::Part> {
+    if let Ok(bytes_content) = content_obj.extract::<Vec<u8>>(py) {
+        let mut part = reqwest::multipart::Part::bytes(bytes_content);
+        
+        if let Some(fname) = filename {
+            if let Some(mime_type) = guess_mime_type(&fname) {
+                part = part.mime_str(&mime_type)
+                    .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
+            }
+            part = part.file_name(fname);
+        }
+        
+        Ok(part)
+    } else if let Ok(string_content) = content_obj.extract::<String>(py) {
+        let mut part = reqwest::multipart::Part::text(string_content);
+        
+        if let Some(fname) = filename {
+            part = part.file_name(fname);
+        }
+        
+        Ok(part)
+    } else {
+        Err(RequestError::new_err("Invalid content type in tuple format".to_string()))
+    }
+}
+
+fn process_tuple_upload_with_type(py: Python, filename: Option<String>, content_obj: PyObject, content_type: String) -> PyResult<reqwest::multipart::Part> {
+    if let Ok(bytes_content) = content_obj.extract::<Vec<u8>>(py) {
+        let mut part = reqwest::multipart::Part::bytes(bytes_content)
+            .mime_str(&content_type)
+            .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
+        
+        if let Some(fname) = filename {
+            part = part.file_name(fname);
+        }
+        
+        Ok(part)
+    } else if let Ok(string_content) = content_obj.extract::<String>(py) {
+        let mut part = reqwest::multipart::Part::text(string_content)
+            .mime_str(&content_type)
+            .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
+        
+        if let Some(fname) = filename {
+            part = part.file_name(fname);
+        }
+        
+        Ok(part)
+    } else {
+        Err(RequestError::new_err("Invalid content type in tuple format".to_string()))
+    }
+}
+
 fn guess_mime_type(filename: &str) -> Option<String> {
     let extension = std::path::Path::new(filename)
         .extension()?
@@ -1076,16 +1099,7 @@ fn guess_mime_type(filename: &str) -> Option<String> {
 #[pyclass]
 pub struct AsyncHttpClient {
     client: Client,
-    base_url: Option<String>,
-    default_timeout: Option<Duration>,
-    default_headers: HashMap<String, String>,
-    follow_redirects: bool,
-    auth: Option<AuthType>,
-    #[allow(dead_code)]
-    proxy: Option<String>,
-    default_cookies: HashMap<String, String>,
-    #[allow(dead_code)]
-    http2: bool, // 新增：HTTP/2 支持
+    config: ClientConfig,
 }
 
 #[pymethods]
@@ -1100,51 +1114,17 @@ impl AsyncHttpClient {
         auth: Option<(String, String)>,
         proxy: Option<String>,
         cookies: Option<HashMap<String, String>>,
-        http2: Option<bool>, // 新增：HTTP/2 支持
+        http2: Option<bool>,
     ) -> PyResult<Self> {
-        let verify = verify.unwrap_or(true);
-        let follow_redirects = follow_redirects.unwrap_or(true);
-        let http2 = http2.unwrap_or(false);
-        
-        let mut builder = Client::builder()
-            .danger_accept_invalid_certs(!verify)
-            .redirect(if follow_redirects { 
-                reqwest::redirect::Policy::limited(10) 
-            } else { 
-                reqwest::redirect::Policy::none() 
-            });
+        let config = ClientConfig::new(
+            base_url, timeout, headers, verify, follow_redirects, 
+            auth, proxy, cookies, http2
+        )?;
+        let client = config.build_client(verify)?;
 
-        // 添加 HTTP/2 支持
-        if http2 {
-            builder = builder.http2_prior_knowledge();
-        }
-
-        // 添加代理支持
-        if let Some(proxy_url) = &proxy {
-            let proxy = reqwest::Proxy::all(proxy_url)
-                .map_err(|e| RequestError::new_err(format!("Invalid proxy URL: {}", e)))?;
-            builder = builder.proxy(proxy);
-        }
-
-        let client = builder.build()
-            .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))?;
-
-        let auth_type = auth.map(|(username, password)| AuthType::Basic { username, password });
-
-        Ok(AsyncHttpClient {
-            client,
-            base_url,
-            default_timeout: timeout.map(Duration::from_secs_f64),
-            default_headers: headers.unwrap_or_default(),
-            follow_redirects,
-            auth: auth_type,
-            proxy,
-            default_cookies: cookies.unwrap_or_default(),
-            http2,
-        })
+        Ok(AsyncHttpClient { client, config })
     }
 
-    // 新增：构建请求对象
     pub fn build_request(
         &self,
         method: &str,
@@ -1153,35 +1133,9 @@ impl AsyncHttpClient {
         headers: Option<HashMap<String, String>>,
         content: Option<Vec<u8>>,
     ) -> PyResult<HttpRequest> {
-        // 构建URL
-        let full_url = if let Some(base) = &self.base_url {
-            if url.starts_with("http://") || url.starts_with("https://") {
-                url.to_string()
-            } else {
-                format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'))
-            }
-        } else {
-            url.to_string()
-        };
-
-        // 添加查询参数
-        let final_url = if let Some(params) = params {
-            let mut url_with_params = reqwest::Url::parse(&full_url)
-                .map_err(|e| RequestError::new_err(format!("Invalid URL: {}", e)))?;
-            
-            for (key, value) in params {
-                url_with_params.query_pairs_mut().append_pair(&key, &value);
-            }
-            url_with_params.to_string()
-        } else {
-            full_url
-        };
-
-        // 合并headers
-        let mut final_headers = self.default_headers.clone();
-        if let Some(headers) = headers {
-            final_headers.extend(headers);
-        }
+        let full_url = build_full_url(&self.config.base_url, url)?;
+        let final_url = add_query_params(&full_url, params)?;
+        let final_headers = merge_headers(&self.config.default_headers, headers);
 
         Ok(HttpRequest::new(
             method.to_string(),
@@ -1191,8 +1145,9 @@ impl AsyncHttpClient {
         ))
     }
 
-    // 新增：发送预构建的请求 (异步)
     pub fn send<'py>(&self, py: Python<'py>, request: &HttpRequest) -> PyResult<&'py PyAny> {
+        let client = self.client.clone();
+        let config = self.config.clone();
         let request_clone = HttpRequest::new(
             request.method.clone(),
             request.url.clone(),
@@ -1200,94 +1155,12 @@ impl AsyncHttpClient {
             request.content.as_ref().map(|b| b.to_vec()),
         );
         
-        let client = self.client.clone();
-        let default_timeout = self.default_timeout;
-        
         future_into_py(py, async move {
-            let start_time = Instant::now();
-
-            // 构建请求
-            let method = request_clone.method.parse::<reqwest::Method>()
-                .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
-            
-            let mut req = client.request(method, &request_clone.url);
-
-            // 添加headers
-            for (key, value) in &request_clone.headers {
-                req = req.header(key, value);
-            }
-
-            // 添加body
-            if let Some(content) = &request_clone.content {
-                req = req.body(content.clone());
-            }
-
-            // 设置默认超时
-            if let Some(timeout) = default_timeout {
-                req = req.timeout(timeout);
-            }
-
-            // 发送请求
-            let response = req.send().await
-                .map_err(|e| {
-                    if e.is_timeout() {
-                        ReadTimeout::new_err(format!("Request timeout: {}", e))
-                    } else if e.is_connect() {
-                        ConnectTimeout::new_err(format!("Connection timeout: {}", e))
-                    } else {
-                        RequestError::new_err(format!("Request failed: {}", e))
-                    }
-                })?;
-
-            // 处理响应
-            let status_code = response.status().as_u16();
-            let url = response.url().to_string();
-            
-            let http_version = match response.version() {
-                reqwest::Version::HTTP_09 => "HTTP/0.9".to_string(),
-                reqwest::Version::HTTP_10 => "HTTP/1.0".to_string(),
-                reqwest::Version::HTTP_11 => "HTTP/1.1".to_string(),
-                reqwest::Version::HTTP_2 => "HTTP/2".to_string(),
-                reqwest::Version::HTTP_3 => "HTTP/3".to_string(),
-                _ => "Unknown".to_string(),
-            };
-            
-            let headers: HashMap<String, String> = response
-                .headers()
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-                .collect();
-
-            let body = response.bytes().await
-                .map_err(|e| RequestError::new_err(format!("Failed to read response body: {}", e)))?;
-
-            let elapsed = start_time.elapsed().as_secs_f64();
-            let is_redirect_status = matches!(status_code, 301 | 302 | 303 | 307 | 308);
-
-            // 检测编码
-            let encoding = detect_encoding(&headers);
-
-            Ok(HttpResponse {
-                status_code,
-                headers: headers.clone(),
-                body,
-                url,
-                elapsed,
-                is_redirect_status,
-                http_version,
-                cookies: parse_cookies_from_headers(&headers),
-                encoding,
-                history: Vec::new(),
-                request: None,
-            })
+            send_request(&client, &request_clone, &config).await
         })
     }
 
-
-
-    fn __aenter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
+    fn __aenter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
 
     fn __aexit__(
         &self,
@@ -1298,8 +1171,35 @@ impl AsyncHttpClient {
         Ok(false)
     }
 
-    // 通用异步请求方法
-    fn _async_request<'py>(
+    pub fn get<'py>(&self, py: Python<'py>, url: String, params: Option<HashMap<String, String>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, auth: Option<(String, String)>, follow_redirects: Option<bool>, cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
+        self.async_request(py, "GET", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
+    }
+
+    pub fn post<'py>(&self, py: Python<'py>, url: String, content: Option<Vec<u8>>, data: Option<HashMap<String, PyObject>>, json: Option<HashMap<String, PyObject>>, files: Option<HashMap<String, PyObject>>, params: Option<HashMap<String, String>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, auth: Option<(String, String)>, follow_redirects: Option<bool>, cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
+        self.async_request(py, "POST", url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
+    }
+
+    pub fn put<'py>(&self, py: Python<'py>, url: String, content: Option<Vec<u8>>, data: Option<HashMap<String, PyObject>>, json: Option<HashMap<String, PyObject>>, files: Option<HashMap<String, PyObject>>, params: Option<HashMap<String, String>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, auth: Option<(String, String)>, follow_redirects: Option<bool>, cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
+        self.async_request(py, "PUT", url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
+    }
+
+    pub fn patch<'py>(&self, py: Python<'py>, url: String, content: Option<Vec<u8>>, data: Option<HashMap<String, PyObject>>, json: Option<HashMap<String, PyObject>>, files: Option<HashMap<String, PyObject>>, params: Option<HashMap<String, String>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, auth: Option<(String, String)>, follow_redirects: Option<bool>, cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
+        self.async_request(py, "PATCH", url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
+    }
+
+    pub fn delete<'py>(&self, py: Python<'py>, url: String, params: Option<HashMap<String, String>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, auth: Option<(String, String)>, follow_redirects: Option<bool>, cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
+        self.async_request(py, "DELETE", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
+    }
+
+    pub fn head<'py>(&self, py: Python<'py>, url: String, params: Option<HashMap<String, String>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, auth: Option<(String, String)>, follow_redirects: Option<bool>, cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
+        self.async_request(py, "HEAD", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
+    }
+
+    pub fn options<'py>(&self, py: Python<'py>, url: String, params: Option<HashMap<String, String>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, auth: Option<(String, String)>, follow_redirects: Option<bool>, cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
+        self.async_request(py, "OPTIONS", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
+    }
+
+    fn async_request<'py>(
         &self,
         py: Python<'py>,
         method: &str,
@@ -1315,166 +1215,27 @@ impl AsyncHttpClient {
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
-        // 合并 cookies
-        let merged_cookies = match cookies {
-            Some(request_cookies) => {
-                let mut merged = self.default_cookies.clone();
-                merged.extend(request_cookies);
-                Some(merged)
-            }
-            None if !self.default_cookies.is_empty() => Some(self.default_cookies.clone()),
-            _ => None,
-        };
-
+        let merged_cookies = merge_cookies(&self.config.default_cookies, cookies);
+        let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
+        let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
+        
         let client = self.client.clone();
-        let base_url = self.base_url.clone();
-        let default_headers = self.default_headers.clone();
-        let default_timeout = self.default_timeout;
-        let method = method.to_string(); // 克隆方法字符串以避免生命周期问题
-        
-        let auth_option = auth.or_else(|| {
-            match &self.auth {
-                Some(AuthType::Basic { username, password }) => Some((username.clone(), password.clone())),
-                _ => None,
-            }
-        });
-        
-        let follow_redirects = follow_redirects.unwrap_or(self.follow_redirects);
+        let base_url = self.config.base_url.clone();
+        let default_headers = self.config.default_headers.clone();
+        let default_timeout = self.config.default_timeout;
+        let method = method.to_string();
         
         future_into_py(py, async move {
             build_and_send_request(
-                &client,
-                &method,
-                &url,
-                content,
-                data,
-                json,
-                files,
-                params,
-                headers,
-                timeout,
-                &base_url,
-                &default_headers,
-                default_timeout,
-                auth_option,
-                follow_redirects,
-                merged_cookies
+                &client, &method, &url, content, data, json, files, params, headers,
+                timeout, &base_url, &default_headers, default_timeout, auth_option,
+                follow_redirects, merged_cookies
             ).await
         })
     }
-
-    pub fn get<'py>(
-        &self,
-        py: Python<'py>,
-        url: String,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-        auth: Option<(String, String)>,
-        follow_redirects: Option<bool>,
-        cookies: Option<HashMap<String, String>>,
-    ) -> PyResult<&'py PyAny> {
-        self._async_request(py, "GET", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
-    }
-
-    pub fn post<'py>(
-        &self,
-        py: Python<'py>,
-        url: String,
-        content: Option<Vec<u8>>,
-        data: Option<HashMap<String, PyObject>>,
-        json: Option<HashMap<String, PyObject>>,
-        files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-        auth: Option<(String, String)>,
-        follow_redirects: Option<bool>,
-        cookies: Option<HashMap<String, String>>,
-    ) -> PyResult<&'py PyAny> {
-        self._async_request(py, "POST", url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
-    }
-
-    pub fn put<'py>(
-        &self,
-        py: Python<'py>,
-        url: String,
-        content: Option<Vec<u8>>,
-        data: Option<HashMap<String, PyObject>>,
-        json: Option<HashMap<String, PyObject>>,
-        files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-        auth: Option<(String, String)>,
-        follow_redirects: Option<bool>,
-        cookies: Option<HashMap<String, String>>,
-    ) -> PyResult<&'py PyAny> {
-        self._async_request(py, "PUT", url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
-    }
-
-    pub fn patch<'py>(
-        &self,
-        py: Python<'py>,
-        url: String,
-        content: Option<Vec<u8>>,
-        data: Option<HashMap<String, PyObject>>,
-        json: Option<HashMap<String, PyObject>>,
-        files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-        auth: Option<(String, String)>,
-        follow_redirects: Option<bool>,
-        cookies: Option<HashMap<String, String>>,
-    ) -> PyResult<&'py PyAny> {
-        self._async_request(py, "PATCH", url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
-    }
-
-    pub fn delete<'py>(
-        &self,
-        py: Python<'py>,
-        url: String,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-        auth: Option<(String, String)>,
-        follow_redirects: Option<bool>,
-        cookies: Option<HashMap<String, String>>,
-    ) -> PyResult<&'py PyAny> {
-        self._async_request(py, "DELETE", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
-    }
-
-    pub fn head<'py>(
-        &self,
-        py: Python<'py>,
-        url: String,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-        auth: Option<(String, String)>,
-        follow_redirects: Option<bool>,
-        cookies: Option<HashMap<String, String>>,
-    ) -> PyResult<&'py PyAny> {
-        self._async_request(py, "HEAD", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
-    }
-
-    pub fn options<'py>(
-        &self,
-        py: Python<'py>,
-        url: String,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-        auth: Option<(String, String)>,
-        follow_redirects: Option<bool>,
-        cookies: Option<HashMap<String, String>>,
-    ) -> PyResult<&'py PyAny> {
-        self._async_request(py, "OPTIONS", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
-    }
 }
 
-// 辅助函数：将Python对象转换为JSON Value
+// Python 数据转换工具
 fn python_dict_to_json_value(data: HashMap<String, PyObject>) -> PyResult<Value> {
     let mut map = serde_json::Map::new();
     
@@ -1487,7 +1248,6 @@ fn python_dict_to_json_value(data: HashMap<String, PyObject>) -> PyResult<Value>
     })
 }
 
-// 辅助函数：将Python对象转换为表单字符串
 fn python_dict_to_form_string(data: HashMap<String, PyObject>) -> PyResult<String> {
     let mut form_pairs = Vec::new();
     
@@ -1496,7 +1256,6 @@ fn python_dict_to_form_string(data: HashMap<String, PyObject>) -> PyResult<Strin
             let value_str = if value.is_none(py) {
                 "".to_string()
             } else {
-                // 使用format!处理PyObject到字符串的转换
                 format!("{}", value.as_ref(py))
             };
             form_pairs.push(format!("{}={}", 
@@ -1508,7 +1267,6 @@ fn python_dict_to_form_string(data: HashMap<String, PyObject>) -> PyResult<Strin
     })
 }
 
-// 辅助函数：将Python对象转换为JSON Value
 fn python_to_json_value(py: Python, obj: &PyObject) -> PyResult<Value> {
     if obj.is_none(py) {
         Ok(Value::Null)
@@ -1517,15 +1275,10 @@ fn python_to_json_value(py: Python, obj: &PyObject) -> PyResult<Value> {
     } else if let Ok(i) = obj.extract::<i64>(py) {
         Ok(Value::Number(serde_json::Number::from(i)))
     } else if let Ok(f) = obj.extract::<f64>(py) {
-        if let Some(n) = serde_json::Number::from_f64(f) {
-            Ok(Value::Number(n))
-        } else {
-            Ok(Value::Null)
-        }
+        Ok(Value::Number(serde_json::Number::from_f64(f).unwrap_or_else(|| serde_json::Number::from(0))))
     } else if let Ok(s) = obj.extract::<String>(py) {
         Ok(Value::String(s))
     } else {
-        // 对于其他类型，尝试转换为字符串
         Ok(Value::String(format!("{}", obj.as_ref(py))))
     }
 }
@@ -1669,7 +1422,7 @@ pub fn options(
     ))
 }
 
-// Python模块定义
+// Python 模块定义
 #[pymodule]
 fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<HttpRequest>()?;
