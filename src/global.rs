@@ -3,7 +3,8 @@ use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use crate::response::HttpResponse;
-use crate::core::build_and_send_request;
+use crate::streaming::StreamingHttpResponse;
+use crate::core::{build_and_send_request, build_and_send_streaming_request};
 
 // 全局客户端实例，用于复用连接池
 static GLOBAL_CLIENT: OnceLock<Arc<Client>> = OnceLock::new();
@@ -161,6 +162,30 @@ pub fn options(
     let client = get_global_client();
     rt.block_on(build_and_send_request(
         &client, "OPTIONS", url, None, None, None, None, params, headers, timeout,
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
+    ))
+}
+
+// 流式请求函数
+#[pyfunction]
+pub fn stream(
+    method: &str,
+    url: &str,
+    content: Option<Vec<u8>>,
+    data: Option<HashMap<String, PyObject>>,
+    json: Option<HashMap<String, PyObject>>,
+    files: Option<HashMap<String, PyObject>>,
+    params: Option<HashMap<String, String>>,
+    headers: Option<HashMap<String, String>>,
+    timeout: Option<f64>,
+    auth: Option<(String, String)>,
+    follow_redirects: Option<bool>,
+    cookies: Option<HashMap<String, String>>,
+) -> PyResult<StreamingHttpResponse> {
+    let rt = get_runtime();
+    let client = get_global_client();
+    rt.block_on(build_and_send_streaming_request(
+        &client, method, url, content, data, json, files, params, headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 } 

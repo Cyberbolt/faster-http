@@ -15,6 +15,7 @@ from ._core import (
     HttpClient as _HttpClient,
     AsyncHttpClient as _AsyncHttpClient,
     HttpRequest as _HttpRequest,
+    StreamingHttpResponse as _StreamingHttpResponse,
     HTTPError,
     ConnectTimeout,
     ReadTimeout,
@@ -26,6 +27,7 @@ from ._core import (
     delete as _delete,
     head as _head,
     options as _options,
+    stream as _stream,
 )
 
 __version__ = "0.1.0"
@@ -196,301 +198,205 @@ class Limits:
 # ==================== File Upload Utilities ====================
 
 class FileUpload:
-    """File upload helper class."""
+    """文件上传类 - 与 httpx files 参数对齐"""
     
-    def __init__(self, filename: Optional[str] = None, 
-                 content: Union[bytes, str, io.IOBase] = None, 
-                 content_type: Optional[str] = None):
-        self.filename = filename
+    def __init__(self, content=None, filename=None, content_type=None):
         self.content = content
+        self.filename = filename
         self.content_type = content_type
     
-    def to_bytes(self) -> bytes:
-        """Convert content to bytes."""
+    def to_bytes(self):
+        """Convert content to bytes for compatibility."""
         if isinstance(self.content, bytes):
             return self.content
         elif isinstance(self.content, str):
-            return self.content.encode('utf-8')
+            # 如果是文件路径，读取文件
+            try:
+                path = Path(self.content)
+                if path.exists():
+                    with open(path, 'rb') as f:
+                        return f.read()
+                else:
+                    # 当作字符串内容
+                    return self.content.encode('utf-8')
+            except:
+                # 当作字符串内容
+                return self.content.encode('utf-8')
         elif hasattr(self.content, 'read'):
-            return self._read_file_like_object()
+            # 文件对象
+            return self.content.read()
         else:
             return str(self.content).encode('utf-8')
     
-    def _read_file_like_object(self) -> bytes:
-        """Read content from file-like object."""
-        try:
-            if hasattr(self.content, 'seek'):
-                try:
-                    self.content.seek(0)
-                except (OSError, io.UnsupportedOperation):
-                    pass
-            
-            content_data = self.content.read()
-            
-            if isinstance(content_data, str):
-                return content_data.encode('utf-8')
-            elif isinstance(content_data, bytes):
-                return content_data
-            else:
-                return str(content_data).encode('utf-8')
-                
-        except Exception as e:
-            raise ValueError(f"Failed to read content from file-like object: {e}")
-    
-    def get_content_type(self) -> str:
-        """Get content type, auto-detecting if not specified."""
+    def get_content_type(self):
+        """Get content type for the file."""
         if self.content_type:
             return self.content_type
         
+        # 如果有文件名，尝试从扩展名猜测
         if self.filename:
-            guessed_type, _ = mimetypes.guess_type(self.filename)
-            if guessed_type:
-                return guessed_type
+            content_type, _ = mimetypes.guess_type(self.filename)
+            if content_type:
+                return content_type
         
+        # 根据内容类型猜测
+        if isinstance(self.content, str):
+            if self.content.strip().startswith(('<', '{')):
+                return 'text/plain'
+            return 'text/plain'
+        
+        # 默认为二进制流
         return 'application/octet-stream'
 
 
+def _process_single_file(file_spec: Any) -> FileUpload:
+    """处理单个文件规格 - 与 httpx 对齐"""
+    if isinstance(file_spec, FileUpload):
+        return file_spec
+    
+    elif isinstance(file_spec, bytes):
+        return FileUpload(content=file_spec)
+    
+    elif isinstance(file_spec, (str, Path)):
+        # 简单检查：如果是路径则作为文件，否则作为内容
+        if Path(file_spec).exists():
+            return FileUpload(content=file_spec, filename=Path(file_spec).name)
+        else:
+            return FileUpload(content=file_spec.encode('utf-8'))
+    
+    elif hasattr(file_spec, 'read'):
+        # 文件对象
+        filename = getattr(file_spec, 'name', None)
+        if filename:
+            filename = os.path.basename(filename)
+        return FileUpload(content=file_spec, filename=filename)
+    
+    elif isinstance(file_spec, (tuple, list)) and len(file_spec) >= 2:
+        # httpx 格式: (filename, content) 或 (filename, content, content_type)
+        filename = file_spec[0]
+        content = file_spec[1]
+        content_type = file_spec[2] if len(file_spec) > 2 else None
+        return FileUpload(content=content, filename=filename, content_type=content_type)
+    
+    else:
+        # 其他情况当作内容处理
+        return FileUpload(content=file_spec)
+
+
 def process_files_parameter(files: Optional[Dict[str, Any]]) -> Optional[Dict[str, FileUpload]]:
-    """Process files parameter to handle various httpx-compatible formats."""
+    """处理 files 参数 - 与 httpx 对齐"""
     if not files:
         return None
     
-    processed_files = {}
-    
-    for field_name, file_spec in files.items():
-        processed_files[field_name] = _process_single_file(file_spec)
-    
-    return processed_files
-
-
-def _process_single_file(file_spec: Any) -> FileUpload:
-    """Process a single file specification."""
-    if isinstance(file_spec, bytes):
-        return FileUpload(filename=None, content=file_spec)
-    
-    elif isinstance(file_spec, (str, Path)):
-        return _process_string_or_path(file_spec)
-    
-    elif hasattr(file_spec, 'read'):
-        return _process_file_like_object(file_spec)
-    
-    elif isinstance(file_spec, (tuple, list)) and len(file_spec) >= 2:
-        return _process_tuple_format(file_spec)
-    
-    else:
-        raise ValueError(f"Unsupported file specification: {type(file_spec)}")
+    return {field_name: _process_single_file(file_spec) 
+            for field_name, file_spec in files.items()}
 
 
 def _process_string_or_path(file_spec: Union[str, Path]) -> FileUpload:
-    """Process string or Path file specification."""
-    # Try as file path first for reasonable length strings
-    if len(str(file_spec)) < 260:
-        try:
-            file_path = Path(file_spec)
-            if file_path.exists() and file_path.is_file():
-                with open(file_path, 'rb') as f:
-                    content = f.read()
-                return FileUpload(filename=file_path.name, content=content)
-        except (OSError, PermissionError):
-            pass
-    
-    # Treat as string content
-    return FileUpload(filename=None, content=file_spec)
-
+    return _process_single_file(file_spec)
 
 def _process_file_like_object(file_spec) -> FileUpload:
-    """Process file-like object."""
-    filename = getattr(file_spec, 'name', None)
-    if filename and hasattr(filename, 'split'):
-        filename = os.path.basename(filename)
-    
-    return FileUpload(filename=filename, content=file_spec)
-
+    return _process_single_file(file_spec)
 
 def _process_tuple_format(file_spec) -> FileUpload:
-    """Process tuple format file specification."""
-    filename = file_spec[0]
-    content = file_spec[1]
-    content_type = file_spec[2] if len(file_spec) > 2 else None
-    
-    # Handle file path in content
-    if isinstance(content, (str, Path)) and len(str(content)) < 260:
-        try:
-            content_path = Path(content)
-            if content_path.exists():
-                with open(content_path, 'rb') as f:
-                    content = f.read()
-                if not filename:
-                    filename = content_path.name
-        except (OSError, PermissionError):
-            pass
-    
-    return FileUpload(filename=filename, content=content, content_type=content_type)
+    return _process_single_file(file_spec)
 
 
 # ==================== Response Classes ====================
 
 class StreamingResponse:
-    """Streaming response with httpx compatibility."""
+    """Streaming response wrapper - 真正的生产级流式处理"""
     
-    def __init__(self, response, request=None):
-        self._response = response
-        self._request = request
-        self._consumed = False
+    def __init__(self, rust_response):
+        """包装 Rust 的 StreamingHttpResponse"""
+        if isinstance(rust_response, _StreamingHttpResponse):
+            self._response = rust_response
+        else:
+            # 如果传入的是普通 HttpResponse，转换为说明
+            raise TypeError("StreamingResponse requires a StreamingHttpResponse from Rust")
+    
+    def __getattr__(self, name):
+        """代理所有属性到底层 Rust 响应"""
+        return getattr(self._response, name)
+    
+    # httpx 的标准流式方法 - 真正的流式处理
+    def iter_bytes(self, chunk_size: int = 8192):
+        """真正的流式字节迭代 - 直接对接 reqwest"""
+        while True:
+            chunk = self._response.read_chunk(chunk_size)
+            if chunk is None:
+                break
+            yield chunk
+    
+    def iter_text(self, chunk_size: int = 8192):
+        """真正的流式文本迭代 - 直接对接 reqwest"""
+        for bytes_chunk in self.iter_bytes(chunk_size):
+            # 使用响应的编码解码文本
+            encoding = self._response.encoding or 'utf-8'
+            try:
+                text_chunk = bytes_chunk.decode(encoding)
+                yield text_chunk
+            except UnicodeDecodeError:
+                # 如果解码失败，使用 utf-8 with 错误处理
+                text_chunk = bytes_chunk.decode('utf-8', errors='replace')
+                yield text_chunk
+    
+    def iter_lines(self):
+        """真正的流式行迭代 - 直接对接 reqwest"""
+        buffer = ""
+        for text_chunk in self.iter_text():
+            buffer += text_chunk
+            while '\n' in buffer:
+                line, buffer = buffer.split('\n', 1)
+                yield line.rstrip('\r')
         
+        # 处理最后一行（如果没有换行符结尾）
+        if buffer:
+            yield buffer.rstrip('\r')
+    
+    def iter_raw(self, chunk_size: int = 8192):
+        """真正的流式原始字节迭代 - 直接对接 reqwest"""
+        return self.iter_bytes(chunk_size)
+    
+    # httpx 的异步版本 - 基于真正的流式迭代器
+    async def aiter_bytes(self, chunk_size: int = 8192):
+        """异步字节迭代 - 基于真正的流式处理"""
+        for chunk in self.iter_bytes(chunk_size):
+            yield chunk
+    
+    async def aiter_text(self, chunk_size: int = 8192):
+        """异步文本迭代 - 基于真正的流式处理"""
+        for text in self.iter_text(chunk_size):
+            yield text
+    
+    async def aiter_lines(self):
+        """异步行迭代 - 基于真正的流式处理"""
+        for line in self.iter_lines():
+            yield line
+    
+    # Context manager 支持
     def __enter__(self):
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
-    
-    async def __aenter__(self):
-        return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.aclose()
-    
-    def _check_consumed(self):
-        """Check if response has been consumed."""
-        if self._consumed:
-            raise RuntimeError("Response stream has been consumed")
-    
-    # Delegate properties to underlying response
-    def __getattr__(self, name):
-        if name.startswith('_'):
-            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
-        return getattr(self._response, name)
-    
-    @property
-    def request(self):
-        return self._request
-    
-    def read(self) -> bytes:
-        """Read complete response content."""
-        self._check_consumed()
-        self._consumed = True
-        return self._response.content
-    
-    def iter_bytes(self, chunk_size: int = 8192):
-        """Iterate response bytes."""
-        self._check_consumed()
-        self._consumed = True
-        return self._response.iter_bytes(chunk_size)
-    
-    def iter_text(self, chunk_size: int = 8192):
-        """Iterate response text."""
-        self._check_consumed()
-        self._consumed = True
-        return self._response.iter_text(chunk_size)
-    
-    def iter_lines(self):
-        """Iterate response lines."""
-        self._check_consumed()
-        self._consumed = True
-        return self._response.iter_lines()
-    
-    def iter_raw(self, chunk_size: int = 8192):
-        """Iterate raw response content."""
-        return self.iter_bytes(chunk_size)
-    
-    async def aiter_bytes(self, chunk_size: int = 8192):
-        """Async iterate response bytes."""
-        self._check_consumed()
-        self._consumed = True
-        # Simulate async iteration for now
-        for chunk in self._response.iter_bytes(chunk_size):
-            yield chunk
-    
-    async def aiter_text(self, chunk_size: int = 8192):
-        """Async iterate response text."""
-        self._check_consumed()
-        self._consumed = True
-        for text in self._response.iter_text(chunk_size):
-            yield text
-    
-    async def aiter_lines(self):
-        """Async iterate response lines."""
-        self._check_consumed()
-        self._consumed = True
-        for line in self._response.iter_lines():
-            yield line
-    
-    def iter_sse_events(self):
-        """Iterate Server-Sent Events."""
-        self._check_consumed()
-        self._consumed = True
-        
-        current_event = {}
-        for line in self.iter_lines():
-            line = line.strip()
-            
-            if not line:
-                if current_event:
-                    yield SSEEvent(**current_event)
-                    current_event = {}
-                continue
-            
-            if line.startswith(':'):
-                continue
-            
-            if ':' in line:
-                field, value = line.split(':', 1)
-                value = value.lstrip()
-            else:
-                field, value = line, ''
-            
-            if field == 'data':
-                if 'data' in current_event:
-                    current_event['data'] += '\n' + value
-                else:
-                    current_event['data'] = value
-            elif field in ('event', 'id', 'retry'):
-                current_event[field] = value
-        
-        if current_event:
-            yield SSEEvent(**current_event)
-    
-    async def aiter_sse_events(self):
-        """Async iterate Server-Sent Events."""
-        async for line in self.aiter_lines():
-            # Implementation similar to iter_sse_events
-            pass
+        return False
     
     def close(self):
-        """Close the response."""
-        self._consumed = True
-        if hasattr(self._response, 'close'):
-            self._response.close()
+        """关闭流式响应"""
+        self._response.close()
     
-    async def aclose(self):
-        """Async close the response."""
-        self._consumed = True
-        if hasattr(self._response, 'aclose'):
-            await self._response.aclose()
-        elif hasattr(self._response, 'close'):
-            self._response.close()
+    @property
+    def is_closed(self):
+        """检查是否已关闭"""
+        return self._response.is_closed
     
-    def raise_for_status(self):
-        """Check status and raise exception if needed."""
-        return self._response.raise_for_status()
+    def read(self, chunk_size: int = 8192):
+        """读取下一个数据块"""
+        return self._response.read_chunk(chunk_size)
 
 
-class SSEEvent:
-    """Server-Sent Event."""
-    
-    def __init__(self, data='', event=None, id=None, retry=None):
-        self.data = data
-        self.event = event
-        self.id = id
-        self.retry = int(retry) if retry else None
-    
-    def __repr__(self):
-        return f"SSEEvent(data={self.data!r}, event={self.event!r}, id={self.id!r})"
-    
-    def json(self):
-        """Parse data field as JSON."""
-        import json
-        return json.loads(self.data)
+# SSE 功能由用户基于 iter_lines() 自己实现，与 httpx 对齐
 
 
 class Response(Protocol):
@@ -731,16 +637,22 @@ class AsyncClient:
 # ==================== Global Functions ====================
 
 def stream(method: str, url: str, **kwargs) -> StreamingResponse:
-    """Send a streaming request."""
-    with Client() as client:
-        request = client.build_request(
-            method, url, 
-            params=_process_params(kwargs.get('params')), 
-            headers=_process_headers(kwargs.get('headers')), 
-            content=kwargs.get('content')
-        )
-        response = client.send(request)
-        return StreamingResponse(response, request)
+    """Send a streaming request - 真正的生产级流式处理."""
+    rust_response = _stream(
+        method,
+        url,
+        content=kwargs.get('content'),
+        data=kwargs.get('data'),
+        json=kwargs.get('json'),
+        files=_prepare_files(kwargs.get('files')),
+        params=_process_params(kwargs.get('params')),
+        headers=_process_headers(kwargs.get('headers')),
+        timeout=_process_timeout(kwargs.get('timeout')),
+        auth=_process_auth(kwargs.get('auth')),
+        follow_redirects=kwargs.get('follow_redirects'),
+        cookies=_process_cookies(kwargs.get('cookies')),
+    )
+    return StreamingResponse(rust_response)
 
 
 def get(url: str, **kwargs) -> "Response":
@@ -846,6 +758,10 @@ def options(url: str, **kwargs) -> "Response":
     )
 
 
+# ==================== 与 httpx 完全对齐的实现 ====================
+# 不添加 httpx 没有的功能，保持接口一致性
+
+
 def main():
     """Entry point for the faster-http CLI."""
     print("faster-http: High-performance HTTP client powered by Rust")
@@ -854,3 +770,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# httpx 使用 client.stream() 或 httpx.stream() 进行流式处理
+# 不添加额外的自定义函数
