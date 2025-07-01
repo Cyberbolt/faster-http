@@ -1,12 +1,13 @@
 use pyo3::prelude::*;
-use pyo3::{exceptions::PyException, PyResult};
-use pyo3_asyncio::tokio::future_into_py;
-use reqwest::{Client, Method, Url};
-use serde_json::Value;
+use pyo3::exceptions::{PyException, PyValueError};
+use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
+use tokio::runtime::Runtime;
 use bytes::Bytes;
+use serde_json::Value;
+use pyo3_asyncio::tokio::future_into_py;
 
 // 创建自定义异常类型
 pyo3::create_exception!(faster_http, HTTPError, PyException);
@@ -20,7 +21,7 @@ static GLOBAL_CLIENT: OnceLock<Arc<Client>> = OnceLock::new();
 fn get_global_client() -> Arc<Client> {
     GLOBAL_CLIENT.get_or_init(|| {
         Arc::new(Client::builder()
-            .redirect(reqwest::redirect::Policy::none()) // 全局客户端不自动重定向，由参数控制
+            .redirect(reqwest::redirect::Policy::limited(10)) // 全局客户端默认跟随重定向
             .build()
             .expect("Failed to create global client"))
     }).clone()
@@ -44,6 +45,8 @@ pub struct HttpResponse {
     url: String,
     elapsed: f64,
     is_redirect_status: bool,
+    http_version: String,
+    cookies: HashMap<String, String>,
 }
 
 #[pymethods]
@@ -65,7 +68,7 @@ impl HttpResponse {
 
     #[getter]
     pub fn ok(&self) -> bool {
-        self.status_code >= 200 && self.status_code < 300
+        (200..300).contains(&self.status_code)
     }
 
     #[getter]
@@ -76,7 +79,7 @@ impl HttpResponse {
     #[getter]
     pub fn text(&self) -> PyResult<String> {
         String::from_utf8(self.body.to_vec())
-            .map_err(|e| RequestError::new_err(format!("Invalid UTF-8: {}", e)))
+            .map_err(|e| PyValueError::new_err(format!("Failed to decode response as UTF-8: {}", e)))
     }
 
     #[getter]
@@ -86,7 +89,7 @@ impl HttpResponse {
 
     #[getter]
     pub fn is_client_error(&self) -> bool {
-        self.status_code >= 400 && self.status_code < 500
+        (400..500).contains(&self.status_code)
     }
 
     #[getter]
@@ -99,27 +102,35 @@ impl HttpResponse {
         self.is_redirect_status
     }
 
+    #[getter]
+    pub fn http_version(&self) -> &str {
+        &self.http_version
+    }
+
+    #[getter]
+    pub fn cookies(&self) -> HashMap<String, String> {
+        self.cookies.clone()
+    }
+
     pub fn json(&self, py: Python) -> PyResult<PyObject> {
-        let text = self.text()?;
-        let value: Value = serde_json::from_str(&text)
-            .map_err(|e| RequestError::new_err(format!("JSON decode error: {}", e)))?;
-        pythonize::pythonize(py, &value)
-            .map_err(|e| RequestError::new_err(format!("Python conversion error: {}", e)))
+        let json_str = self.text()?;
+        let json_value: Value = serde_json::from_str(&json_str)
+            .map_err(|e| PyValueError::new_err(format!("Failed to parse JSON: {}", e)))?;
+        pythonize::pythonize(py, &json_value)
+            .map_err(|e| PyValueError::new_err(format!("Failed to convert JSON to Python: {}", e)))
     }
 
     pub fn raise_for_status(&self) -> PyResult<()> {
         if self.status_code >= 400 {
             return Err(HTTPError::new_err(format!(
-                "HTTP {} Error: {} for url: {}",
-                self.status_code,
-                self.status_code,
-                self.url
+                "HTTP {} error for url: {}",
+                self.status_code, self.url
             )));
         }
         Ok(())
     }
 
-    pub fn __repr__(&self) -> String {
+    fn __repr__(&self) -> String {
         format!("<Response [{}]>", self.status_code)
     }
 }
@@ -140,6 +151,8 @@ pub struct HttpClient {
     default_headers: HashMap<String, String>,
     follow_redirects: bool,
     auth: Option<AuthType>,
+    proxy: Option<String>,
+    default_cookies: HashMap<String, String>,
 }
 
 #[pymethods]
@@ -152,18 +165,28 @@ impl HttpClient {
         verify: Option<bool>,
         follow_redirects: Option<bool>,
         auth: Option<(String, String)>,
+        proxy: Option<String>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<Self> {
         let verify = verify.unwrap_or(true);
         let follow_redirects = follow_redirects.unwrap_or(true);
         
-        let client = Client::builder()
+        let mut builder = Client::builder()
             .danger_accept_invalid_certs(!verify)
             .redirect(if follow_redirects { 
                 reqwest::redirect::Policy::limited(10) 
             } else { 
                 reqwest::redirect::Policy::none() 
-            })
-            .build()
+            });
+
+        // 添加代理支持
+        if let Some(proxy_url) = &proxy {
+            let proxy = reqwest::Proxy::all(proxy_url)
+                .map_err(|e| RequestError::new_err(format!("Invalid proxy URL: {}", e)))?;
+            builder = builder.proxy(proxy);
+        }
+
+        let client = builder.build()
             .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))?;
 
         let auth_type = auth.map(|(username, password)| AuthType::Basic { username, password });
@@ -175,6 +198,8 @@ impl HttpClient {
             default_headers: headers.unwrap_or_default(),
             follow_redirects,
             auth: auth_type,
+            proxy,
+            default_cookies: cookies.unwrap_or_default(),
         })
     }
 
@@ -205,10 +230,43 @@ impl HttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
         let rt = get_runtime();
-        rt.block_on(self._async_request(
-            method, url, content, data, json, files, params, headers, timeout, auth, follow_redirects
+        
+        // 合并 cookies
+        let merged_cookies = match cookies {
+            Some(request_cookies) => {
+                let mut merged = self.default_cookies.clone();
+                merged.extend(request_cookies);
+                Some(merged)
+            }
+            None if !self.default_cookies.is_empty() => Some(self.default_cookies.clone()),
+            _ => None,
+        };
+
+        rt.block_on(build_and_send_request(
+            &self.client,
+            method, 
+            url, 
+            content, 
+            data, 
+            json, 
+            files, 
+            params, 
+            headers, 
+            timeout, 
+            &self.base_url, 
+            &self.default_headers, 
+            self.default_timeout, 
+            auth.or_else(|| {
+                match &self.auth {
+                    Some(AuthType::Basic { username, password }) => Some((username.clone(), password.clone())),
+                    _ => None,
+                }
+            }), 
+            follow_redirects.unwrap_or(self.follow_redirects),
+            merged_cookies
         ))
     }
 
@@ -220,8 +278,9 @@ impl HttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        self._request("GET", url, None, None, None, None, params, headers, timeout, auth, follow_redirects)
+        self._request("GET", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
     }
 
     pub fn post(
@@ -236,8 +295,9 @@ impl HttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        self._request("POST", url, content, data, json, files, params, headers, timeout, auth, follow_redirects)
+        self._request("POST", url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
     }
 
     pub fn put(
@@ -252,8 +312,9 @@ impl HttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        self._request("PUT", url, content, data, json, files, params, headers, timeout, auth, follow_redirects)
+        self._request("PUT", url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
     }
 
     pub fn patch(
@@ -268,8 +329,9 @@ impl HttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        self._request("PATCH", url, content, data, json, files, params, headers, timeout, auth, follow_redirects)
+        self._request("PATCH", url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
     }
 
     pub fn delete(
@@ -280,8 +342,9 @@ impl HttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        self._request("DELETE", url, None, None, None, None, params, headers, timeout, auth, follow_redirects)
+        self._request("DELETE", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
     }
 
     pub fn head(
@@ -292,8 +355,9 @@ impl HttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        self._request("HEAD", url, None, None, None, None, params, headers, timeout, auth, follow_redirects)
+        self._request("HEAD", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
     }
 
     pub fn options(
@@ -304,8 +368,9 @@ impl HttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        self._request("OPTIONS", url, None, None, None, None, params, headers, timeout, auth, follow_redirects)
+        self._request("OPTIONS", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
     }
 }
 
@@ -346,11 +411,12 @@ impl HttpClient {
                 }
             }),
             follow_redirects.unwrap_or(self.follow_redirects),
+            Some(self.default_cookies.clone()),
         ).await
     }
 }
 
-// 通用请求构建和发送函数
+// 核心请求构建和发送函数
 async fn build_and_send_request(
     client: &Client,
     method: &str,
@@ -366,39 +432,66 @@ async fn build_and_send_request(
     default_headers: &HashMap<String, String>,
     default_timeout: Option<Duration>,
     auth: Option<(String, String)>,
-    _follow_redirects: bool,  // 重定向策略已在客户端创建时配置
+    follow_redirects: bool,  // 移除下划线，正确处理重定向参数
+    cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let start_time = Instant::now();
-    
-    let method = Method::from_bytes(method.as_bytes())
-        .map_err(|e| RequestError::new_err(format!("Invalid method: {}", e)))?;
 
+    // 根据 follow_redirects 选择合适的客户端
+    let actual_client;
+    let client_to_use = if !follow_redirects {
+        // 如果不跟随重定向，创建临时客户端
+        actual_client = Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| RequestError::new_err(format!("Failed to create no-redirect client: {}", e)))?;
+        &actual_client
+    } else {
+        // 使用默认客户端（跟随重定向）
+        client
+    };
+
+    // 构建URL
     let full_url = if let Some(base) = base_url {
-        format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'))
+        if url.starts_with("http://") || url.starts_with("https://") {
+            url.to_string()
+        } else {
+            format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'))
+        }
     } else {
         url.to_string()
     };
 
-    let mut url_with_params = Url::parse(&full_url)
-        .map_err(|e| RequestError::new_err(format!("Invalid URL: {}", e)))?;
+    // 创建请求构建器
+    let method = method.parse::<reqwest::Method>()
+        .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
+    
+    let mut request = client_to_use.request(method, &full_url);
 
+    // 添加查询参数
     if let Some(params) = params {
-        for (key, value) in params {
-            url_with_params.query_pairs_mut().append_pair(&key, &value);
-        }
+        request = request.query(&params);
     }
 
-    let mut request = client.request(method, url_with_params);
-
-    // 设置默认headers
+    // 合并header
     for (key, value) in default_headers {
         request = request.header(key, value);
     }
-
-    // 设置请求特定的headers
     if let Some(headers) = headers {
         for (key, value) in headers {
             request = request.header(key, value);
+        }
+    }
+
+    // 添加 cookies 到请求头
+    if let Some(cookie_map) = cookies {
+        if !cookie_map.is_empty() {
+            let cookie_string = cookie_map
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join("; ");
+            request = request.header("Cookie", cookie_string);
         }
     }
 
@@ -432,8 +525,8 @@ async fn build_and_send_request(
             .body(form_string);
     }
 
-    // 手动处理重定向
-    let mut response = request.send().await
+    // 发送请求
+    let response = request.send().await
         .map_err(|e| {
             if e.is_timeout() {
                 ReadTimeout::new_err(format!("Request timeout: {}", e))
@@ -444,42 +537,21 @@ async fn build_and_send_request(
             }
         })?;
 
-    // 如果启用了重定向跟踪，手动处理重定向
-    let mut redirect_count = 0;
-    const MAX_REDIRECTS: usize = 10;
-    
-    while _follow_redirects && redirect_count < MAX_REDIRECTS {
-        let status = response.status();
-        if status.is_redirection() {
-            if let Some(location) = response.headers().get("location") {
-                if let Ok(location_str) = location.to_str() {
-                    redirect_count += 1;
-                    
-                    // 创建新的请求到重定向位置
-                    let redirect_url = if location_str.starts_with("http") {
-                        location_str.to_string()
-                    } else {
-                        // 相对URL，需要结合原URL
-                        let base_url = response.url();
-                        base_url.join(location_str).map_err(|e| RequestError::new_err(format!("Invalid redirect URL: {}", e)))?.to_string()
-                    };
-                    
-                    let redirect_request = client.request(reqwest::Method::GET, &redirect_url)
-                        .timeout(timeout_duration);
-                    
-                    response = redirect_request.send().await
-                        .map_err(|e| RequestError::new_err(format!("Redirect request failed: {}", e)))?;
-                    continue;
-                }
-            }
-        }
-        break;
-    }
-
-    // 先获取response的信息再读取body
+    // 获取响应信息
     let status_code = response.status().as_u16();
     let url = response.url().to_string();
-    let headers = response
+    
+    // 获取 HTTP 版本
+    let http_version = match response.version() {
+        reqwest::Version::HTTP_09 => "HTTP/0.9".to_string(),
+        reqwest::Version::HTTP_10 => "HTTP/1.0".to_string(),
+        reqwest::Version::HTTP_11 => "HTTP/1.1".to_string(),
+        reqwest::Version::HTTP_2 => "HTTP/2".to_string(),
+        reqwest::Version::HTTP_3 => "HTTP/3".to_string(),
+        _ => "Unknown".to_string(),
+    };
+    
+    let headers: HashMap<String, String> = response
         .headers()
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
@@ -489,17 +561,37 @@ async fn build_and_send_request(
         .map_err(|e| RequestError::new_err(format!("Failed to read response body: {}", e)))?;
 
     let elapsed = start_time.elapsed().as_secs_f64();
-
     let is_redirect_status = matches!(status_code, 301 | 302 | 303 | 307 | 308);
 
     Ok(HttpResponse {
         status_code,
-        headers,
+        headers: headers.clone(),
         body,
         url,
         elapsed,
         is_redirect_status,
+        http_version,
+        cookies: parse_cookies_from_headers(&headers),
     })
+}
+
+// 辅助函数：解析 cookies 从响应头
+fn parse_cookies_from_headers(headers: &HashMap<String, String>) -> HashMap<String, String> {
+    let mut cookies = HashMap::new();
+    
+    // 从 Set-Cookie 头中提取 cookies
+    for (key, value) in headers {
+        if key.to_lowercase() == "set-cookie" {
+            // 简单的 cookie 解析，只提取 name=value 部分
+            if let Some(cookie_pair) = value.split(';').next() {
+                if let Some((name, val)) = cookie_pair.split_once('=') {
+                    cookies.insert(name.trim().to_string(), val.trim().to_string());
+                }
+            }
+        }
+    }
+    
+    cookies
 }
 
 // 构建 multipart form 用于文件上传
@@ -537,6 +629,8 @@ pub struct AsyncHttpClient {
     default_headers: HashMap<String, String>,
     follow_redirects: bool,
     auth: Option<AuthType>,
+    proxy: Option<String>,
+    default_cookies: HashMap<String, String>,
 }
 
 #[pymethods]
@@ -549,18 +643,28 @@ impl AsyncHttpClient {
         verify: Option<bool>,
         follow_redirects: Option<bool>,
         auth: Option<(String, String)>,
+        proxy: Option<String>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<Self> {
         let verify = verify.unwrap_or(true);
         let follow_redirects = follow_redirects.unwrap_or(true);
         
-        let client = Client::builder()
+        let mut builder = Client::builder()
             .danger_accept_invalid_certs(!verify)
             .redirect(if follow_redirects { 
                 reqwest::redirect::Policy::limited(10) 
             } else { 
                 reqwest::redirect::Policy::none() 
-            })
-            .build()
+            });
+
+        // 添加代理支持
+        if let Some(proxy_url) = &proxy {
+            let proxy = reqwest::Proxy::all(proxy_url)
+                .map_err(|e| RequestError::new_err(format!("Invalid proxy URL: {}", e)))?;
+            builder = builder.proxy(proxy);
+        }
+
+        let client = builder.build()
             .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))?;
 
         let auth_type = auth.map(|(username, password)| AuthType::Basic { username, password });
@@ -572,6 +676,8 @@ impl AsyncHttpClient {
             default_headers: headers.unwrap_or_default(),
             follow_redirects,
             auth: auth_type,
+            proxy,
+            default_cookies: cookies.unwrap_or_default(),
         })
     }
 
@@ -603,6 +709,7 @@ impl AsyncHttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
         let client = self.client.clone();
         let base_url = self.base_url.clone();
@@ -610,9 +717,21 @@ impl AsyncHttpClient {
         let default_headers = self.default_headers.clone();
         let client_auth = self.auth.clone();
         let client_follow_redirects = self.follow_redirects;
+        let default_cookies = self.default_cookies.clone();
         let method = method.to_string(); // 克隆方法字符串以避免生命周期问题
 
         future_into_py(py, async move {
+            // 合并 cookies
+            let merged_cookies = match cookies {
+                Some(request_cookies) => {
+                    let mut merged = default_cookies;
+                    merged.extend(request_cookies);
+                    Some(merged)
+                }
+                None if !default_cookies.is_empty() => Some(default_cookies),
+                _ => None,
+            };
+
             build_and_send_request(
                 &client,
                 &method,
@@ -634,6 +753,7 @@ impl AsyncHttpClient {
                     }
                 }),
                 follow_redirects.unwrap_or(client_follow_redirects),
+                merged_cookies,
             ).await
         })
     }
@@ -647,8 +767,9 @@ impl AsyncHttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
-        self._async_request(py, "GET", url, None, None, None, None, params, headers, timeout, auth, follow_redirects)
+        self._async_request(py, "GET", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
     }
 
     pub fn post<'py>(
@@ -664,8 +785,9 @@ impl AsyncHttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
-        self._async_request(py, "POST", url, content, data, json, files, params, headers, timeout, auth, follow_redirects)
+        self._async_request(py, "POST", url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
     }
 
     pub fn put<'py>(
@@ -681,8 +803,9 @@ impl AsyncHttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
-        self._async_request(py, "PUT", url, content, data, json, files, params, headers, timeout, auth, follow_redirects)
+        self._async_request(py, "PUT", url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
     }
 
     pub fn patch<'py>(
@@ -698,8 +821,9 @@ impl AsyncHttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
-        self._async_request(py, "PATCH", url, content, data, json, files, params, headers, timeout, auth, follow_redirects)
+        self._async_request(py, "PATCH", url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
     }
 
     pub fn delete<'py>(
@@ -711,8 +835,9 @@ impl AsyncHttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
-        self._async_request(py, "DELETE", url, None, None, None, None, params, headers, timeout, auth, follow_redirects)
+        self._async_request(py, "DELETE", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
     }
 
     pub fn head<'py>(
@@ -724,8 +849,9 @@ impl AsyncHttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
-        self._async_request(py, "HEAD", url, None, None, None, None, params, headers, timeout, auth, follow_redirects)
+        self._async_request(py, "HEAD", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
     }
 
     pub fn options<'py>(
@@ -737,8 +863,9 @@ impl AsyncHttpClient {
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
-        self._async_request(py, "OPTIONS", url, None, None, None, None, params, headers, timeout, auth, follow_redirects)
+        self._async_request(py, "OPTIONS", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
     }
 }
 
@@ -809,12 +936,13 @@ pub fn get(
     timeout: Option<f64>,
     auth: Option<(String, String)>,
     follow_redirects: Option<bool>,
+    cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let rt = get_runtime();
     let client = get_global_client();
     rt.block_on(build_and_send_request(
         &client, "GET", url, None, None, None, None, params, headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true)
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 }
 
@@ -830,12 +958,13 @@ pub fn post(
     timeout: Option<f64>,
     auth: Option<(String, String)>,
     follow_redirects: Option<bool>,
+    cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let rt = get_runtime();
     let client = get_global_client();
     rt.block_on(build_and_send_request(
         &client, "POST", url, content, data, json, files, params, headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true)
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 }
 
@@ -851,12 +980,13 @@ pub fn put(
     timeout: Option<f64>,
     auth: Option<(String, String)>,
     follow_redirects: Option<bool>,
+    cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let rt = get_runtime();
     let client = get_global_client();
     rt.block_on(build_and_send_request(
         &client, "PUT", url, content, data, json, files, params, headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true)
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 }
 
@@ -872,12 +1002,13 @@ pub fn patch(
     timeout: Option<f64>,
     auth: Option<(String, String)>,
     follow_redirects: Option<bool>,
+    cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let rt = get_runtime();
     let client = get_global_client();
     rt.block_on(build_and_send_request(
         &client, "PATCH", url, content, data, json, files, params, headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true)
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 }
 
@@ -889,12 +1020,13 @@ pub fn delete(
     timeout: Option<f64>,
     auth: Option<(String, String)>,
     follow_redirects: Option<bool>,
+    cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let rt = get_runtime();
     let client = get_global_client();
     rt.block_on(build_and_send_request(
         &client, "DELETE", url, None, None, None, None, params, headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true)
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 }
 
@@ -906,12 +1038,13 @@ pub fn head(
     timeout: Option<f64>,
     auth: Option<(String, String)>,
     follow_redirects: Option<bool>,
+    cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let rt = get_runtime();
     let client = get_global_client();
     rt.block_on(build_and_send_request(
         &client, "HEAD", url, None, None, None, None, params, headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true)
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 }
 
@@ -923,12 +1056,13 @@ pub fn options(
     timeout: Option<f64>,
     auth: Option<(String, String)>,
     follow_redirects: Option<bool>,
+    cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let rt = get_runtime();
     let client = get_global_client();
     rt.block_on(build_and_send_request(
         &client, "OPTIONS", url, None, None, None, None, params, headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true)
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 }
 

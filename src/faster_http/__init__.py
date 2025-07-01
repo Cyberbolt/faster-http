@@ -5,8 +5,7 @@ This library provides a drop-in replacement for httpx with significantly better 
 by leveraging Rust's reqwest library through PyO3 bindings.
 """
 
-from typing import Any, Dict, Optional, Union, Mapping, TypeAlias, Protocol, Tuple
-import asyncio
+from typing import Any, Dict, Optional, TypeAlias, Protocol, Tuple
 from ._core import (
     HttpClient as _HttpClient,
     AsyncHttpClient as _AsyncHttpClient,
@@ -39,6 +38,7 @@ JSON: TypeAlias = Optional[Dict[str, Any]]
 Files: TypeAlias = Optional[Dict[str, Any]]
 Timeout: TypeAlias = Optional[float]
 Auth: TypeAlias = Optional[Tuple[str, str]]
+Cookies: TypeAlias = Optional[Dict[str, str]]
 
 # Response Protocol 定义
 class Response(Protocol):
@@ -94,6 +94,16 @@ class Response(Protocol):
         """True if status_code indicates a redirect (3xx)."""
         ...
     
+    @property
+    def http_version(self) -> str:
+        """HTTP version used for the response."""
+        ...
+    
+    @property
+    def cookies(self) -> Dict[str, str]:
+        """Cookies set by the response."""
+        ...
+    
     def json(self) -> Any:
         """Parse response content as JSON."""
         ...
@@ -116,6 +126,8 @@ class AsyncClient:
         verify: Whether to verify SSL certificates (default: True)
         follow_redirects: Whether to automatically follow redirects (default: True)
         auth: Default authentication tuple (username, password)
+        proxy: Proxy server URL (e.g., "http://proxy.example.com:8080")
+        cookies: Default cookies to include with all requests
     """
     
     def __init__(
@@ -127,6 +139,8 @@ class AsyncClient:
         verify: bool = True,
         follow_redirects: bool = True,
         auth: Auth = None,
+        proxy: Optional[str] = None,
+        cookies: Cookies = None,
     ):
         self._client = _AsyncHttpClient(
             base_url=base_url,
@@ -135,6 +149,8 @@ class AsyncClient:
             verify=verify,
             follow_redirects=follow_redirects,
             auth=auth,
+            proxy=proxy,
+            cookies=cookies,
         )
     
     async def __aenter__(self):
@@ -157,11 +173,12 @@ class AsyncClient:
         timeout: Timeout = None,
         auth: Auth = None,
         follow_redirects: Optional[bool] = None,
+        cookies: Cookies = None,
     ) -> Response:
         """Send a GET request asynchronously."""
         return await self._client.get(
             url, params=params, headers=headers, timeout=timeout, 
-            auth=auth, follow_redirects=follow_redirects
+            auth=auth, follow_redirects=follow_redirects, cookies=cookies
         )
     
     async def post(
@@ -177,12 +194,13 @@ class AsyncClient:
         timeout: Timeout = None,
         auth: Auth = None,
         follow_redirects: Optional[bool] = None,
+        cookies: Cookies = None,
     ) -> Response:
         """Send a POST request asynchronously."""
         return await self._client.post(
             url, content=content, data=data, json=json, files=files,
             params=params, headers=headers, timeout=timeout,
-            auth=auth, follow_redirects=follow_redirects
+            auth=auth, follow_redirects=follow_redirects, cookies=cookies
         )
     
     async def put(
@@ -198,12 +216,13 @@ class AsyncClient:
         timeout: Timeout = None,
         auth: Auth = None,
         follow_redirects: Optional[bool] = None,
+        cookies: Cookies = None,
     ) -> Response:
         """Send a PUT request asynchronously."""
         return await self._client.put(
             url, content=content, data=data, json=json, files=files,
             params=params, headers=headers, timeout=timeout,
-            auth=auth, follow_redirects=follow_redirects
+            auth=auth, follow_redirects=follow_redirects, cookies=cookies
         )
     
     async def patch(
@@ -219,12 +238,13 @@ class AsyncClient:
         timeout: Timeout = None,
         auth: Auth = None,
         follow_redirects: Optional[bool] = None,
+        cookies: Cookies = None,
     ) -> Response:
         """Send a PATCH request asynchronously."""
         return await self._client.patch(
             url, content=content, data=data, json=json, files=files,
             params=params, headers=headers, timeout=timeout,
-            auth=auth, follow_redirects=follow_redirects
+            auth=auth, follow_redirects=follow_redirects, cookies=cookies
         )
     
     async def delete(
@@ -236,11 +256,12 @@ class AsyncClient:
         timeout: Timeout = None,
         auth: Auth = None,
         follow_redirects: Optional[bool] = None,
+        cookies: Cookies = None,
     ) -> Response:
         """Send a DELETE request asynchronously."""
         return await self._client.delete(
             url, params=params, headers=headers, timeout=timeout,
-            auth=auth, follow_redirects=follow_redirects
+            auth=auth, follow_redirects=follow_redirects, cookies=cookies
         )
     
     async def head(
@@ -252,11 +273,12 @@ class AsyncClient:
         timeout: Timeout = None,
         auth: Auth = None,
         follow_redirects: Optional[bool] = None,
+        cookies: Cookies = None,
     ) -> Response:
         """Send a HEAD request asynchronously."""
         return await self._client.head(
             url, params=params, headers=headers, timeout=timeout,
-            auth=auth, follow_redirects=follow_redirects
+            auth=auth, follow_redirects=follow_redirects, cookies=cookies
         )
     
     async def options(
@@ -268,11 +290,12 @@ class AsyncClient:
         timeout: Timeout = None,
         auth: Auth = None,
         follow_redirects: Optional[bool] = None,
+        cookies: Cookies = None,
     ) -> Response:
         """Send an OPTIONS request asynchronously."""
         return await self._client.options(
             url, params=params, headers=headers, timeout=timeout,
-            auth=auth, follow_redirects=follow_redirects
+            auth=auth, follow_redirects=follow_redirects, cookies=cookies
         )
 
 
@@ -285,9 +308,10 @@ def get(
     timeout: Timeout = None,
     auth: Auth = None,
     follow_redirects: Optional[bool] = None,
+    cookies: Cookies = None,
 ) -> Response:
     """Send a GET request."""
-    return _get(url, params, headers, timeout, auth, follow_redirects)
+    return _get(url, params, headers, timeout, auth, follow_redirects, cookies)
 
 
 def post(
@@ -302,9 +326,10 @@ def post(
     timeout: Timeout = None,
     auth: Auth = None,
     follow_redirects: Optional[bool] = None,
+    cookies: Cookies = None,
 ) -> Response:
     """Send a POST request."""
-    return _post(url, content, data, json, files, params, headers, timeout, auth, follow_redirects)
+    return _post(url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
 
 
 def put(
@@ -319,9 +344,10 @@ def put(
     timeout: Timeout = None,
     auth: Auth = None,
     follow_redirects: Optional[bool] = None,
+    cookies: Cookies = None,
 ) -> Response:
     """Send a PUT request."""
-    return _put(url, content, data, json, files, params, headers, timeout, auth, follow_redirects)
+    return _put(url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
 
 
 def patch(
@@ -336,9 +362,10 @@ def patch(
     timeout: Timeout = None,
     auth: Auth = None,
     follow_redirects: Optional[bool] = None,
+    cookies: Cookies = None,
 ) -> Response:
     """Send a PATCH request."""
-    return _patch(url, content, data, json, files, params, headers, timeout, auth, follow_redirects)
+    return _patch(url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
 
 
 def delete(
@@ -349,9 +376,10 @@ def delete(
     timeout: Timeout = None,
     auth: Auth = None,
     follow_redirects: Optional[bool] = None,
+    cookies: Cookies = None,
 ) -> Response:
     """Send a DELETE request."""
-    return _delete(url, params, headers, timeout, auth, follow_redirects)
+    return _delete(url, params, headers, timeout, auth, follow_redirects, cookies)
 
 
 def head(
@@ -362,9 +390,10 @@ def head(
     timeout: Timeout = None,
     auth: Auth = None,
     follow_redirects: Optional[bool] = None,
+    cookies: Cookies = None,
 ) -> Response:
     """Send a HEAD request."""
-    return _head(url, params, headers, timeout, auth, follow_redirects)
+    return _head(url, params, headers, timeout, auth, follow_redirects, cookies)
 
 
 def options(
@@ -375,9 +404,10 @@ def options(
     timeout: Timeout = None,
     auth: Auth = None,
     follow_redirects: Optional[bool] = None,
+    cookies: Cookies = None,
 ) -> Response:
     """Send an OPTIONS request."""
-    return _options(url, params, headers, timeout, auth, follow_redirects)
+    return _options(url, params, headers, timeout, auth, follow_redirects, cookies)
 
 
 def main():
