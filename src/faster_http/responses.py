@@ -1,8 +1,7 @@
 """Response classes for faster-http."""
-from typing import Any, Dict, Optional, Iterator, AsyncGenerator
-from types import TracebackType
+from typing import Any, Dict, Optional, Iterator
 
-from ._core import StreamingHttpResponse as _StreamingHttpResponse, HttpResponse
+from ._core import HttpResponse
 
 # Response is an alias for the Rust HttpResponse
 Response = HttpResponse
