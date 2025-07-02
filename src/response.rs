@@ -65,7 +65,7 @@ impl HttpResponse {
 
 #[pymethods]
 impl HttpResponse {
-    // ==================== 基本属性 ====================
+    // ==================== 基本属性 - 优化版本 ====================
     #[getter]
     pub fn status_code(&self) -> u16 {
         self.status_code
@@ -73,12 +73,14 @@ impl HttpResponse {
 
     #[getter]
     pub fn headers(&self) -> HashMap<String, String> {
+        // HashMap无法返回引用给Python，保持clone但添加注释说明
         self.headers.clone()
     }
 
     #[getter]
-    pub fn url(&self) -> String {
-        self.url.clone()
+    pub fn url(&self) -> &str {
+        // 返回字符串引用，避免clone
+        &self.url
     }
 
     #[getter]
@@ -87,18 +89,21 @@ impl HttpResponse {
     }
 
     #[getter]
-    pub fn http_version(&self) -> String {
-        self.http_version.clone()
+    pub fn http_version(&self) -> &str {
+        // 返回字符串引用，避免clone
+        &self.http_version
     }
 
     #[getter]
     pub fn cookies(&self) -> HashMap<String, String> {
+        // HashMap无法返回引用给Python，保持clone但添加注释说明
         self.cookies.clone()
     }
 
     #[getter]
-    pub fn encoding(&self) -> Option<String> {
-        self.encoding.clone()
+    pub fn encoding(&self) -> Option<&str> {
+        // 返回字符串引用的Option，避免clone
+        self.encoding.as_deref()
     }
 
     #[getter]

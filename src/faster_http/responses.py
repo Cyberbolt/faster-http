@@ -9,130 +9,135 @@ Response = HttpResponse
 
 
 class StreamingResponse:
-    """Streaming response wrapper - 真正的生产级流式处理"""
+    """Streaming response wrapper with httpx-compatible interface."""
     
-    def __init__(self, rust_response: _StreamingHttpResponse) -> None:
-        """包装 Rust 的 StreamingHttpResponse"""
-        if isinstance(rust_response, _StreamingHttpResponse):
-            self._response = rust_response
-        else:
-            # 如果传入的是普通 HttpResponse，转换为说明
-            raise TypeError("StreamingResponse requires a StreamingHttpResponse from Rust")
+    def __init__(self, rust_response):
+        self._rust_response = rust_response
+        self._regular_response = None  # For fallback cases
     
-    def __getattr__(self, name: str) -> Any:
-        """代理所有属性到底层 Rust 响应"""
-        return getattr(self._response, name)
+    @classmethod
+    def _from_response(cls, response: Response):
+        """Create a StreamingResponse from a regular Response - 兼容性方法."""
+        instance = cls.__new__(cls)
+        instance._rust_response = None
+        instance._regular_response = response
+        return instance
     
-    # httpx 的标准流式方法 - 真正的流式处理
-    def iter_bytes(self, chunk_size: int = 8192) -> Iterator[bytes]:
-        """真正的流式字节迭代 - 直接对接 reqwest"""
-        while True:
-            chunk = self._response.read_chunk(chunk_size)
-            if chunk is None:
-                break
-            yield chunk
-    
-    def iter_text(self, chunk_size: int = 8192) -> Iterator[str]:
-        """真正的流式文本迭代 - 直接对接 reqwest"""
-        for bytes_chunk in self.iter_bytes(chunk_size):
-            # 使用响应的编码解码文本
-            encoding = self._response.encoding or 'utf-8'
-            try:
-                text_chunk = bytes_chunk.decode(encoding)
-                yield text_chunk
-            except UnicodeDecodeError:
-                # 如果解码失败，使用 utf-8 with 错误处理
-                text_chunk = bytes_chunk.decode('utf-8', errors='replace')
-                yield text_chunk
-    
-    def iter_lines(self) -> Iterator[str]:
-        """真正的流式行迭代 - 直接对接 reqwest"""
-        buffer = ""
-        for text_chunk in self.iter_text():
-            buffer += text_chunk
-            while '\n' in buffer:
-                line, buffer = buffer.split('\n', 1)
-                yield line.rstrip('\r')
-        
-        # 处理最后一行（如果没有换行符结尾）
-        if buffer:
-            yield buffer.rstrip('\r')
-    
-    def iter_raw(self, chunk_size: int = 8192) -> Iterator[bytes]:
-        """真正的流式原始字节迭代 - 直接对接 reqwest"""
-        return self.iter_bytes(chunk_size)
-    
-    # httpx 的异步版本 - 基于真正的流式迭代器
-    async def aiter_bytes(self, chunk_size: int = 8192) -> AsyncGenerator[bytes, None]:
-        """异步字节迭代 - 基于真正的流式处理"""
-        for chunk in self.iter_bytes(chunk_size):
-            yield chunk
-    
-    async def aiter_text(self, chunk_size: int = 8192) -> AsyncGenerator[str, None]:
-        """异步文本迭代 - 基于真正的流式处理"""
-        for text in self.iter_text(chunk_size):
-            yield text
-    
-    async def aiter_lines(self) -> AsyncGenerator[str, None]:
-        """异步行迭代 - 基于真正的流式处理"""
-        for line in self.iter_lines():
-            yield line
-    
-    # Context manager 支持
-    def __enter__(self) -> "StreamingResponse":
-        return self
-    
-    def __exit__(
-        self, 
-        exc_type: Optional[type], 
-        exc_val: Optional[BaseException], 
-        exc_tb: Optional[TracebackType]
-    ) -> bool:
-        self.close()
-        return False
-    
-    def close(self) -> None:
-        """关闭流式响应"""
-        self._response.close()
-    
-    @property
-    def is_closed(self) -> bool:
-        """检查是否已关闭"""
-        return self._response.is_closed
-    
-    def read(self, chunk_size: int = 8192) -> Optional[bytes]:
-        """读取下一个数据块"""
-        return self._response.read_chunk(chunk_size)
-    
-    # Expose common properties for better typing
     @property
     def status_code(self) -> int:
-        """HTTP status code."""
-        return self._response.status_code
+        if self._regular_response:
+            return self._regular_response.status_code
+        return self._rust_response.status_code
     
     @property
     def headers(self) -> Dict[str, str]:
-        """Response headers."""
-        return self._response.headers
+        if self._regular_response:
+            return self._regular_response.headers
+        return self._rust_response.headers
     
     @property
     def url(self) -> str:
-        """Request URL."""
-        return self._response.url
+        if self._regular_response:
+            return self._regular_response.url
+        return self._rust_response.url
     
     @property
     def ok(self) -> bool:
-        """True if status code is < 400."""
-        return self._response.ok
+        if self._regular_response:
+            return self._regular_response.ok
+        return self._rust_response.ok
     
     @property
     def encoding(self) -> Optional[str]:
-        """Response encoding."""
-        return self._response.encoding
+        if self._regular_response:
+            return self._regular_response.encoding
+        return self._rust_response.encoding
     
     @property
     def cookies(self) -> Dict[str, str]:
-        """Response cookies."""
-        return self._response.cookies
+        if self._regular_response:
+            return self._regular_response.cookies
+        return self._rust_response.cookies
+    
+    @property
+    def content(self) -> bytes:
+        """Get response content as bytes."""
+        if self._regular_response:
+            return self._regular_response.content
+        return self._rust_response.content
+    
+    @property
+    def text(self) -> str:
+        """Get response content as text."""
+        if self._regular_response:
+            return self._regular_response.text
+        return self._rust_response.text
+    
+    def json(self) -> Any:
+        """Parse response as JSON."""
+        if self._regular_response:
+            return self._regular_response.json()
+        return self._rust_response.json()
+    
+    def iter_bytes(self, chunk_size: int = 8192) -> Iterator[bytes]:
+        """Iterate over response content as bytes chunks."""
+        if self._regular_response:
+            # 对于降级的普通响应，模拟流式迭代
+            content = self._regular_response.content
+            for i in range(0, len(content), chunk_size):
+                yield content[i:i + chunk_size]
+        else:
+            # 真正的流式迭代
+            while True:
+                chunk = self._rust_response.read_chunk(chunk_size)
+                if chunk is None:
+                    break
+                yield chunk
+    
+    def iter_text(self, chunk_size: int = 8192) -> Iterator[str]:
+        """Iterate over response content as text chunks."""
+        if self._regular_response:
+            # 对于降级的普通响应，模拟流式迭代
+            text = self._regular_response.text
+            for i in range(0, len(text), chunk_size):
+                yield text[i:i + chunk_size]
+        else:
+            # 真正的流式迭代（简化实现）
+            for byte_chunk in self.iter_bytes(chunk_size):
+                yield byte_chunk.decode(self.encoding or 'utf-8', errors='replace')
+    
+    def iter_lines(self) -> Iterator[str]:
+        """Iterate over response content as lines."""
+        if self._regular_response:
+            # 对于降级的普通响应
+            return iter(self._regular_response.text.splitlines())
+        else:
+            # 真正的流式迭代（简化实现）
+            buffer = ""
+            for text_chunk in self.iter_text():
+                buffer += text_chunk
+                while '\n' in buffer:
+                    line, buffer = buffer.split('\n', 1)
+                    yield line
+            if buffer:  # 最后一行可能没有换行符
+                yield buffer
+    
+    def iter_raw(self, chunk_size: int = 8192) -> Iterator[bytes]:
+        """Iterate over raw response content."""
+        return self.iter_bytes(chunk_size)
+    
+    def close(self) -> None:
+        """Close the response."""
+        if self._rust_response:
+            self._rust_response.close()
+    
+    def __enter__(self) -> "StreamingResponse":
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()
+    
+    def __repr__(self) -> str:
+        return f"<StreamingResponse [{self.status_code}]>"
 
  
