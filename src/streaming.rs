@@ -1,18 +1,9 @@
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use std::collections::HashMap;
-use std::sync::OnceLock;
 use crate::error::RequestError;
 use crate::response::{detect_encoding, parse_cookies_from_headers, detect_http_version};
-
-// 全局运行时，用于同步调用
-static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-
-fn get_runtime() -> &'static tokio::runtime::Runtime {
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Runtime::new().expect("Failed to create tokio runtime")
-    })
-}
+use crate::runtime::get_global_runtime;
 
 // 真正的流式响应 - 直接对接 reqwest，使用同步运行时
 #[pyclass]
@@ -114,7 +105,7 @@ impl StreamingHttpResponse {
         let _chunk_size = chunk_size.unwrap_or(8192);
         
         if let Some(response) = &mut self.response {
-            let rt = get_runtime();
+            let rt = get_global_runtime();
             
             match rt.block_on(async move {
                 response.chunk().await
@@ -176,7 +167,7 @@ impl StreamingHttpResponse {
     #[getter]
     pub fn content(&mut self, py: Python) -> PyResult<PyObject> {
         if let Some(response) = self.response.take() {
-            let rt = get_runtime();
+            let rt = get_global_runtime();
             let bytes = rt.block_on(async move {
                 response.bytes().await
             }).map_err(|e| RequestError::new_err(format!("Failed to read response body: {}", e)))?;
@@ -191,7 +182,7 @@ impl StreamingHttpResponse {
     #[getter]
     pub fn text(&mut self) -> PyResult<String> {
         if let Some(response) = self.response.take() {
-            let rt = get_runtime();
+            let rt = get_global_runtime();
             let text = rt.block_on(async move {
                 response.text().await
             }).map_err(|e| RequestError::new_err(format!("Failed to read response text: {}", e)))?;

@@ -1,22 +1,13 @@
 use pyo3::prelude::*;
 use reqwest::Client;
 use std::collections::HashMap;
-use std::sync::OnceLock;
 use crate::config::ClientConfig;
 use crate::request::HttpRequest;
 use crate::response::HttpResponse;
 use crate::core::{send_request, build_and_send_request};
 use crate::utils::{build_full_url, add_query_params, merge_headers, merge_cookies};
 use crate::auth::extract_auth;
-
-// 全局运行时，用于同步客户端
-static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-
-fn get_runtime() -> &'static tokio::runtime::Runtime {
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Runtime::new().expect("Failed to create tokio runtime")
-    })
-}
+use crate::runtime::get_global_runtime;
 
 // 同步HTTP客户端
 #[pyclass]
@@ -71,7 +62,7 @@ impl HttpClient {
 
     // 发送预构建的请求
     pub fn send(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
-        let rt = get_runtime();
+        let rt = get_global_runtime();
         rt.block_on(send_request(&self.client, request, &self.config))
     }
 
@@ -104,7 +95,7 @@ impl HttpClient {
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        let rt = get_runtime();
+        let rt = get_global_runtime();
         
         let merged_cookies = merge_cookies(&self.config.default_cookies, cookies);
         let auth_option = auth.or_else(|| extract_auth(&self.config.auth));

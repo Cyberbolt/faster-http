@@ -15,6 +15,7 @@ mod core;
 mod client;
 mod async_client;
 mod global;
+mod runtime;
 
 // 重新导出主要类型和函数
 pub use error::*;

@@ -5,12 +5,10 @@ use std::sync::{Arc, OnceLock};
 use crate::response::HttpResponse;
 use crate::streaming::StreamingHttpResponse;
 use crate::core::{build_and_send_request, build_and_send_streaming_request};
+use crate::runtime::get_global_runtime;
 
 // 全局客户端实例，用于复用连接池
 static GLOBAL_CLIENT: OnceLock<Arc<Client>> = OnceLock::new();
-
-// 全局运行时，用于同步客户端
-static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
 fn get_global_client() -> Arc<Client> {
     GLOBAL_CLIENT.get_or_init(|| {
@@ -19,12 +17,6 @@ fn get_global_client() -> Arc<Client> {
             .build()
             .expect("Failed to create global client"))
     }).clone()
-}
-
-fn get_runtime() -> &'static tokio::runtime::Runtime {
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Runtime::new().expect("Failed to create tokio runtime")
-    })
 }
 
 // 全局函数
@@ -38,7 +30,7 @@ pub fn get(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let rt = get_runtime();
+    let rt = get_global_runtime();
     let client = get_global_client();
     rt.block_on(build_and_send_request(
         &client, "GET", url, None, None, None, None, params, headers, timeout,
@@ -60,7 +52,7 @@ pub fn post(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let rt = get_runtime();
+    let rt = get_global_runtime();
     let client = get_global_client();
     rt.block_on(build_and_send_request(
         &client, "POST", url, content, data, json, files, params, headers, timeout,
@@ -82,7 +74,7 @@ pub fn put(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let rt = get_runtime();
+    let rt = get_global_runtime();
     let client = get_global_client();
     rt.block_on(build_and_send_request(
         &client, "PUT", url, content, data, json, files, params, headers, timeout,
@@ -104,7 +96,7 @@ pub fn patch(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let rt = get_runtime();
+    let rt = get_global_runtime();
     let client = get_global_client();
     rt.block_on(build_and_send_request(
         &client, "PATCH", url, content, data, json, files, params, headers, timeout,
@@ -122,7 +114,7 @@ pub fn delete(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let rt = get_runtime();
+    let rt = get_global_runtime();
     let client = get_global_client();
     rt.block_on(build_and_send_request(
         &client, "DELETE", url, None, None, None, None, params, headers, timeout,
@@ -140,7 +132,7 @@ pub fn head(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let rt = get_runtime();
+    let rt = get_global_runtime();
     let client = get_global_client();
     rt.block_on(build_and_send_request(
         &client, "HEAD", url, None, None, None, None, params, headers, timeout,
@@ -158,7 +150,7 @@ pub fn options(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let rt = get_runtime();
+    let rt = get_global_runtime();
     let client = get_global_client();
     rt.block_on(build_and_send_request(
         &client, "OPTIONS", url, None, None, None, None, params, headers, timeout,
@@ -182,7 +174,7 @@ pub fn stream(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<StreamingHttpResponse> {
-    let rt = get_runtime();
+    let rt = get_global_runtime();
     let client = get_global_client();
     rt.block_on(build_and_send_streaming_request(
         &client, method, url, content, data, json, files, params, headers, timeout,
