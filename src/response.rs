@@ -224,7 +224,7 @@ impl HttpResponse {
         let chunk_size = chunk_size.unwrap_or(8192);
         let text = self.text()?;
         let mut text_chunks = Vec::new();
-        let mut chars: Vec<char> = text.chars().collect();
+        let chars: Vec<char> = text.chars().collect();
         
         let mut pos = 0;
         while pos < chars.len() {
@@ -274,12 +274,12 @@ impl HttpResponse {
         format!("<Response [{}]>", self.status_code)
     }
 
-    fn __enter__(mut slf: PyRefMut<Self>) -> PyResult<PyRefMut<Self>> {
+    fn __enter__(slf: PyRefMut<Self>) -> PyResult<PyRefMut<Self>> {
         Ok(slf)
     }
 
     fn __exit__(
-        mut slf: PyRefMut<Self>,
+        #[allow(unused_mut)] mut slf: PyRefMut<Self>,
         _exc_type: Option<PyObject>,
         _exc_value: Option<PyObject>,
         _traceback: Option<PyObject>,

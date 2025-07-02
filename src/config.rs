@@ -55,8 +55,19 @@ impl ClientConfig {
                 reqwest::redirect::Policy::none() 
             });
 
+        // HTTP/2 support - 完全兼容httpx的行为
         if self.http2 {
-            builder = builder.http2_prior_knowledge();
+            // http2=True: 启用HTTP/2协商，支持自动降级到HTTP/1.1
+            // 这与httpx的行为完全一致：客户端会尝试HTTP/2，如果服务器不支持则降级到HTTP/1.1
+            // reqwest默认就支持这种行为，我们只需要确保HTTP/2功能启用
+            // 同时启用HTTP/2的优化设置
+            builder = builder
+                .http2_keep_alive_interval(Some(std::time::Duration::from_secs(20)))
+                .http2_keep_alive_timeout(std::time::Duration::from_secs(10));
+        } else {
+            // http2=False: 强制只使用HTTP/1.1
+            // 这与httpx的默认行为一致
+            builder = builder.http1_only();
         }
 
         if let Some(proxy_url) = &self.proxy {

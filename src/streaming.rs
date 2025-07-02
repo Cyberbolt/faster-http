@@ -1,8 +1,5 @@
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use pyo3::exceptions::PyStopIteration;
-use futures::StreamExt;
-use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use crate::error::RequestError;
@@ -24,7 +21,9 @@ pub struct StreamingHttpResponse {
     status_code: u16,
     headers: HashMap<String, String>,
     url: String,
+    #[allow(dead_code)]
     elapsed: f64,
+    #[allow(dead_code)]
     http_version: String,
     encoding: Option<String>,
     cookies: HashMap<String, String>,
@@ -221,12 +220,12 @@ impl StreamingHttpResponse {
     }
 
     // Context manager 支持
-    fn __enter__(mut slf: PyRefMut<Self>) -> PyResult<PyRefMut<Self>> {
+    fn __enter__(slf: PyRefMut<Self>) -> PyResult<PyRefMut<Self>> {
         Ok(slf)
     }
 
     fn __exit__(
-        mut slf: PyRefMut<Self>,
+        #[allow(unused_mut)] mut slf: PyRefMut<Self>,
         _exc_type: Option<PyObject>,
         _exc_value: Option<PyObject>,
         _traceback: Option<PyObject>,
@@ -245,6 +244,7 @@ impl StreamingHttpResponse {
 /// 流式字节迭代器 - 简化版本
 #[pyclass]
 pub struct StreamingBytesIterator {
+    #[allow(dead_code)]
     chunk_size: usize,
     // 使用共享引用到父响应对象
 }
@@ -263,7 +263,7 @@ impl StreamingBytesIterator {
         slf
     }
     
-    fn __next__(&mut self, py: Python) -> PyResult<Option<PyObject>> {
+    fn __next__(&mut self, _py: Python) -> PyResult<Option<PyObject>> {
         // 简化实现：这个迭代器需要和父 StreamingHttpResponse 配合
         // 实际使用时，用户应该直接调用 response.read_chunk()
         Err(RequestError::new_err("Use response.read_chunk() for streaming bytes".to_string()))
@@ -273,7 +273,9 @@ impl StreamingBytesIterator {
 /// 流式文本迭代器 - 简化版本
 #[pyclass]
 pub struct StreamingTextIterator {
+    #[allow(dead_code)]
     chunk_size: usize,
+    #[allow(dead_code)]
     encoding: Option<String>,
 }
 
@@ -292,7 +294,7 @@ impl StreamingTextIterator {
         slf
     }
     
-    fn __next__(&mut self, py: Python) -> PyResult<Option<String>> {
+    fn __next__(&mut self, _py: Python) -> PyResult<Option<String>> {
         // 简化实现：提醒用户使用正确的方法
         Err(RequestError::new_err("Use response.read_chunk() and decode manually for streaming text".to_string()))
     }
@@ -301,6 +303,7 @@ impl StreamingTextIterator {
 /// 流式行迭代器 - 简化版本
 #[pyclass]
 pub struct StreamingLinesIterator {
+    #[allow(dead_code)]
     encoding: Option<String>,
 }
 
@@ -318,7 +321,7 @@ impl StreamingLinesIterator {
         slf
     }
     
-    fn __next__(&mut self, py: Python) -> PyResult<Option<String>> {
+    fn __next__(&mut self, _py: Python) -> PyResult<Option<String>> {
         // 简化实现：提醒用户使用正确的方法
         Err(RequestError::new_err("Use response.read_chunk() and parse lines manually".to_string()))
     }

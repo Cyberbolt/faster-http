@@ -7,7 +7,6 @@ by leveraging Rust's reqwest library through PyO3 bindings.
 from typing import Any, Dict, List, Optional, Tuple, Union, Callable, Mapping, Protocol
 import base64
 import os
-import io
 import mimetypes
 from pathlib import Path
 
@@ -219,7 +218,7 @@ class FileUpload:
                 else:
                     # 当作字符串内容
                     return self.content.encode('utf-8')
-            except:
+            except Exception:
                 # 当作字符串内容
                 return self.content.encode('utf-8')
         elif hasattr(self.content, 'read'):
