@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     "typing-extensions>=4.0.0",
+    "uvloop>=0.21.0",
 ]
 keywords = ["http", "client", "async", "requests", "performance"]
 classifiers = [

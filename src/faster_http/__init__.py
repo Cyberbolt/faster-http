@@ -18,7 +18,7 @@ from ._core import (
 from .auth import Auth, BasicAuth, DigestAuth, NetRCAuth
 from .models import URL, Headers, Cookies, QueryParams, Timeout, Limits
 from .responses import Response, StreamingResponse
-from .client import AsyncClient
+from .client import AsyncClient, Client
 from .api import get, post, put, patch, delete, head, options, stream, main
 
 __version__ = "0.1.0"

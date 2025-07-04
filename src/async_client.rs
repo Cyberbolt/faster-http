@@ -2,18 +2,21 @@ use pyo3::prelude::*;
 use pyo3_asyncio::tokio::future_into_py;
 use reqwest::Client;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::config::ClientConfig;
 use crate::request::HttpRequest;
 
 use crate::core::{send_request, build_and_send_request};
 use crate::utils::{build_full_url, add_query_params, merge_headers, merge_cookies};
 use crate::auth::extract_auth;
+use crate::error::RequestError;
 
 // 异步 HTTP 客户端
 #[pyclass]
 pub struct AsyncHttpClient {
     client: Client,
     config: ClientConfig,
+    is_closed: AtomicBool,
 }
 
 #[pymethods]
@@ -36,7 +39,11 @@ impl AsyncHttpClient {
         )?;
         let client = config.build_client(verify)?;
 
-        Ok(AsyncHttpClient { client, config })
+        Ok(AsyncHttpClient { 
+            client, 
+            config, 
+            is_closed: AtomicBool::new(false),
+        })
     }
 
     pub fn build_request(
@@ -60,6 +67,8 @@ impl AsyncHttpClient {
     }
 
     pub fn send<'py>(&self, py: Python<'py>, request: &HttpRequest) -> PyResult<&'py PyAny> {
+        self.check_not_closed()?;
+        
         let client = self.client.clone();
         let config = self.config.clone();
         let request_clone = HttpRequest::new(
@@ -82,7 +91,28 @@ impl AsyncHttpClient {
         _exc_val: Option<PyObject>,
         _exc_tb: Option<PyObject>,
     ) -> PyResult<bool> {
+        self.close()?;
         Ok(false)
+    }
+
+    // 关闭客户端连接池
+    pub fn close(&self) -> PyResult<()> {
+        self.is_closed.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    // 异步关闭客户端连接池
+    pub fn aclose<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
+        self.close()?;
+        future_into_py(py, async move { Ok(()) })
+    }
+
+    // 检查客户端是否已关闭
+    fn check_not_closed(&self) -> PyResult<()> {
+        if self.is_closed.load(Ordering::Relaxed) {
+            return Err(RequestError::new_err("AsyncClient has been closed"));
+        }
+        Ok(())
     }
 
     pub fn get<'py>(&self, py: Python<'py>, url: String, params: Option<HashMap<String, String>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, auth: Option<(String, String)>, follow_redirects: Option<bool>, cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
@@ -129,6 +159,8 @@ impl AsyncHttpClient {
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
+        self.check_not_closed()?;
+        
         let merged_cookies = merge_cookies(&self.config.default_cookies, cookies);
         let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
         let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);

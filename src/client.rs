@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 use reqwest::Client;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::config::ClientConfig;
 use crate::request::HttpRequest;
 use crate::response::HttpResponse;
@@ -8,12 +9,14 @@ use crate::core::{send_request, build_and_send_request};
 use crate::utils::{build_full_url, add_query_params, merge_headers, merge_cookies};
 use crate::auth::extract_auth;
 use crate::runtime::get_global_runtime;
+use crate::error::RequestError;
 
 // 同步HTTP客户端
 #[pyclass]
 pub struct HttpClient {
     client: Client,
     config: ClientConfig,
+    is_closed: AtomicBool,
 }
 
 #[pymethods]
@@ -36,7 +39,11 @@ impl HttpClient {
         )?;
         let client = config.build_client(verify)?;
 
-        Ok(HttpClient { client, config })
+        Ok(HttpClient { 
+            client, 
+            config, 
+            is_closed: AtomicBool::new(false),
+        })
     }
 
     // 构建请求对象
@@ -62,6 +69,7 @@ impl HttpClient {
 
     // 发送预构建的请求
     pub fn send(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
+        self.check_not_closed()?;
         let rt = get_global_runtime();
         rt.block_on(send_request(&self.client, request, &self.config))
     }
@@ -76,7 +84,22 @@ impl HttpClient {
         _exc_val: Option<PyObject>,
         _exc_tb: Option<PyObject>,
     ) -> PyResult<bool> {
+        self.close()?;
         Ok(false)
+    }
+
+    // 关闭客户端连接池
+    pub fn close(&self) -> PyResult<()> {
+        self.is_closed.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    // 检查客户端是否已关闭
+    fn check_not_closed(&self) -> PyResult<()> {
+        if self.is_closed.load(Ordering::Relaxed) {
+            return Err(RequestError::new_err("Client has been closed"));
+        }
+        Ok(())
     }
 
     // 通用请求方法，减少重复代码
@@ -95,6 +118,7 @@ impl HttpClient {
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
+        self.check_not_closed()?;
         let rt = get_global_runtime();
         
         let merged_cookies = merge_cookies(&self.config.default_cookies, cookies);
