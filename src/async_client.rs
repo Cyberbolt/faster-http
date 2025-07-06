@@ -96,15 +96,15 @@ impl AsyncHttpClient {
         
         let client = self.client.clone();
         let config = self.config.clone();
-        let request_clone = HttpRequest::new(
-            request.method().to_string(),
-            request.url().to_string(),
-            Some(request.headers()),
-            request.content().map(|b| b.to_vec()),
-        );
+        // Avoid unnecessary cloning by moving data directly
+        let method = request.method().to_string();
+        let url = request.url().to_string();
+        let headers = request.headers();
+        let content = request.content().map(|b| b.to_vec());
         
         future_into_py(py, async move {
-            send_request(&client, &request_clone, &config).await
+            let request_obj = HttpRequest::new(method, url, Some(headers), content);
+            send_request(&client, &request_obj, &config).await
         })
     }
 

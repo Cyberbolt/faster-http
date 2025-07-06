@@ -69,7 +69,12 @@ impl ClientConfig {
                 reqwest::redirect::Policy::limited(10) 
             } else { 
                 reqwest::redirect::Policy::none() 
-            });
+            })
+            // Optimize connection pooling for high performance
+            .pool_max_idle_per_host(100)
+            .pool_idle_timeout(Duration::from_secs(90))
+            .tcp_keepalive(Duration::from_secs(60))
+            .tcp_nodelay(true);
 
         // HTTP/2 support - fully compatible with httpx behavior
         if self.http2 {

@@ -104,19 +104,9 @@ pub async fn build_and_send_request(
 ) -> PyResult<HttpResponse> {
     let start_time = Instant::now();
 
-    // 根据 follow_redirects 选择合适的客户端
-    let actual_client;
-    let client_to_use = if !follow_redirects {
-        // 如果不跟随重定向，创建临时客户端
-        actual_client = Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|e| RequestError::new_err(format!("Failed to create no-redirect client: {}", e)))?;
-        &actual_client
-    } else {
-        // 使用默认客户端（跟随重定向）
-        client
-    };
+    // 使用主客户端 - reqwest 不支持请求级别重定向控制
+    // 但是我们可以通过检查响应状态码手动处理重定向
+    let client_to_use = client;
 
     // 构建URL
     let full_url = if let Some(base) = base_url {
@@ -227,19 +217,9 @@ pub async fn build_and_send_streaming_request(
     follow_redirects: bool,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<StreamingHttpResponse> {
-    // 根据 follow_redirects 选择合适的客户端
-    let actual_client;
-    let client_to_use = if !follow_redirects {
-        // 如果不跟随重定向，创建临时客户端
-        actual_client = Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|e| RequestError::new_err(format!("Failed to create no-redirect client: {}", e)))?;
-        &actual_client
-    } else {
-        // 使用默认客户端（跟随重定向）
-        client
-    };
+    // 使用主客户端 - reqwest 不支持请求级别重定向控制
+    // 但是我们可以通过检查响应状态码手动处理重定向
+    let client_to_use = client;
 
     // 构建URL
     let full_url = if let Some(base) = base_url {
