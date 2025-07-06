@@ -4,11 +4,9 @@ Tests streaming responses, SSE events, and related features.
 """
 
 import pytest
-import asyncio
-from .conftest import assert_response_ok
 
 from faster_http import (
-    get, stream, Client, AsyncClient, StreamingResponse
+    get, stream, AsyncClient, StreamingResponse
 )
 
 

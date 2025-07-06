@@ -168,7 +168,7 @@ class TestProxyFeature:
             response = get("https://httpbin.org/get", 
                          proxy="http://invalid-proxy.example.com:8080",
                          timeout=1)
-        except (ConnectTimeout, RequestError) as e:
+        except (ConnectTimeout, RequestError):
             # Expected proxy error
             pass
         except Exception as e:

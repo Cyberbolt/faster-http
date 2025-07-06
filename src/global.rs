@@ -6,9 +6,32 @@ use crate::response::HttpResponse;
 use crate::streaming::StreamingHttpResponse;
 use crate::core::{build_and_send_request, build_and_send_streaming_request};
 use crate::runtime::get_global_runtime;
+use crate::models::HttpHeaders;
 
 // 全局客户端实例，用于复用连接池
 static GLOBAL_CLIENT: OnceLock<Arc<Client>> = OnceLock::new();
+
+// Helper function to extract headers from either HashMap or Headers object
+fn extract_headers(headers: Option<PyObject>) -> PyResult<Option<HashMap<String, String>>> {
+    if let Some(h) = headers {
+        Python::with_gil(|py| {
+            // Try to extract as HashMap first
+            if let Ok(hashmap) = h.extract::<HashMap<String, String>>(py) {
+                return Ok(Some(hashmap));
+            }
+            
+            // Try to extract as Headers object
+            if let Ok(headers_obj) = h.extract::<PyRef<HttpHeaders>>(py) {
+                return Ok(Some(headers_obj.to_hashmap()));
+            }
+            
+            // If neither works, return an error
+            Err(pyo3::exceptions::PyTypeError::new_err("headers must be a dict or Headers object"))
+        })
+    } else {
+        Ok(None)
+    }
+}
 
 fn get_global_client() -> Arc<Client> {
     GLOBAL_CLIENT.get_or_init(|| {
@@ -46,7 +69,7 @@ pub fn post(
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, String>>,
-    headers: Option<HashMap<String, String>>,
+    headers: Option<PyObject>,  // Changed to PyObject to support both dict and Headers
     timeout: Option<f64>,
     auth: Option<(String, String)>,
     follow_redirects: Option<bool>,
@@ -54,8 +77,9 @@ pub fn post(
 ) -> PyResult<HttpResponse> {
     let rt = get_global_runtime();
     let client = get_global_client();
+    let extracted_headers = extract_headers(headers)?;
     rt.block_on(build_and_send_request(
-        &client, "POST", url, content, data, json, files, params, headers, timeout,
+        &client, "POST", url, content, data, json, files, params, extracted_headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 }

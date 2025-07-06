@@ -2,10 +2,10 @@ use pyo3::prelude::*;
 use reqwest::Client;
 use std::collections::HashMap;
 use std::time::Duration;
-use crate::auth::AuthType;
+use crate::auth::{AuthType, extract_auth_from_object};
 use crate::error::RequestError;
 
-// 核心客户端配置
+// Core client configuration
 #[derive(Clone)]
 pub struct ClientConfig {
     pub base_url: Option<String>,
@@ -25,12 +25,28 @@ impl ClientConfig {
         headers: Option<HashMap<String, String>>,
         _verify: Option<bool>,
         follow_redirects: Option<bool>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,  // Accept either tuple or auth object
         proxy: Option<String>,
         cookies: Option<HashMap<String, String>>,
         http2: Option<bool>,
     ) -> PyResult<Self> {
-        let auth_type = auth.map(|(username, password)| AuthType::Basic { username, password });
+        let auth_type = if let Some(auth_obj) = auth {
+            Python::with_gil(|py| -> PyResult<Option<AuthType>> {
+                // Try to extract as auth object first
+                if let Ok(Some(auth_type)) = extract_auth_from_object(&auth_obj) {
+                    return Ok(Some(auth_type));
+                }
+                
+                // Fallback to tuple format for backward compatibility
+                if let Ok((username, password)) = auth_obj.extract::<(String, String)>(py) {
+                    return Ok(Some(AuthType::Basic { username, password }));
+                }
+                
+                Ok(None)
+            })?
+        } else {
+            None
+        };
 
         Ok(ClientConfig {
             base_url,
@@ -55,18 +71,18 @@ impl ClientConfig {
                 reqwest::redirect::Policy::none() 
             });
 
-        // HTTP/2 support - 完全兼容httpx的行为
+        // HTTP/2 support - fully compatible with httpx behavior
         if self.http2 {
-            // http2=True: 启用HTTP/2协商，支持自动降级到HTTP/1.1
-            // 这与httpx的行为完全一致：客户端会尝试HTTP/2，如果服务器不支持则降级到HTTP/1.1
-            // reqwest默认就支持这种行为，我们只需要确保HTTP/2功能启用
-            // 同时启用HTTP/2的优化设置
+            // http2=True: Enable HTTP/2 negotiation with automatic fallback to HTTP/1.1
+            // This is fully consistent with httpx behavior: client will try HTTP/2, fallback to HTTP/1.1 if unsupported
+            // reqwest supports this by default, we just need to ensure HTTP/2 is enabled
+            // Also enable HTTP/2 optimization settings
             builder = builder
                 .http2_keep_alive_interval(Some(std::time::Duration::from_secs(20)))
                 .http2_keep_alive_timeout(std::time::Duration::from_secs(10));
         } else {
-            // http2=False: 强制只使用HTTP/1.1
-            // 这与httpx的默认行为一致
+            // http2=False: Force HTTP/1.1 only
+            // This is consistent with httpx default behavior
             builder = builder.http1_only();
         }
 

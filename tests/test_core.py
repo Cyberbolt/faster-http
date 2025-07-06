@@ -9,8 +9,7 @@ from .conftest import assert_response_ok, assert_response_has_basic_attrs, asser
 
 from faster_http import (
     get, post, put, patch, delete, head, options,
-    Client, AsyncClient, Response,
-    HTTPError, ConnectTimeout, ReadTimeout, RequestError
+    Client, AsyncClient, HTTPError, ConnectTimeout, ReadTimeout, RequestError
 )
 
 

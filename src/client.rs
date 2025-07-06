@@ -6,12 +6,12 @@ use crate::config::ClientConfig;
 use crate::request::HttpRequest;
 use crate::response::HttpResponse;
 use crate::core::{send_request, build_and_send_request};
-use crate::utils::{build_full_url, add_query_params, merge_headers, merge_cookies};
+// Removed utils imports - delegate URL/header processing to reqwest
 use crate::auth::extract_auth;
 use crate::runtime::get_global_runtime;
 use crate::error::RequestError;
 
-// 同步HTTP客户端
+// Synchronous HTTP client
 #[pyclass]
 pub struct HttpClient {
     client: Client,
@@ -28,7 +28,7 @@ impl HttpClient {
         headers: Option<HashMap<String, String>>,
         verify: Option<bool>,
         follow_redirects: Option<bool>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         proxy: Option<String>,
         cookies: Option<HashMap<String, String>>,
         http2: Option<bool>,
@@ -46,7 +46,7 @@ impl HttpClient {
         })
     }
 
-    // 构建请求对象
+    // Build request object - delegate URL processing to reqwest
     pub fn build_request(
         &self,
         method: &str,
@@ -55,9 +55,32 @@ impl HttpClient {
         headers: Option<HashMap<String, String>>,
         content: Option<Vec<u8>>,
     ) -> PyResult<HttpRequest> {
-        let full_url = build_full_url(&self.config.base_url, url)?;
-        let final_url = add_query_params(&full_url, params)?;
-        let final_headers = merge_headers(&self.config.default_headers, headers);
+        // Let reqwest handle URL building and query params
+        let mut final_url = url.to_string();
+        
+        // Basic base URL handling if needed
+        if let Some(base) = &self.config.base_url {
+            if !url.starts_with("http://") && !url.starts_with("https://") {
+                final_url = format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'));
+            }
+        }
+        
+        // Let reqwest handle query params
+        if let Some(params) = params {
+            let mut parsed_url = reqwest::Url::parse(&final_url)
+                .map_err(|e| RequestError::new_err(format!("Invalid URL: {}", e)))?;
+            
+            for (key, value) in params {
+                parsed_url.query_pairs_mut().append_pair(&key, &value);
+            }
+            final_url = parsed_url.to_string();
+        }
+        
+        // Simple header merging
+        let mut final_headers = self.config.default_headers.clone();
+        if let Some(headers) = headers {
+            final_headers.extend(headers);
+        }
 
         Ok(HttpRequest::new(
             method.to_string(),
@@ -67,7 +90,7 @@ impl HttpClient {
         ))
     }
 
-    // 发送预构建的请求
+    // Send pre-built request
     pub fn send(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
         self.check_not_closed()?;
         let rt = get_global_runtime();
@@ -88,13 +111,13 @@ impl HttpClient {
         Ok(false)
     }
 
-    // 关闭客户端连接池
+    // Close client connection pool
     pub fn close(&self) -> PyResult<()> {
         self.is_closed.store(true, Ordering::Relaxed);
         Ok(())
     }
 
-    // 检查客户端是否已关闭
+    // Check if client is closed
     fn check_not_closed(&self) -> PyResult<()> {
         if self.is_closed.load(Ordering::Relaxed) {
             return Err(RequestError::new_err("Client has been closed"));
@@ -102,7 +125,7 @@ impl HttpClient {
         Ok(())
     }
 
-    // 通用请求方法，减少重复代码
+    // Generic request method to reduce code duplication
     fn _request(
         &self,
         method: &str,
@@ -121,7 +144,16 @@ impl HttpClient {
         self.check_not_closed()?;
         let rt = get_global_runtime();
         
-        let merged_cookies = merge_cookies(&self.config.default_cookies, cookies);
+        // Simple cookie merging - delegate actual cookie handling to reqwest
+        let merged_cookies = match cookies {
+            Some(request_cookies) => {
+                let mut merged = self.config.default_cookies.clone();
+                merged.extend(request_cookies);
+                Some(merged)
+            }
+            None if !self.config.default_cookies.is_empty() => Some(self.config.default_cookies.clone()),
+            _ => None,
+        };
         let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
         let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
         

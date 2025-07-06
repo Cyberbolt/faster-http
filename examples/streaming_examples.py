@@ -11,7 +11,7 @@ This example demonstrates streaming capabilities:
 
 import asyncio
 import faster_http
-from faster_http import stream, Client, AsyncClient, StreamingResponse
+from faster_http import stream, AsyncClient, StreamingResponse
 
 
 def demo_basic_streaming():

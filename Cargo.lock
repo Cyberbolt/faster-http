@@ -254,6 +254,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "futures",
+ "http",
  "pyo3",
  "pyo3-asyncio",
  "pythonize",

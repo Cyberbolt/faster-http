@@ -4,51 +4,10 @@ use std::collections::HashMap;
 use crate::error::RequestError;
 
 
-// 工具函数
-pub fn build_full_url(base_url: &Option<String>, url: &str) -> PyResult<String> {
-    match base_url {
-        Some(base) if !url.starts_with("http://") && !url.starts_with("https://") => {
-            Ok(format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/')))
-        }
-        _ => Ok(url.to_string())
-    }
-}
+// Minimal utility functions - most URL/header processing delegated to reqwest
+// Only keep essential interface conversion utilities
 
-pub fn add_query_params(url: &str, params: Option<HashMap<String, String>>) -> PyResult<String> {
-    if let Some(params) = params {
-        let mut url_with_params = reqwest::Url::parse(url)
-            .map_err(|e| RequestError::new_err(format!("Invalid URL: {}", e)))?;
-        
-        for (key, value) in params {
-            url_with_params.query_pairs_mut().append_pair(&key, &value);
-        }
-        Ok(url_with_params.to_string())
-    } else {
-        Ok(url.to_string())
-    }
-}
-
-pub fn merge_headers(default_headers: &HashMap<String, String>, request_headers: Option<HashMap<String, String>>) -> HashMap<String, String> {
-    let mut final_headers = default_headers.clone();
-    if let Some(headers) = request_headers {
-        final_headers.extend(headers);
-    }
-    final_headers
-}
-
-pub fn merge_cookies(default_cookies: &HashMap<String, String>, request_cookies: Option<HashMap<String, String>>) -> Option<HashMap<String, String>> {
-    match request_cookies {
-        Some(request_cookies) => {
-            let mut merged = default_cookies.clone();
-            merged.extend(request_cookies);
-            Some(merged)
-        }
-        None if !default_cookies.is_empty() => Some(default_cookies.clone()),
-        _ => None,
-    }
-}
-
-// 辅助函数：构建 multipart form
+// File upload processing - delegate to reqwest multipart
 pub fn build_multipart_form(files_data: HashMap<String, PyObject>) -> PyResult<reqwest::multipart::Form> {
     Python::with_gil(|py| {
         let mut form = reqwest::multipart::Form::new();
@@ -63,7 +22,7 @@ pub fn build_multipart_form(files_data: HashMap<String, PyObject>) -> PyResult<r
 }
 
 fn process_file_upload(py: Python, file_obj: &PyObject, field_name: &str) -> PyResult<reqwest::multipart::Part> {
-    // 处理字节数据
+    // Process byte data
     if let Ok(bytes_data) = file_obj.extract::<Vec<u8>>(py) {
         return Ok(reqwest::multipart::Part::bytes(bytes_data)
             .file_name(format!("{}.bin", field_name))
@@ -71,7 +30,7 @@ fn process_file_upload(py: Python, file_obj: &PyObject, field_name: &str) -> PyR
             .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?);
     }
     
-    // 处理字符串数据
+    // Process string data
     if let Ok(string_data) = file_obj.extract::<String>(py) {
         return Ok(reqwest::multipart::Part::text(string_data)
             .file_name(format!("{}.txt", field_name))
@@ -79,7 +38,7 @@ fn process_file_upload(py: Python, file_obj: &PyObject, field_name: &str) -> PyR
             .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?);
     }
     
-    // 处理元组格式
+    // Process tuple format
     if let Ok((filename, content_obj)) = file_obj.extract::<(Option<String>, PyObject)>(py) {
         return process_tuple_upload(py, filename, content_obj);
     }
@@ -88,7 +47,7 @@ fn process_file_upload(py: Python, file_obj: &PyObject, field_name: &str) -> PyR
         return process_tuple_upload_with_type(py, filename, content_obj, content_type);
     }
     
-    // 处理 FileUpload 对象
+    // Process FileUpload object
     if let Ok(bytes_data) = file_obj.call_method0(py, "to_bytes")?.extract::<Vec<u8>>(py) {
         let mut part = reqwest::multipart::Part::bytes(bytes_data);
         
@@ -190,7 +149,7 @@ fn guess_mime_type(filename: &str) -> Option<String> {
     }
 }
 
-// Python 数据转换工具
+// Python data conversion tools
 pub fn python_dict_to_json_value(data: HashMap<String, PyObject>) -> PyResult<Value> {
     let mut map = serde_json::Map::new();
     

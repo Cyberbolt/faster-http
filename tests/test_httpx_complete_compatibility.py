@@ -5,12 +5,11 @@ This file ensures that faster_http can serve as a drop-in replacement for httpx.
 
 import pytest
 import asyncio
-from .conftest import assert_response_ok, assert_response_has_basic_attrs
+from .conftest import assert_response_ok
 
 from faster_http import (
     get, post, put, patch, delete, head, options,
-    Client, AsyncClient, Response,
-    BasicAuth, DigestAuth, NetRCAuth,
+    Client, AsyncClient, BasicAuth, DigestAuth, NetRCAuth,
     HTTPError, ConnectTimeout, ReadTimeout, RequestError
 )
 

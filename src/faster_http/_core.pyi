@@ -4,7 +4,7 @@ Type stubs for faster_http._core
 This module contains the Rust-implemented core functionality.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 from types import TracebackType
 
 # Exception types
@@ -244,7 +244,7 @@ class HttpClient:
         headers: Optional[Dict[str, str]] = None,
         verify: Optional[bool] = None,
         follow_redirects: Optional[bool] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         proxy: Optional[str] = None,
         cookies: Optional[Dict[str, str]] = None,
         http2: Optional[bool] = None,
@@ -267,7 +267,7 @@ class HttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         follow_redirects: Optional[bool] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> HttpResponse: ...
@@ -282,7 +282,7 @@ class HttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         follow_redirects: Optional[bool] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> HttpResponse: ...
@@ -297,7 +297,7 @@ class HttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         follow_redirects: Optional[bool] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> HttpResponse: ...
@@ -312,7 +312,7 @@ class HttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         follow_redirects: Optional[bool] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> HttpResponse: ...
@@ -323,7 +323,7 @@ class HttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         follow_redirects: Optional[bool] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> HttpResponse: ...
@@ -334,7 +334,7 @@ class HttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         follow_redirects: Optional[bool] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> HttpResponse: ...
@@ -345,7 +345,7 @@ class HttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         follow_redirects: Optional[bool] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> HttpResponse: ...
@@ -370,7 +370,7 @@ class AsyncHttpClient:
         headers: Optional[Dict[str, str]] = None,
         verify: Optional[bool] = None,
         follow_redirects: Optional[bool] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         proxy: Optional[str] = None,
         cookies: Optional[Dict[str, str]] = None,
         http2: Optional[bool] = None,
@@ -393,7 +393,7 @@ class AsyncHttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         follow_redirects: Optional[bool] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> HttpResponse: ...
@@ -408,7 +408,7 @@ class AsyncHttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         follow_redirects: Optional[bool] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> HttpResponse: ...
@@ -423,7 +423,7 @@ class AsyncHttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         follow_redirects: Optional[bool] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> HttpResponse: ...
@@ -438,7 +438,7 @@ class AsyncHttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         follow_redirects: Optional[bool] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> HttpResponse: ...
@@ -449,7 +449,7 @@ class AsyncHttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         follow_redirects: Optional[bool] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> HttpResponse: ...
@@ -460,7 +460,7 @@ class AsyncHttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         follow_redirects: Optional[bool] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> HttpResponse: ...
@@ -471,7 +471,7 @@ class AsyncHttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         timeout: Optional[float] = None,
-        auth: Optional[Tuple[str, str]] = None,
+        auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         follow_redirects: Optional[bool] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> HttpResponse: ...
@@ -585,3 +585,137 @@ def stream(
 ) -> StreamingHttpResponse: ...
 
 def hello_from_bin() -> str: ...
+
+# Rust-implemented data structures
+class Headers:
+    """HTTP headers container - case-insensitive."""
+    
+    def __init__(self, headers: Optional[Dict[str, str]] = None) -> None: ...
+    def __getitem__(self, key: str) -> str: ...
+    def __setitem__(self, key: str, value: str) -> None: ...
+    def get(self, key: str, default: Optional[str] = None) -> Optional[str]: ...
+    def update(self, other: Dict[str, str]) -> None: ...
+    def items(self) -> List[Tuple[str, str]]: ...
+    def keys(self) -> List[str]: ...
+    def values(self) -> List[str]: ...
+    def __len__(self) -> int: ...
+    def __iter__(self) -> List[str]: ...
+
+class QueryParams:
+    """URL query parameters container."""
+    
+    def __init__(self, params: Optional[Union[Dict[str, str], str]] = None) -> None: ...
+    def __getitem__(self, key: str) -> str: ...
+    def __setitem__(self, key: str, value: str) -> None: ...
+    def get(self, key: str, default: Optional[str] = None) -> Optional[str]: ...
+    def update(self, other: Dict[str, str]) -> None: ...
+    def items(self) -> List[Tuple[str, str]]: ...
+    def keys(self) -> List[str]: ...
+    def values(self) -> List[str]: ...
+    def __len__(self) -> int: ...
+    def __iter__(self) -> List[str]: ...
+
+class Cookies:
+    """HTTP cookies container."""
+    
+    def __init__(self, cookies: Optional[Dict[str, str]] = None) -> None: ...
+    def __getitem__(self, key: str) -> str: ...
+    def __setitem__(self, key: str, value: str) -> None: ...
+    def get(self, key: str, default: Optional[str] = None) -> Optional[str]: ...
+    def set(self, name: str, value: str, domain: Optional[str] = None) -> None: ...
+    def update(self, other: Dict[str, str]) -> None: ...
+    def items(self) -> List[Tuple[str, str]]: ...
+    def keys(self) -> List[str]: ...
+    def values(self) -> List[str]: ...
+    def __len__(self) -> int: ...
+    def __iter__(self) -> List[str]: ...
+
+class URL:
+    """URL container."""
+    
+    def __init__(self, url: str) -> None: ...
+    def __str__(self) -> str: ...
+
+class Timeout:
+    """Timeout configuration."""
+    
+    def __init__(
+        self,
+        connect: Optional[float] = None,
+        read: Optional[float] = None,
+        write: Optional[float] = None,
+        pool: Optional[float] = None,
+    ) -> None: ...
+    
+    @property
+    def connect(self) -> Optional[float]: ...
+    
+    @property
+    def read(self) -> Optional[float]: ...
+    
+    @property
+    def write(self) -> Optional[float]: ...
+    
+    @property
+    def pool(self) -> Optional[float]: ...
+
+class Limits:
+    """Connection pool limits."""
+    
+    def __init__(
+        self,
+        max_keepalive_connections: int = 20,
+        max_connections: int = 100,
+        keepalive_expiry: float = 5.0,
+    ) -> None: ...
+    
+    @property
+    def max_keepalive_connections(self) -> int: ...
+    
+    @property
+    def max_connections(self) -> int: ...
+    
+    @property
+    def keepalive_expiry(self) -> float: ...
+
+class BasicAuth:
+    """Basic authentication."""
+    
+    def __init__(self, username: str, password: str) -> None: ...
+    
+    @property
+    def username(self) -> str: ...
+    
+    @property
+    def password(self) -> str: ...
+    
+    def auth_flow(self, request: Any) -> Any: ...
+    
+    def __repr__(self) -> str: ...
+
+class DigestAuth:
+    """Digest authentication."""
+    
+    def __init__(self, username: str, password: str) -> None: ...
+    
+    @property
+    def username(self) -> str: ...
+    
+    @property
+    def password(self) -> str: ...
+    
+    def auth_flow(self, request: Any) -> Any: ...
+    
+    def __repr__(self) -> str: ...
+
+class NetRCAuth:
+    """NetRC authentication."""
+    
+    def __init__(self, file: Optional[str] = None) -> None: ...
+    
+    @property
+    def file(self) -> str: ...
+    
+    def auth_flow(self, request: Any) -> Any: ...
+    
+    def __repr__(self) -> str: ...

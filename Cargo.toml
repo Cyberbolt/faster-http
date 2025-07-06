@@ -23,6 +23,7 @@ futures = "0.3"
 anyhow = "1.0"
 urlencoding = "2.1"
 pythonize = "0.20.0"
+http = "1.0"
 
 # 修复 PyO3 + Tokio 在程序退出时的清理问题，特别是在 ARM64 架构上
 [profile.release]
