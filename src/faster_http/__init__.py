@@ -5,27 +5,66 @@ This library provides a drop-in replacement for httpx with significantly better 
 by leveraging Rust's reqwest library through PyO3 bindings.
 """
 
-# Import everything we can
-try:
-    from ._core import *
-    # Try to import specific classes
-    from ._core import HttpClient, AsyncHttpClient, HttpRequest, HttpResponse
-except ImportError as e:
-    print(f"Import error: {e}")
-    # Fallback imports
-    from . import _core
-    HttpClient = getattr(_core, 'HttpClient', None)
-    AsyncHttpClient = getattr(_core, 'AsyncHttpClient', None)
-
 __version__ = "0.1.0"
 
-# Expose main API
+# Import specific classes for explicit re-export
+from ._core import (
+    HttpClient,
+    AsyncHttpClient,
+    HttpRequest,
+    HttpResponse,
+    StreamingHttpResponse,
+    HTTPError,
+    ConnectTimeout,
+    ReadTimeout,
+    RequestError,
+    get,
+    post,
+    put,
+    patch,
+    delete,
+    head,
+    options,
+    stream,
+)
+
+# httpx-compatible aliases (primary API)
 Client = HttpClient
 AsyncClient = AsyncHttpClient
 Request = HttpRequest
 Response = HttpResponse
+StreamingResponse = StreamingHttpResponse
 
-# CLI entry point
+# Define public API
+__all__ = [
+    # Primary API (httpx-compatible names)
+    "Client",
+    "AsyncClient",
+    "Request", 
+    "Response",
+    "StreamingResponse",
+    # Original names (for advanced users)
+    "HttpClient",
+    "AsyncHttpClient",
+    "HttpRequest",
+    "HttpResponse", 
+    "StreamingHttpResponse",
+    # Exception hierarchy
+    "HTTPError",
+    "ConnectTimeout",
+    "ReadTimeout",
+    "RequestError", 
+    # Convenience functions
+    "get",
+    "post",
+    "put",
+    "patch", 
+    "delete",
+    "head",
+    "options",
+    "stream",
+]
+
 def main():
     """CLI entry point."""
     import sys
@@ -33,6 +72,5 @@ def main():
     print("Usage: python -m faster_http")
     sys.exit(0)
 
-# Entry point
 if __name__ == "__main__":
     main()
