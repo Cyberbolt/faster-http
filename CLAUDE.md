@@ -14,4 +14,4 @@ Rust 部分，应该把 Python 部分的输入转为 reqwest 的输入，然后�
 
 Python 调用 Rust 应该尽可能高效，追求极致性能。
 
-当你修改了代码，应该执行 tests 目录下的测试 (用 `uv run -m pytest ...` 来运行)，确保没有破坏原有功能。如果你修改了 Rust 代码，应该先运行 `uv run maturin develop` 重新编译。
+当你修改了代码，应该执行 tests 目录下的测试 (用 `uv run -m pytest` 为前缀来运行)，确保没有破坏原有功能。如果你修改了 Rust 代码，应该先运行 `uv run maturin develop` 重新编译。
