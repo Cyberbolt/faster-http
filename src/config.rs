@@ -16,6 +16,9 @@ pub struct ClientConfig {
     pub proxy: Option<String>,
     pub default_cookies: HashMap<String, String>,
     pub http2: bool,
+    // 预构建的客户端以支持高效的重定向控制
+    pub redirect_client: Client,
+    pub no_redirect_client: Client,
 }
 
 impl ClientConfig {
@@ -23,7 +26,7 @@ impl ClientConfig {
         base_url: Option<String>,
         timeout: Option<f64>,
         headers: Option<HashMap<String, String>>,
-        _verify: Option<bool>,
+        verify: Option<bool>,
         follow_redirects: Option<bool>,
         auth: Option<PyObject>,  // Accept either tuple or auth object
         proxy: Option<String>,
@@ -48,6 +51,10 @@ impl ClientConfig {
             None
         };
 
+        // 预构建两个客户端以支持高效的重定向控制
+        let redirect_client = Self::build_client_with_redirect(true, verify, &proxy, http2)?;
+        let no_redirect_client = Self::build_client_with_redirect(false, verify, &proxy, http2)?;
+
         Ok(ClientConfig {
             base_url,
             default_timeout: timeout.map(Duration::from_secs_f64),
@@ -57,7 +64,50 @@ impl ClientConfig {
             proxy,
             default_cookies: cookies.unwrap_or_default(),
             http2: http2.unwrap_or(false),
+            redirect_client,
+            no_redirect_client,
         })
+    }
+
+    fn build_client_with_redirect(
+        follow_redirects: bool, 
+        verify: Option<bool>, 
+        proxy: &Option<String>, 
+        http2: Option<bool>
+    ) -> PyResult<Client> {
+        let verify = verify.unwrap_or(true);
+        let http2 = http2.unwrap_or(false);
+        
+        let mut builder = Client::builder()
+            .danger_accept_invalid_certs(!verify)
+            .redirect(if follow_redirects { 
+                reqwest::redirect::Policy::limited(10) 
+            } else { 
+                reqwest::redirect::Policy::none() 
+            })
+            // Optimize connection pooling for high performance
+            .pool_max_idle_per_host(100)
+            .pool_idle_timeout(Duration::from_secs(90))
+            .tcp_keepalive(Duration::from_secs(60))
+            .tcp_nodelay(true);
+
+        // HTTP/2 support
+        if http2 {
+            builder = builder
+                .http2_keep_alive_interval(Some(std::time::Duration::from_secs(20)))
+                .http2_keep_alive_timeout(std::time::Duration::from_secs(10));
+        } else {
+            builder = builder.http1_only();
+        }
+
+        if let Some(proxy_url) = proxy {
+            let proxy = reqwest::Proxy::all(proxy_url)
+                .map_err(|e| RequestError::new_err(format!("Invalid proxy URL: {}", e)))?;
+            builder = builder.proxy(proxy);
+        }
+
+        builder.build()
+            .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))
     }
 
     pub fn build_client(&self, verify: Option<bool>) -> PyResult<Client> {
@@ -99,5 +149,14 @@ impl ClientConfig {
 
         builder.build()
             .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))
+    }
+    
+    // 根据 follow_redirects 参数选择合适的客户端
+    pub fn get_client_for_redirect(&self, follow_redirects: bool) -> &Client {
+        if follow_redirects {
+            &self.redirect_client
+        } else {
+            &self.no_redirect_client
+        }
     }
 } 

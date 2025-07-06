@@ -26,6 +26,16 @@ from ._core import (
     head,
     options,
     stream,
+    # Model classes with httpx-compatible names
+    Headers,
+    QueryParams, 
+    Cookies,
+    URL,
+    Timeout,
+    Limits,
+    BasicAuth,
+    DigestAuth,
+    NetRCAuth,
 )
 
 # httpx-compatible aliases (primary API)
@@ -63,6 +73,16 @@ __all__ = [
     "head",
     "options",
     "stream",
+    # Model classes (already httpx-compatible names)
+    "Headers",
+    "QueryParams",
+    "Cookies", 
+    "URL",
+    "Timeout",
+    "Limits",
+    "BasicAuth",
+    "DigestAuth", 
+    "NetRCAuth",
 ]
 
 def main():

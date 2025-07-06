@@ -7,8 +7,8 @@ use std::sync::Arc;
 use crate::config::ClientConfig;
 use crate::request::HttpRequest;
 
-use crate::core::{send_request, build_and_send_request};
-// Removed utils imports - delegate URL/header processing to reqwest
+use crate::core::{send_request_direct, build_and_send_request};
+use crate::utils::build_url;
 use crate::auth::extract_auth;
 use crate::error::RequestError;
 
@@ -56,26 +56,9 @@ impl AsyncHttpClient {
         headers: Option<HashMap<String, String>>,
         content: Option<Vec<u8>>,
     ) -> PyResult<HttpRequest> {
-        // Let reqwest handle URL building and query params
-        let mut final_url = url.to_string();
-        
-        // Basic base URL handling if needed
-        if let Some(base) = &self.config.base_url {
-            if !url.starts_with("http://") && !url.starts_with("https://") {
-                final_url = format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'));
-            }
-        }
-        
-        // Let reqwest handle query params
-        if let Some(params) = params {
-            let mut parsed_url = reqwest::Url::parse(&final_url)
-                .map_err(|e| RequestError::new_err(format!("Invalid URL: {}", e)))?;
-            
-            for (key, value) in params {
-                parsed_url.query_pairs_mut().append_pair(&key, &value);
-            }
-            final_url = parsed_url.to_string();
-        }
+        // Use centralized URL building
+        let final_url = build_url(url, self.config.base_url.as_ref(), params.as_ref())
+            .map_err(|e| RequestError::new_err(e))?;
         
         // Simple header merging
         let mut final_headers = self.config.default_headers.clone();
@@ -96,15 +79,21 @@ impl AsyncHttpClient {
         
         let client = self.client.clone();
         let config = self.config.clone();
-        // Avoid unnecessary cloning by moving data directly
+        // Extract minimal data needed, avoid unnecessary cloning
         let method = request.method().to_string();
         let url = request.url().to_string();
         let headers = request.headers();
-        let content = request.content().map(|b| b.to_vec());
+        let content_bytes = request.content().map(|b| b.to_vec());
         
         future_into_py(py, async move {
-            let request_obj = HttpRequest::new(method, url, Some(headers), content);
-            send_request(&client, &request_obj, &config).await
+            send_request_direct(
+                &client, 
+                &method, 
+                &url, 
+                &headers, 
+                content_bytes.as_deref(),
+                &config
+            ).await
         })
     }
 
@@ -207,16 +196,13 @@ impl AsyncHttpClient {
         let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
         let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
         
-        let client = self.client.clone();
-        let base_url = self.config.base_url.clone();
-        let default_headers = self.config.default_headers.clone();
-        let default_timeout = self.config.default_timeout;
+        let config = self.config.clone();
         let method = method.to_string();
         
         future_into_py(py, async move {
             build_and_send_request(
-                &client, &method, &url, content, data, json, files, params, headers,
-                timeout, &base_url, &default_headers, default_timeout, auth_option,
+                &config, &method, &url, content, data, json, files, params, headers,
+                timeout, &config.base_url, &config.default_headers, config.default_timeout, auth_option,
                 follow_redirects, merged_cookies
             ).await
         })

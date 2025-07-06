@@ -6,7 +6,7 @@ use crate::config::ClientConfig;
 use crate::request::HttpRequest;
 use crate::response::HttpResponse;
 use crate::core::{send_request, build_and_send_request};
-// Removed utils imports - delegate URL/header processing to reqwest
+use crate::utils::build_url;
 use crate::auth::extract_auth;
 use crate::runtime::get_global_runtime;
 use crate::error::RequestError;
@@ -55,26 +55,9 @@ impl HttpClient {
         headers: Option<HashMap<String, String>>,
         content: Option<Vec<u8>>,
     ) -> PyResult<HttpRequest> {
-        // Let reqwest handle URL building and query params
-        let mut final_url = url.to_string();
-        
-        // Basic base URL handling if needed
-        if let Some(base) = &self.config.base_url {
-            if !url.starts_with("http://") && !url.starts_with("https://") {
-                final_url = format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'));
-            }
-        }
-        
-        // Let reqwest handle query params
-        if let Some(params) = params {
-            let mut parsed_url = reqwest::Url::parse(&final_url)
-                .map_err(|e| RequestError::new_err(format!("Invalid URL: {}", e)))?;
-            
-            for (key, value) in params {
-                parsed_url.query_pairs_mut().append_pair(&key, &value);
-            }
-            final_url = parsed_url.to_string();
-        }
+        // Use centralized URL building
+        let final_url = build_url(url, self.config.base_url.as_ref(), params.as_ref())
+            .map_err(|e| RequestError::new_err(e))?;
         
         // Simple header merging
         let mut final_headers = self.config.default_headers.clone();
@@ -158,7 +141,7 @@ impl HttpClient {
         let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
         
         rt.block_on(build_and_send_request(
-            &self.client,
+            &self.config,
             method, 
             url, 
             content, 

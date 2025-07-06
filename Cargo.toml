@@ -28,7 +28,9 @@ http = "1.0"
 # 修复 PyO3 + Tokio 在程序退出时的清理问题，特别是在 ARM64 架构上
 [profile.release]
 debug = 0
-lto = false
+lto = "thin"
+codegen-units = 1
+opt-level = 3
 panic = "unwind"
 
 [profile.dev]

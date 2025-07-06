@@ -3,7 +3,6 @@ use pyo3::types::PyBytes;
 use pyo3_asyncio::tokio::future_into_py;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use futures::StreamExt;
 use crate::error::RequestError;
 use crate::response::{detect_encoding, parse_cookies_from_headers, detect_http_version};
 use crate::runtime::get_global_runtime;
@@ -69,11 +68,11 @@ impl StreamingHttpResponse {
 impl StreamingHttpResponse {
     // ==================== 构造函数 ====================
     #[new]
-    pub fn py_new(response: PyObject) -> PyResult<Self> {
+    pub fn py_new(_response: PyObject) -> PyResult<Self> {
         // Convert a regular response to a streaming response
         // This is a simplified implementation - in real httpx, you'd need to handle the case
         // where response is already consumed
-        Python::with_gil(|py| {
+        Python::with_gil(|_py| {
             // For now, create a dummy streaming response
             // In a real implementation, you'd extract the reqwest::Response from the response object
             let dummy_response = reqwest::Response::from(

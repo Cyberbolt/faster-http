@@ -10,7 +10,7 @@ use crate::error::{map_reqwest_error, RequestError, ReadTimeout, ConnectTimeout}
 use crate::utils::{build_multipart_form, python_dict_to_json_value, python_dict_to_form_string};
 
 
-// 发送请求的核心函数
+// 发送请求的核心函数（基于已构建的请求）
 pub async fn send_request(client: &Client, request: &HttpRequest, config: &ClientConfig) -> PyResult<HttpResponse> {
     let start_time = Instant::now();
 
@@ -25,6 +25,38 @@ pub async fn send_request(client: &Client, request: &HttpRequest, config: &Clien
 
     if let Some(content) = request.content() {
         req = req.body(content.to_vec());
+    }
+
+    if let Some(timeout) = config.default_timeout {
+        req = req.timeout(timeout);
+    }
+
+    let response = req.send().await.map_err(map_reqwest_error)?;
+    process_response(response, start_time).await
+}
+
+// 优化版：直接从数据发送请求，避免 HttpRequest 中间对象
+pub async fn send_request_direct(
+    client: &Client, 
+    method: &str,
+    url: &str,
+    headers: &HashMap<String, String>,
+    content: Option<&[u8]>,
+    config: &ClientConfig
+) -> PyResult<HttpResponse> {
+    let start_time = Instant::now();
+
+    let method = method.parse::<reqwest::Method>()
+        .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
+    
+    let mut req = client.request(method, url);
+
+    for (key, value) in headers {
+        req = req.header(key, value);
+    }
+
+    if let Some(content_bytes) = content {
+        req = req.body(content_bytes.to_vec());
     }
 
     if let Some(timeout) = config.default_timeout {
@@ -85,7 +117,7 @@ pub async fn process_response(response: reqwest::Response, start_time: Instant) 
 
 // 核心请求构建和发送函数
 pub async fn build_and_send_request(
-    client: &Client,
+    config: &ClientConfig,
     method: &str,
     url: &str,
     content: Option<Vec<u8>>,
@@ -104,9 +136,8 @@ pub async fn build_and_send_request(
 ) -> PyResult<HttpResponse> {
     let start_time = Instant::now();
 
-    // 使用主客户端 - reqwest 不支持请求级别重定向控制
-    // 但是我们可以通过检查响应状态码手动处理重定向
-    let client_to_use = client;
+    // 使用 ClientConfig 中预构建的客户端以获得最佳性能
+    let client_to_use = config.get_client_for_redirect(follow_redirects);
 
     // 构建URL
     let full_url = if let Some(base) = base_url {
@@ -200,7 +231,7 @@ pub async fn build_and_send_request(
 
 // 核心流式请求构建和发送函数 - 返回 StreamingHttpResponse
 pub async fn build_and_send_streaming_request(
-    client: &Client,
+    config: &ClientConfig,
     method: &str,
     url: &str,
     content: Option<Vec<u8>>,
@@ -217,9 +248,8 @@ pub async fn build_and_send_streaming_request(
     follow_redirects: bool,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<StreamingHttpResponse> {
-    // 使用主客户端 - reqwest 不支持请求级别重定向控制
-    // 但是我们可以通过检查响应状态码手动处理重定向
-    let client_to_use = client;
+    // 使用 ClientConfig 中预构建的客户端以获得最佳性能
+    let client_to_use = config.get_client_for_redirect(follow_redirects);
 
     // 构建URL
     let full_url = if let Some(base) = base_url {

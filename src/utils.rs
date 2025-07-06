@@ -7,6 +7,35 @@ use crate::error::RequestError;
 // Minimal utility functions - most URL/header processing delegated to reqwest
 // Only keep essential interface conversion utilities
 
+// 统一的 URL 构建函数，避免重复代码
+pub fn build_url(
+    url: &str, 
+    base_url: Option<&String>, 
+    params: Option<&HashMap<String, String>>
+) -> Result<String, String> {
+    let mut final_url = url.to_string();
+    
+    // Handle base URL if provided
+    if let Some(base) = base_url {
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            final_url = format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'));
+        }
+    }
+    
+    // Handle query parameters
+    if let Some(params) = params {
+        let mut parsed_url = reqwest::Url::parse(&final_url)
+            .map_err(|e| format!("Invalid URL: {}", e))?;
+        
+        for (key, value) in params {
+            parsed_url.query_pairs_mut().append_pair(key, value);
+        }
+        final_url = parsed_url.to_string();
+    }
+    
+    Ok(final_url)
+}
+
 // File upload processing - delegate to reqwest multipart
 pub fn build_multipart_form(files_data: HashMap<String, PyObject>) -> PyResult<reqwest::multipart::Form> {
     Python::with_gil(|py| {

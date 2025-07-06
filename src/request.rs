@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 // Request 对象
 #[pyclass]
+#[derive(Clone)]
 pub struct HttpRequest {
     method: String,
     url: String,

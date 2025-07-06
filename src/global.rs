@@ -6,10 +6,12 @@ use crate::response::HttpResponse;
 use crate::streaming::StreamingHttpResponse;
 use crate::core::{build_and_send_request, build_and_send_streaming_request};
 use crate::runtime::get_global_runtime;
+use crate::config::ClientConfig;
 use crate::models::HttpHeaders;
 
 // 全局客户端实例，用于复用连接池
 static GLOBAL_CLIENT: OnceLock<Arc<Client>> = OnceLock::new();
+static GLOBAL_CONFIG: OnceLock<ClientConfig> = OnceLock::new();
 
 // Helper function to extract headers from either HashMap or Headers object
 fn extract_headers(headers: Option<PyObject>) -> PyResult<Option<HashMap<String, String>>> {
@@ -42,6 +44,14 @@ fn get_global_client() -> Arc<Client> {
     }).clone()
 }
 
+fn get_global_config() -> &'static ClientConfig {
+    GLOBAL_CONFIG.get_or_init(|| {
+        ClientConfig::new(
+            None, None, None, None, None, None, None, None, None
+        ).expect("Failed to create global config")
+    })
+}
+
 // 全局函数
 #[pyfunction]
 pub fn get(
@@ -54,9 +64,9 @@ pub fn get(
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let rt = get_global_runtime();
-    let client = get_global_client();
+    let config = get_global_config();
     rt.block_on(build_and_send_request(
-        &client, "GET", url, None, None, None, None, params, headers, timeout,
+        config, "GET", url, None, None, None, None, params, headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 }
@@ -76,10 +86,10 @@ pub fn post(
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let rt = get_global_runtime();
-    let client = get_global_client();
+    let config = get_global_config();
     let extracted_headers = extract_headers(headers)?;
     rt.block_on(build_and_send_request(
-        &client, "POST", url, content, data, json, files, params, extracted_headers, timeout,
+        config, "POST", url, content, data, json, files, params, extracted_headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 }
@@ -99,9 +109,9 @@ pub fn put(
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let rt = get_global_runtime();
-    let client = get_global_client();
+    let config = get_global_config();
     rt.block_on(build_and_send_request(
-        &client, "PUT", url, content, data, json, files, params, headers, timeout,
+        config, "PUT", url, content, data, json, files, params, headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 }
@@ -121,9 +131,9 @@ pub fn patch(
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let rt = get_global_runtime();
-    let client = get_global_client();
+    let config = get_global_config();
     rt.block_on(build_and_send_request(
-        &client, "PATCH", url, content, data, json, files, params, headers, timeout,
+        config, "PATCH", url, content, data, json, files, params, headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 }
@@ -139,9 +149,9 @@ pub fn delete(
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let rt = get_global_runtime();
-    let client = get_global_client();
+    let config = get_global_config();
     rt.block_on(build_and_send_request(
-        &client, "DELETE", url, None, None, None, None, params, headers, timeout,
+        config, "DELETE", url, None, None, None, None, params, headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 }
@@ -157,9 +167,9 @@ pub fn head(
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let rt = get_global_runtime();
-    let client = get_global_client();
+    let config = get_global_config();
     rt.block_on(build_and_send_request(
-        &client, "HEAD", url, None, None, None, None, params, headers, timeout,
+        config, "HEAD", url, None, None, None, None, params, headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 }
@@ -175,9 +185,9 @@ pub fn options(
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     let rt = get_global_runtime();
-    let client = get_global_client();
+    let config = get_global_config();
     rt.block_on(build_and_send_request(
-        &client, "OPTIONS", url, None, None, None, None, params, headers, timeout,
+        config, "OPTIONS", url, None, None, None, None, params, headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 }
@@ -199,9 +209,9 @@ pub fn stream(
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<StreamingHttpResponse> {
     let rt = get_global_runtime();
-    let client = get_global_client();
+    let config = get_global_config();
     rt.block_on(build_and_send_streaming_request(
-        &client, method, url, content, data, json, files, params, headers, timeout,
+        config, method, url, content, data, json, files, params, headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
     ))
 } 
