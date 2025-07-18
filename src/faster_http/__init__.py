@@ -9,11 +9,11 @@ __version__ = "0.1.0"
 
 # Import specific classes for explicit re-export
 from ._core import (
-    HttpClient,
-    AsyncHttpClient,
-    HttpRequest,
-    HttpResponse,
-    StreamingHttpResponse,
+    HttpClient as Client, 
+    AsyncHttpClient as AsyncClient, 
+    HttpRequest as Request,
+    HttpResponse as Response,
+    StreamingHttpResponse as StreamingResponse,
     HTTPError,
     ConnectTimeout,
     ReadTimeout,
@@ -38,12 +38,6 @@ from ._core import (
     NetRCAuth,
 )
 
-# httpx-compatible aliases (primary API)
-Client = HttpClient
-AsyncClient = AsyncHttpClient
-Request = HttpRequest
-Response = HttpResponse
-StreamingResponse = StreamingHttpResponse
 
 # Define public API
 __all__ = [
