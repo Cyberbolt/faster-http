@@ -24,7 +24,7 @@ Rust 部分，应该把 Python 部分的输入转为 reqwest 的输入，然后�
 
 - 测试代码应该覆盖该项目的全部功能
 
-- 测试编写时应该先用 httpx 跑，然后用 faster-http 跑，这样才更好对比
+- 测试编写时应该先用 httpx 跑，然后用 faster-http 跑，这样才更好对比。如果发现 faster-http 的接口不兼容 httpx，应该及时更改该项目的源码，然后再测试。faster-http 不应该实现 httpx 没有的接口
 
 - 测试代码应该放到项目根目录的 `tests` 文件中
 
