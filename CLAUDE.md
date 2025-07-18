@@ -4,7 +4,7 @@
 
 ### 基本规范
 
-- 这个项目应该使用 uv 来管理，用 `uv run -m` 替代 `python -m`，用 `uv add` 来添加相关依赖。如果你不清楚 uv 的使用方法，可以用 context7 查询
+- 这个项目应该使用 uv 来管理，用 `uv run -m` 替代 `python -m`，用 `uv add` 来添加相关依赖。如果你不清楚 uv 的使用方法，可以用 context7 查询(context7 查询的优先级应该高于互联网搜索)
 
 - 这个项目的目的是作为 httpx 的高性能替代。
 因为需要随时确认 httpx 或 reqwest 的文档，如果你不清楚请使用 context7 查询。
