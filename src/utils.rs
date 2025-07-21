@@ -221,7 +221,24 @@ fn python_to_json_value(py: Python, obj: &PyObject) -> PyResult<Value> {
         Ok(Value::Number(serde_json::Number::from_f64(f).unwrap_or_else(|| serde_json::Number::from(0))))
     } else if let Ok(s) = obj.extract::<String>(py) {
         Ok(Value::String(s))
+    } else if let Ok(dict) = obj.extract::<HashMap<String, PyObject>>(py) {
+        // Handle nested dictionaries
+        let mut map = serde_json::Map::new();
+        for (key, value) in dict {
+            let json_value = python_to_json_value(py, &value)?;
+            map.insert(key, json_value);
+        }
+        Ok(Value::Object(map))
+    } else if let Ok(list) = obj.extract::<Vec<PyObject>>(py) {
+        // Handle lists
+        let mut json_array = Vec::new();
+        for item in list {
+            let json_value = python_to_json_value(py, &item)?;
+            json_array.push(json_value);
+        }
+        Ok(Value::Array(json_array))
     } else {
+        // Fallback to string representation
         Ok(Value::String(format!("{}", obj.as_ref(py))))
     }
 } 

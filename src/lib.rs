@@ -62,6 +62,7 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(global::delete, m)?)?;
     m.add_function(wrap_pyfunction!(global::head, m)?)?;
     m.add_function(wrap_pyfunction!(global::options, m)?)?;
+    m.add_function(wrap_pyfunction!(global::request, m)?)?;
     m.add_function(wrap_pyfunction!(global::stream, m)?)?;
     
     // Add exception types

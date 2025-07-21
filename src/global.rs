@@ -67,7 +67,7 @@ pub fn get(
     let config = get_global_config();
     rt.block_on(build_and_send_request(
         config, "GET", url, None, None, None, None, params, headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
     ))
 }
 
@@ -90,7 +90,7 @@ pub fn post(
     let extracted_headers = extract_headers(headers)?;
     rt.block_on(build_and_send_request(
         config, "POST", url, content, data, json, files, params, extracted_headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
     ))
 }
 
@@ -112,7 +112,7 @@ pub fn put(
     let config = get_global_config();
     rt.block_on(build_and_send_request(
         config, "PUT", url, content, data, json, files, params, headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
     ))
 }
 
@@ -134,7 +134,7 @@ pub fn patch(
     let config = get_global_config();
     rt.block_on(build_and_send_request(
         config, "PATCH", url, content, data, json, files, params, headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
     ))
 }
 
@@ -152,7 +152,7 @@ pub fn delete(
     let config = get_global_config();
     rt.block_on(build_and_send_request(
         config, "DELETE", url, None, None, None, None, params, headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
     ))
 }
 
@@ -170,7 +170,7 @@ pub fn head(
     let config = get_global_config();
     rt.block_on(build_and_send_request(
         config, "HEAD", url, None, None, None, None, params, headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
     ))
 }
 
@@ -188,7 +188,32 @@ pub fn options(
     let config = get_global_config();
     rt.block_on(build_and_send_request(
         config, "OPTIONS", url, None, None, None, None, params, headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
+    ))
+}
+
+// 通用请求函数
+#[pyfunction]
+pub fn request(
+    method: &str,
+    url: &str,
+    content: Option<Vec<u8>>,
+    data: Option<HashMap<String, PyObject>>,
+    json: Option<HashMap<String, PyObject>>,
+    files: Option<HashMap<String, PyObject>>,
+    params: Option<HashMap<String, String>>,
+    headers: Option<PyObject>,  // Support both dict and Headers
+    timeout: Option<f64>,
+    auth: Option<(String, String)>,
+    follow_redirects: Option<bool>,
+    cookies: Option<HashMap<String, String>>,
+) -> PyResult<HttpResponse> {
+    let rt = get_global_runtime();
+    let config = get_global_config();
+    let extracted_headers = extract_headers(headers)?;
+    rt.block_on(build_and_send_request(
+        config, method, url, content, data, json, files, params, extracted_headers, timeout,
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
     ))
 }
 
@@ -212,6 +237,6 @@ pub fn stream(
     let config = get_global_config();
     rt.block_on(build_and_send_streaming_request(
         config, method, url, content, data, json, files, params, headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(true), cookies
+        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
     ))
 } 

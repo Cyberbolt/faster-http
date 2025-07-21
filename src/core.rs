@@ -3,7 +3,7 @@ use reqwest::Client;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use crate::request::HttpRequest;
-use crate::response::{HttpResponse, parse_cookies_from_headers, detect_encoding};
+use crate::response::{HttpResponse, detect_encoding};
 use crate::streaming::StreamingHttpResponse;
 use crate::config::ClientConfig;
 use crate::error::{map_reqwest_error, RequestError, ReadTimeout, ConnectTimeout};
@@ -86,6 +86,9 @@ pub async fn process_response(response: reqwest::Response, start_time: Instant) 
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
+        
+    // 直接从 reqwest 响应中提取 cookies 以确保正确性  
+    let cookies = extract_cookies_from_response(&response);
 
     // 读取 body - 让 reqwest 处理流式优化
     let body = response.bytes().await
@@ -94,7 +97,6 @@ pub async fn process_response(response: reqwest::Response, start_time: Instant) 
     let elapsed = start_time.elapsed().as_secs_f64();
     let is_redirect_status = matches!(status_code, 301 | 302 | 303 | 307 | 308);
     let encoding = detect_encoding(&headers);
-    let cookies = parse_cookies_from_headers(&headers);
     let num_bytes_downloaded = body.len();
     
     Ok(HttpResponse::new(
@@ -339,4 +341,26 @@ pub async fn build_and_send_streaming_request(
 
     // 创建流式响应 - 不读取 body，保持 reqwest::Response
     Ok(StreamingHttpResponse::new(response))
+}
+
+// 从 reqwest 响应中提取 cookies - 保持与 reqwest 的兼容性
+fn extract_cookies_from_response(response: &reqwest::Response) -> HashMap<String, String> {
+    let mut cookies = HashMap::new();
+    
+    // 获取所有的 Set-Cookie 头部
+    for value in response.headers().get_all("set-cookie") {
+        if let Ok(cookie_str) = value.to_str() {
+            // 解析单个 Set-Cookie 头部
+            if let Some(cookie_pair) = cookie_str.split(';').next() {
+                if let Some((name, val)) = cookie_pair.split_once('=') {
+                    cookies.insert(
+                        name.trim().to_string(), 
+                        val.trim().trim_matches('"').to_string()
+                    );
+                }
+            }
+        }
+    }
+    
+    cookies
 } 

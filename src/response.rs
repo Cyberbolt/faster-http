@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
-use pyo3::types::PyBytes;
+use pyo3::types::{PyBytes, IntoPyDict};
 use bytes::Bytes;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -72,20 +72,26 @@ impl HttpResponse {
     }
 
     #[getter]
-    pub fn headers(&self) -> HashMap<String, String> {
-        // HashMap无法返回引用给Python，保持clone但添加注释说明
-        self.headers.clone()
+    pub fn headers(&self) -> crate::models::HttpHeaders {
+        // 返回 Headers 对象以保持与 httpx 兼容
+        crate::models::HttpHeaders::new(Some(self.headers.clone()))
     }
 
     #[getter]
-    pub fn url(&self) -> &str {
-        // 返回字符串引用，避免clone
-        &self.url
+    pub fn url(&self) -> crate::models::HttpUrl {
+        // 返回 URL 对象以保持与 httpx 兼容
+        crate::models::HttpUrl::new(self.url.clone())
     }
 
     #[getter]
-    pub fn elapsed(&self) -> f64 {
-        self.elapsed
+    pub fn elapsed(&self) -> PyResult<PyObject> {
+        // 返回 datetime.timedelta 对象以保持与 httpx 兼容
+        Python::with_gil(|py| {
+            let datetime = py.import("datetime")?;
+            let timedelta = datetime.getattr("timedelta")?;
+            // 使用 seconds 参数而不是 days
+            timedelta.call((), Some([("seconds", self.elapsed)].into_py_dict(py))).map(|obj| obj.to_object(py))
+        })
     }
 
     #[getter]
@@ -95,9 +101,9 @@ impl HttpResponse {
     }
 
     #[getter]
-    pub fn cookies(&self) -> HashMap<String, String> {
-        // HashMap无法返回引用给Python，保持clone但添加注释说明
-        self.cookies.clone()
+    pub fn cookies(&self) -> crate::models::HttpCookies {
+        // 返回 Cookies 对象以保持与 httpx 兼容
+        crate::models::HttpCookies::new(Some(self.cookies.clone()))
     }
 
     #[getter]
@@ -274,6 +280,119 @@ impl HttpResponse {
         self._closed
     }
 
+    // ==================== httpx 兼容性属性 ====================
+    #[getter]
+    pub fn default_encoding(&self) -> &str {
+        "utf-8"
+    }
+
+    #[getter]
+    pub fn charset_encoding(&self) -> Option<&str> {
+        self.encoding.as_deref()
+    }
+
+    #[getter]
+    pub fn is_stream_consumed(&self) -> bool {
+        false  // 我们总是缓存整个响应
+    }
+
+    #[getter]
+    pub fn has_redirect_location(&self) -> bool {
+        self.is_redirect_status && self.headers.contains_key("location")
+    }
+
+    #[getter]
+    pub fn reason_phrase(&self) -> String {
+        // 根据状态码返回标准的原因短语
+        match self.status_code {
+            200 => "OK".to_string(),
+            201 => "Created".to_string(),
+            204 => "No Content".to_string(),
+            301 => "Moved Permanently".to_string(),
+            302 => "Found".to_string(),
+            304 => "Not Modified".to_string(),
+            400 => "Bad Request".to_string(),
+            401 => "Unauthorized".to_string(),
+            403 => "Forbidden".to_string(),
+            404 => "Not Found".to_string(),
+            405 => "Method Not Allowed".to_string(),
+            500 => "Internal Server Error".to_string(),
+            501 => "Not Implemented".to_string(),
+            502 => "Bad Gateway".to_string(),
+            503 => "Service Unavailable".to_string(),
+            _ => format!("Status {}", self.status_code),
+        }
+    }
+
+    #[getter]
+    pub fn links(&self) -> HashMap<String, String> {
+        // 解析 Link 头部
+        let mut links = HashMap::new();
+        if let Some(link_header) = self.headers.get("link") {
+            // 简单的 Link 头部解析
+            for link in link_header.split(',') {
+                if let Some(captures) = link.trim().strip_prefix('<') {
+                    if let Some(end) = captures.find('>') {
+                        let url = &captures[..end];
+                        let params = &captures[end + 1..];
+                        if let Some(rel_start) = params.find("rel=") {
+                            let rel_part = &params[rel_start + 4..];
+                            let rel = rel_part.trim_matches([' ', '"', '\'']);
+                            if let Some(rel_end) = rel.find([' ', ';']) {
+                                links.insert(rel[..rel_end].to_string(), url.to_string());
+                            } else {
+                                links.insert(rel.to_string(), url.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        links
+    }
+
+    // ==================== 异步方法的同步版本 ====================
+    pub fn aclose(&self) -> PyResult<()> {
+        // 异步版本的 close，但在同步环境中直接返回
+        Ok(())
+    }
+
+    pub fn aread(&self, py: Python) -> PyResult<PyObject> {
+        // 异步版本的 read，但在同步环境中直接返回内容
+        self.content(py)
+    }
+
+    pub fn read(&self, py: Python) -> PyResult<PyObject> {
+        // 读取内容（同步版本）
+        self.content(py)
+    }
+
+    pub fn stream(&self) -> PyResult<()> {
+        // 流式访问（在我们的实现中是 no-op）
+        Ok(())
+    }
+
+    // ==================== 异步迭代器方法 ====================
+    pub fn aiter_bytes(&self, chunk_size: Option<usize>) -> PyResult<Vec<Py<PyBytes>>> {
+        // 异步版本的 iter_bytes，但在同步环境中直接返回
+        self.iter_bytes(chunk_size)
+    }
+
+    pub fn aiter_text(&self, chunk_size: Option<usize>) -> PyResult<Vec<String>> {
+        // 异步版本的 iter_text，但在同步环境中直接返回
+        self.iter_text(chunk_size)
+    }
+
+    pub fn aiter_lines(&self) -> PyResult<Vec<String>> {
+        // 异步版本的 iter_lines，但在同步环境中直接返回
+        self.iter_lines()
+    }
+
+    pub fn aiter_raw(&self, chunk_size: Option<usize>) -> PyResult<Vec<Py<PyBytes>>> {
+        // 异步版本的 iter_raw，但在同步环境中直接返回
+        self.iter_raw(chunk_size)
+    }
+
     // ==================== Python 特殊方法 ====================
     fn __repr__(&self) -> String {
         format!("<Response [{}]>", self.status_code)
@@ -302,15 +421,14 @@ pub fn parse_cookies_from_headers(headers: &HashMap<String, String>) -> HashMap<
     
     for (key, value) in headers {
         if key.to_lowercase() == "set-cookie" {
-            // 处理多个 Set-Cookie 头
-            for cookie_str in value.split(',') {
-                if let Some(cookie_pair) = cookie_str.split(';').next() {
-                    if let Some((name, val)) = cookie_pair.split_once('=') {
-                        cookies.insert(
-                            name.trim().to_string(), 
-                            val.trim().trim_matches('"').to_string()
-                        );
-                    }
+            // 每个 Set-Cookie 头都是独立的，不应该用逗号分割
+            // 因为 cookie 值本身可能包含逗号
+            if let Some(cookie_pair) = value.split(';').next() {
+                if let Some((name, val)) = cookie_pair.split_once('=') {
+                    cookies.insert(
+                        name.trim().to_string(), 
+                        val.trim().trim_matches('"').to_string()
+                    );
                 }
             }
         }

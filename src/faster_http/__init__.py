@@ -25,6 +25,7 @@ from ._core import (
     delete,
     head,
     options,
+    request,
     stream,
     # Model classes with httpx-compatible names
     Headers,
@@ -66,6 +67,7 @@ __all__ = [
     "delete",
     "head",
     "options",
+    "request",
     "stream",
     # Model classes (already httpx-compatible names)
     "Headers",

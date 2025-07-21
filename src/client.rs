@@ -160,6 +160,25 @@ impl HttpClient {
         ))
     }
 
+    // Public request method for httpx compatibility
+    pub fn request(
+        &self,
+        method: &str,
+        url: &str,
+        content: Option<Vec<u8>>,
+        data: Option<HashMap<String, PyObject>>,
+        json: Option<HashMap<String, PyObject>>,
+        files: Option<HashMap<String, PyObject>>,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+        auth: Option<(String, String)>,
+        follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
+    ) -> PyResult<HttpResponse> {
+        self._request(method, url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
+    }
+
     pub fn get(
         &self,
         url: &str,
@@ -261,5 +280,84 @@ impl HttpClient {
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
         self._request("OPTIONS", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
+    }
+
+    pub fn stream(
+        &self,
+        method: &str,
+        url: &str,
+        content: Option<Vec<u8>>,
+        data: Option<HashMap<String, PyObject>>,
+        json: Option<HashMap<String, PyObject>>,
+        files: Option<HashMap<String, PyObject>>,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+        auth: Option<(String, String)>,
+        follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
+    ) -> PyResult<crate::streaming::StreamingHttpResponse> {
+        use crate::core::build_and_send_streaming_request;
+        
+        self.check_not_closed()?;
+        let rt = get_global_runtime();
+        
+        let merged_cookies = match cookies {
+            Some(request_cookies) => {
+                let mut merged = self.config.default_cookies.clone();
+                merged.extend(request_cookies);
+                Some(merged)
+            }
+            None if !self.config.default_cookies.is_empty() => Some(self.config.default_cookies.clone()),
+            _ => None,
+        };
+        let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
+        let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
+        
+        rt.block_on(build_and_send_streaming_request(
+            &self.config,
+            method, 
+            url, 
+            content, 
+            data, 
+            json, 
+            files, 
+            params, 
+            headers, 
+            timeout, 
+            &self.config.base_url, 
+            &self.config.default_headers, 
+            self.config.default_timeout, 
+            auth_option, 
+            follow_redirects,
+            merged_cookies
+        ))
+    }
+
+    // httpx compatibility attributes
+    #[getter]
+    pub fn base_url(&self) -> Option<String> {
+        self.config.base_url.clone()
+    }
+
+    #[getter]
+    pub fn headers(&self) -> HashMap<String, String> {
+        self.config.default_headers.clone()
+    }
+
+    #[getter]
+    pub fn cookies(&self) -> HashMap<String, String> {
+        self.config.default_cookies.clone()
+    }
+
+    #[getter]
+    pub fn params(&self) -> HashMap<String, String> {
+        // Return empty hashmap for now (could be extended if needed)
+        HashMap::new()
+    }
+
+    #[getter]
+    pub fn auth(&self) -> Option<PyObject> {
+        self.config.auth_object.clone()
     }
 } 

@@ -13,6 +13,7 @@ pub struct ClientConfig {
     pub default_headers: HashMap<String, String>,
     pub follow_redirects: bool,
     pub auth: Option<AuthType>,
+    pub auth_object: Option<PyObject>, // Store original auth object for httpx compatibility
     pub proxy: Option<String>,
     pub default_cookies: HashMap<String, String>,
     pub http2: bool,
@@ -33,22 +34,22 @@ impl ClientConfig {
         cookies: Option<HashMap<String, String>>,
         http2: Option<bool>,
     ) -> PyResult<Self> {
-        let auth_type = if let Some(auth_obj) = auth {
-            Python::with_gil(|py| -> PyResult<Option<AuthType>> {
+        let (auth_type, auth_object) = if let Some(auth_obj) = auth {
+            Python::with_gil(|py| -> PyResult<(Option<AuthType>, Option<PyObject>)> {
                 // Try to extract as auth object first
                 if let Ok(Some(auth_type)) = extract_auth_from_object(&auth_obj) {
-                    return Ok(Some(auth_type));
+                    return Ok((Some(auth_type), Some(auth_obj.clone())));
                 }
                 
                 // Fallback to tuple format for backward compatibility
                 if let Ok((username, password)) = auth_obj.extract::<(String, String)>(py) {
-                    return Ok(Some(AuthType::Basic { username, password }));
+                    return Ok((Some(AuthType::Basic { username, password }), Some(auth_obj.clone())));
                 }
                 
-                Ok(None)
+                Ok((None, None))
             })?
         } else {
-            None
+            (None, None)
         };
 
         // 预构建两个客户端以支持高效的重定向控制
@@ -57,10 +58,11 @@ impl ClientConfig {
 
         Ok(ClientConfig {
             base_url,
-            default_timeout: timeout.map(Duration::from_secs_f64),
+            default_timeout: timeout.map(Duration::from_secs_f64).or(Some(Duration::from_secs(30))), // 设置默认30秒超时
             default_headers: headers.unwrap_or_default(),
             follow_redirects: follow_redirects.unwrap_or(true),
             auth: auth_type,
+            auth_object,
             proxy,
             default_cookies: cookies.unwrap_or_default(),
             http2: http2.unwrap_or(false),

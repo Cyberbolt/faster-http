@@ -137,6 +137,11 @@ impl AsyncHttpClient {
         Ok(())
     }
 
+    // Public request method for httpx compatibility
+    pub fn request<'py>(&self, py: Python<'py>, method: String, url: String, content: Option<Vec<u8>>, data: Option<HashMap<String, PyObject>>, json: Option<HashMap<String, PyObject>>, files: Option<HashMap<String, PyObject>>, params: Option<HashMap<String, String>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, auth: Option<(String, String)>, follow_redirects: Option<bool>, cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
+        self.async_request(py, &method, url, content, data, json, files, params, headers, timeout, auth, follow_redirects, cookies)
+    }
+
     pub fn get<'py>(&self, py: Python<'py>, url: String, params: Option<HashMap<String, String>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, auth: Option<(String, String)>, follow_redirects: Option<bool>, cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
         self.async_request(py, "GET", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
     }
@@ -163,6 +168,47 @@ impl AsyncHttpClient {
 
     pub fn options<'py>(&self, py: Python<'py>, url: String, params: Option<HashMap<String, String>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, auth: Option<(String, String)>, follow_redirects: Option<bool>, cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
         self.async_request(py, "OPTIONS", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
+    }
+
+    pub fn stream<'py>(&self, py: Python<'py>, method: String, url: String, content: Option<Vec<u8>>, data: Option<HashMap<String, PyObject>>, json: Option<HashMap<String, PyObject>>, files: Option<HashMap<String, PyObject>>, params: Option<HashMap<String, String>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, auth: Option<(String, String)>, follow_redirects: Option<bool>, cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
+        use crate::core::build_and_send_streaming_request;
+        
+        self.check_not_closed()?;
+        
+        let merged_cookies = match cookies {
+            Some(request_cookies) => {
+                let mut merged = self.config.default_cookies.clone();
+                merged.extend(request_cookies);
+                Some(merged)
+            }
+            None if !self.config.default_cookies.is_empty() => Some(self.config.default_cookies.clone()),
+            _ => None,
+        };
+        let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
+        let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
+        
+        let config = self.config.clone();
+        
+        future_into_py(py, async move {
+            build_and_send_streaming_request(
+                &config,
+                &method, 
+                &url, 
+                content, 
+                data, 
+                json, 
+                files, 
+                params, 
+                headers, 
+                timeout, 
+                &config.base_url, 
+                &config.default_headers, 
+                config.default_timeout, 
+                auth_option, 
+                follow_redirects,
+                merged_cookies
+            ).await
+        })
     }
 
     fn async_request<'py>(
@@ -206,5 +252,32 @@ impl AsyncHttpClient {
                 follow_redirects, merged_cookies
             ).await
         })
+    }
+
+    // httpx compatibility attributes
+    #[getter]
+    pub fn base_url(&self) -> Option<String> {
+        self.config.base_url.clone()
+    }
+
+    #[getter]
+    pub fn headers(&self) -> HashMap<String, String> {
+        self.config.default_headers.clone()
+    }
+
+    #[getter]
+    pub fn cookies(&self) -> HashMap<String, String> {
+        self.config.default_cookies.clone()
+    }
+
+    #[getter]
+    pub fn params(&self) -> HashMap<String, String> {
+        // Return empty hashmap for now (could be extended if needed)
+        HashMap::new()
+    }
+
+    #[getter]
+    pub fn auth(&self) -> Option<PyObject> {
+        self.config.auth_object.clone()
     }
 } 

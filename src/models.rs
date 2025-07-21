@@ -67,6 +67,16 @@ impl HttpHeaders {
     fn __iter__(&self) -> Vec<String> {
         self.inner.keys().cloned().collect()
     }
+    
+    fn __contains__(&self, key: &str) -> bool {
+        // 支持不区分大小写的查找
+        for k in self.inner.keys() {
+            if k.to_lowercase() == key.to_lowercase() {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 impl HttpHeaders {
@@ -165,6 +175,10 @@ impl HttpQueryParams {
     fn __iter__(&self) -> Vec<String> {
         self.inner.keys().cloned().collect()
     }
+    
+    fn __contains__(&self, key: &str) -> bool {
+        self.inner.contains_key(key)
+    }
 }
 
 impl HttpQueryParams {
@@ -235,6 +249,10 @@ impl HttpCookies {
     
     fn __iter__(&self) -> Vec<String> {
         self.inner.keys().cloned().collect()
+    }
+    
+    fn __contains__(&self, key: &str) -> bool {
+        self.inner.contains_key(key)
     }
 }
 
