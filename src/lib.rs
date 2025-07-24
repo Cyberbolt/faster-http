@@ -75,11 +75,47 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(global::request, m)?)?;
     m.add_function(wrap_pyfunction!(global::stream, m)?)?;
     
-    // Add exception types
+    // Add exception types - complete hierarchy
     m.add("HTTPError", py.get_type::<HTTPError>())?;
+    
+    // Connection exceptions
+    m.add("ConnectError", py.get_type::<ConnectError>())?;
     m.add("ConnectTimeout", py.get_type::<ConnectTimeout>())?;
+    
+    // Timeout exceptions
+    m.add("TimeoutException", py.get_type::<TimeoutException>())?;
     m.add("ReadTimeout", py.get_type::<ReadTimeout>())?;
+    m.add("WriteTimeout", py.get_type::<WriteTimeout>())?;
+    m.add("PoolTimeout", py.get_type::<PoolTimeout>())?;
+    
+    // Request/Response exceptions
     m.add("RequestError", py.get_type::<RequestError>())?;
+    m.add("ResponseError", py.get_type::<ResponseError>())?;
+    
+    // HTTP Status exceptions
+    m.add("HTTPStatusError", py.get_type::<HTTPStatusError>())?;
+    m.add("ClientError", py.get_type::<ClientError>())?;
+    m.add("ServerError", py.get_type::<ServerError>())?;
+    
+    // Stream exceptions
+    m.add("StreamError", py.get_type::<StreamError>())?;
+    m.add("StreamConsumed", py.get_type::<StreamConsumed>())?;
+    m.add("StreamClosed", py.get_type::<StreamClosed>())?;
+    
+    // Protocol exceptions
+    m.add("ProtocolError", py.get_type::<ProtocolError>())?;
+    m.add("DecodingError", py.get_type::<DecodingError>())?;
+    m.add("TooManyRedirects", py.get_type::<TooManyRedirects>())?;
+    
+    // Transport exceptions
+    m.add("TransportError", py.get_type::<TransportError>())?;
+    m.add("ProxyError", py.get_type::<ProxyError>())?;
+    m.add("SSLError", py.get_type::<SSLError>())?;
+    m.add("CertificateError", py.get_type::<CertificateError>())?;
+    
+    // Network exceptions
+    m.add("NetworkError", py.get_type::<NetworkError>())?;
+    m.add("DNSError", py.get_type::<DNSError>())?;
     
     Ok(())
 } 

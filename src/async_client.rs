@@ -40,11 +40,12 @@ impl AsyncHttpClient {
         trust_env: Option<bool>,
         transport: Option<PyObject>,
         mounts: Option<&pyo3::types::PyDict>,
+        limits: Option<PyObject>,
     ) -> PyResult<Self> {
         let config = ClientConfig::new(
             base_url, timeout, headers, verify, follow_redirects, 
             auth, proxy, proxies, cookies, http2, event_hooks, cert, trust_env,
-            transport, mounts
+            transport, mounts, limits
         )?;
         let client = config.build_client(None)?;
 

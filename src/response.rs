@@ -297,58 +297,114 @@ impl HttpResponse {
         false  // 我们总是缓存整个响应
     }
 
-    #[getter]
-    pub fn has_redirect_location(&self) -> bool {
-        self.is_redirect_status && self.headers.contains_key("location")
+    // ==================== Extensions manipulation ====================
+    pub fn get_extension(&self, key: &str) -> Option<PyObject> {
+        self.extensions.get(key).cloned()
     }
 
+    pub fn set_extension(&mut self, key: String, value: PyObject) {
+        self.extensions.insert(key, value);
+    }
+
+    pub fn has_extension(&self, key: &str) -> bool {
+        self.extensions.contains_key(key)
+    }
+
+    pub fn remove_extension(&mut self, key: &str) -> Option<PyObject> {
+        self.extensions.remove(key)
+    }
+
+    pub fn clear_extensions(&mut self) {
+        self.extensions.clear();
+    }
+
+    // ==================== Request association ====================
+    pub fn set_request(&mut self, request: PyObject) {
+        self.request = Some(request);
+    }
+
+    pub fn clear_request(&mut self) {
+        self.request = None;
+    }
+
+    // ==================== History manipulation ====================
+    pub fn add_history_entry(&mut self, response: PyObject) {
+        self.history.push(response);
+    }
+
+    pub fn clear_history(&mut self) {
+        self.history.clear();
+    }
+
+    #[getter] 
+    pub fn has_redirect_location(&self) -> bool {
+        self.headers.contains_key("location") || self.headers.contains_key("Location")
+    }
+
+    #[getter]
+    pub fn redirect_location(&self) -> Option<String> {
+        self.headers.get("location")
+            .or_else(|| self.headers.get("Location"))
+            .cloned()
+    }
+
+    // ==================== Additional httpx compatibility ====================
     #[getter]
     pub fn reason_phrase(&self) -> String {
-        // 根据状态码返回标准的原因短语
         match self.status_code {
-            200 => "OK".to_string(),
-            201 => "Created".to_string(),
-            204 => "No Content".to_string(),
-            301 => "Moved Permanently".to_string(),
-            302 => "Found".to_string(),
-            304 => "Not Modified".to_string(),
-            400 => "Bad Request".to_string(),
-            401 => "Unauthorized".to_string(),
-            403 => "Forbidden".to_string(),
-            404 => "Not Found".to_string(),
-            405 => "Method Not Allowed".to_string(),
-            500 => "Internal Server Error".to_string(),
-            501 => "Not Implemented".to_string(),
-            502 => "Bad Gateway".to_string(),
-            503 => "Service Unavailable".to_string(),
-            _ => format!("Status {}", self.status_code),
-        }
+            200 => "OK",
+            201 => "Created",
+            202 => "Accepted",
+            204 => "No Content",
+            301 => "Moved Permanently", 
+            302 => "Found",
+            303 => "See Other",
+            304 => "Not Modified",
+            307 => "Temporary Redirect",
+            308 => "Permanent Redirect",
+            400 => "Bad Request",
+            401 => "Unauthorized",
+            403 => "Forbidden",
+            404 => "Not Found",
+            405 => "Method Not Allowed",
+            408 => "Request Timeout",
+            409 => "Conflict",
+            410 => "Gone",
+            422 => "Unprocessable Entity",
+            429 => "Too Many Requests",
+            500 => "Internal Server Error",
+            501 => "Not Implemented",
+            502 => "Bad Gateway",
+            503 => "Service Unavailable",
+            504 => "Gateway Timeout",
+            _ => "Unknown Status"
+        }.to_string()
     }
 
     #[getter]
-    pub fn links(&self) -> HashMap<String, String> {
-        // 解析 Link 头部
+    pub fn links(&self) -> HashMap<String, HashMap<String, String>> {
         let mut links = HashMap::new();
-        if let Some(link_header) = self.headers.get("link") {
-            // 简单的 Link 头部解析
-            for link in link_header.split(',') {
-                if let Some(captures) = link.trim().strip_prefix('<') {
-                    if let Some(end) = captures.find('>') {
-                        let url = &captures[..end];
-                        let params = &captures[end + 1..];
-                        if let Some(rel_start) = params.find("rel=") {
-                            let rel_part = &params[rel_start + 4..];
-                            let rel = rel_part.trim_matches([' ', '"', '\'']);
-                            if let Some(rel_end) = rel.find([' ', ';']) {
-                                links.insert(rel[..rel_end].to_string(), url.to_string());
-                            } else {
-                                links.insert(rel.to_string(), url.to_string());
-                            }
+        
+        if let Some(link_header) = self.headers.get("link").or_else(|| self.headers.get("Link")) {
+            // Parse Link header according to RFC 5988
+            for link_part in link_header.split(',') {
+                let link_part = link_part.trim();
+                if let Some(rel_start) = link_part.find("rel=") {
+                    if let Some(url_end) = link_part.find('>') {
+                        if let Some(url_start) = link_part.find('<') {
+                            let url = link_part[url_start + 1..url_end].to_string();
+                            let rel_part = &link_part[rel_start + 4..];
+                            let rel = rel_part.split(';').next().unwrap_or("").trim_matches('"').trim();
+                            
+                            let mut link_info = HashMap::new();
+                            link_info.insert("url".to_string(), url);
+                            links.insert(rel.to_string(), link_info);
                         }
                     }
                 }
             }
         }
+        
         links
     }
 

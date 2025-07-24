@@ -141,7 +141,7 @@ impl FasterhttpTransport {
         // 创建默认的配置和headers来调用build_and_send_request
         let empty_headers = HashMap::new();
         let config = crate::config::ClientConfig::new(
-            None, None, None, None, None, None, None, None, None, None, None, None, None, None, None
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None
         )?;
         
         // 使用tokio运行时同步执行异步请求

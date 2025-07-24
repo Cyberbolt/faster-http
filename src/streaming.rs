@@ -322,33 +322,130 @@ impl StreamingHttpResponse {
 
     // ==================== 异步方法 ====================
     
-    /// 异步字节迭代器 - 简化实现
+    /// 异步字节迭代器 - 真正的异步实现
     pub fn aiter_bytes<'py>(&self, py: Python<'py>, chunk_size: Option<usize>) -> PyResult<&'py PyAny> {
-        let _chunk_size = chunk_size.unwrap_or(8192);
-        // 简化实现：为了测试兼容性
+        let chunk_size = chunk_size.unwrap_or(8192);
+        let response_arc = self.response.clone();
+        
         future_into_py(py, async move {
-            Ok(vec![b"{}".to_vec()])
+            let response = {
+                let mut response_guard = response_arc.lock().unwrap();
+                response_guard.take()
+            };
+            
+            if let Some(response) = response {
+                let bytes = response.bytes().await
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to read response body: {}", e)))?;
+                
+                let mut chunks = Vec::new();
+                for chunk in bytes.chunks(chunk_size) {
+                    chunks.push(chunk.to_vec());
+                }
+                Ok(chunks)
+            } else {
+                Err(pyo3::exceptions::PyRuntimeError::new_err("Response has been consumed or closed"))
+            }
         })
     }
     
-    /// 异步文本迭代器 - 简化实现
+    /// 异步文本迭代器 - 真正的异步实现
     pub fn aiter_text<'py>(&self, py: Python<'py>, chunk_size: Option<usize>) -> PyResult<&'py PyAny> {
-        let _chunk_size = chunk_size.unwrap_or(8192);
+        let chunk_size = chunk_size.unwrap_or(8192);
+        let response_arc = self.response.clone();
+        
         future_into_py(py, async move {
-            Ok(vec!["{}".to_string()])
+            let response = {
+                let mut response_guard = response_arc.lock().unwrap();
+                response_guard.take()
+            };
+            
+            if let Some(response) = response {
+                let text = response.text().await
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to read response text: {}", e)))?;
+                
+                let mut text_chunks = Vec::new();
+                for chunk in text.chars().collect::<Vec<char>>().chunks(chunk_size) {
+                    text_chunks.push(chunk.iter().collect::<String>());
+                }
+                Ok(text_chunks)
+            } else {
+                Err(pyo3::exceptions::PyRuntimeError::new_err("Response has been consumed or closed"))
+            }
         })
     }
     
-    /// 异步行迭代器 - 简化实现
+    /// 异步行迭代器 - 真正的异步实现
     pub fn aiter_lines<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
+        let response_arc = self.response.clone();
+        
         future_into_py(py, async move {
-            Ok(vec!["{}".to_string()])
+            let response = {
+                let mut response_guard = response_arc.lock().unwrap();
+                response_guard.take()
+            };
+            
+            if let Some(response) = response {
+                let text = response.text().await
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to read response text: {}", e)))?;
+                
+                let lines: Vec<String> = text.lines().map(|line| line.to_string()).collect();
+                Ok(lines)
+            } else {
+                Err(pyo3::exceptions::PyRuntimeError::new_err("Response has been consumed or closed"))
+            }
         })
     }
     
     /// 异步原始字节迭代器
     pub fn aiter_raw<'py>(&self, py: Python<'py>, chunk_size: Option<usize>) -> PyResult<&'py PyAny> {
         self.aiter_bytes(py, chunk_size)
+    }
+    
+    /// 异步读取完整内容
+    pub fn aread<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
+        let response_arc = self.response.clone();
+        
+        future_into_py(py, async move {
+            let response = {
+                let mut response_guard = response_arc.lock().unwrap();
+                response_guard.take()
+            };
+            
+            if let Some(response) = response {
+                let bytes = response.bytes().await
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to read response body: {}", e)))?;
+                Ok(bytes.to_vec())
+            } else {
+                Err(pyo3::exceptions::PyRuntimeError::new_err("Response has been consumed or closed"))
+            }
+        })
+    }
+    
+    /// 异步关闭
+    pub fn aclose<'py>(&mut self, py: Python<'py>) -> PyResult<&'py PyAny> {
+        // 立即关闭资源
+        self.close()?;
+        
+        future_into_py(py, async move { 
+            Ok(()) 
+        })
+    }
+    
+    /// 异步上下文管理器支持
+    fn __aenter__<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
+        future_into_py(py, async move {
+            Ok(())
+        })
+    }
+    
+    fn __aexit__<'py>(
+        &mut self,
+        py: Python<'py>, 
+        _exc_type: Option<PyObject>,
+        _exc_value: Option<PyObject>,
+        _traceback: Option<PyObject>,
+    ) -> PyResult<&'py PyAny> {
+        self.aclose(py)
     }
 }
 
