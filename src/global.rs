@@ -36,7 +36,7 @@ fn extract_headers(headers: Option<PyObject>) -> PyResult<Option<HashMap<String,
 fn get_global_config() -> &'static ClientConfig {
     GLOBAL_CONFIG.get_or_init(|| {
         ClientConfig::new(
-            None, None, None, None, None, None, None, None, None
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None, None
         ).expect("Failed to create global config")
     })
 }

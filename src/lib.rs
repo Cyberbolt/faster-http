@@ -17,6 +17,10 @@ mod async_client;
 mod global;
 mod runtime;
 mod models;
+mod hooks;
+mod ssl_config;
+mod transport;
+mod proxy_config;
 
 // Re-export main types and functions
 pub use error::*;
@@ -54,6 +58,11 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<HttpBasicAuth>()?;
     m.add_class::<HttpDigestAuth>()?;
     m.add_class::<HttpNetRCAuth>()?;
+    
+    // Add transport classes  
+    m.add_class::<transport::FasterhttpTransport>()?;
+    m.add_class::<transport::MockTransport>()?;
+    m.add_class::<transport::HTTPSRedirectTransport>()?;
     
     // Add global functions
     m.add_function(wrap_pyfunction!(global::get, m)?)?;

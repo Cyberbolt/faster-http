@@ -28,18 +28,25 @@ impl AsyncHttpClient {
         base_url: Option<String>,
         timeout: Option<f64>,
         headers: Option<HashMap<String, String>>,
-        verify: Option<bool>,
+        verify: Option<&PyAny>,
         follow_redirects: Option<bool>,
         auth: Option<PyObject>,
-        proxy: Option<String>,
+        proxy: Option<&PyAny>,
+        proxies: Option<&pyo3::types::PyDict>,
         cookies: Option<HashMap<String, String>>,
         http2: Option<bool>,
+        event_hooks: Option<PyObject>,
+        cert: Option<&PyAny>,
+        trust_env: Option<bool>,
+        transport: Option<PyObject>,
+        mounts: Option<&pyo3::types::PyDict>,
     ) -> PyResult<Self> {
         let config = ClientConfig::new(
             base_url, timeout, headers, verify, follow_redirects, 
-            auth, proxy, cookies, http2
+            auth, proxy, proxies, cookies, http2, event_hooks, cert, trust_env,
+            transport, mounts
         )?;
-        let client = config.build_client(verify)?;
+        let client = config.build_client(None)?;
 
         Ok(AsyncHttpClient { 
             client, 

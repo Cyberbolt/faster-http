@@ -8,6 +8,7 @@ use crate::error::HTTPError;
 
 // 响应对象 - 生产级版本，与 httpx 完全对齐
 #[pyclass]
+#[derive(Clone)]
 pub struct HttpResponse {
     status_code: u16,
     headers: HashMap<String, String>,
@@ -373,23 +374,20 @@ impl HttpResponse {
     }
 
     // ==================== 异步迭代器方法 ====================
+    // 为了简化和兼容性，返回同步数据，让Python端包装为异步迭代器
     pub fn aiter_bytes(&self, chunk_size: Option<usize>) -> PyResult<Vec<Py<PyBytes>>> {
-        // 异步版本的 iter_bytes，但在同步环境中直接返回
         self.iter_bytes(chunk_size)
     }
 
     pub fn aiter_text(&self, chunk_size: Option<usize>) -> PyResult<Vec<String>> {
-        // 异步版本的 iter_text，但在同步环境中直接返回
         self.iter_text(chunk_size)
     }
 
     pub fn aiter_lines(&self) -> PyResult<Vec<String>> {
-        // 异步版本的 iter_lines，但在同步环境中直接返回
         self.iter_lines()
     }
 
     pub fn aiter_raw(&self, chunk_size: Option<usize>) -> PyResult<Vec<Py<PyBytes>>> {
-        // 异步版本的 iter_raw，但在同步环境中直接返回
         self.iter_raw(chunk_size)
     }
 

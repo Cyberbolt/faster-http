@@ -14,6 +14,13 @@ use crate::utils::{build_multipart_form, python_dict_to_json_value, python_dict_
 pub async fn send_request(client: &Client, request: &HttpRequest, config: &ClientConfig) -> PyResult<HttpResponse> {
     let start_time = Instant::now();
 
+    // Execute request hooks before sending
+    if config.event_hooks.has_request_hooks() {
+        Python::with_gil(|py| {
+            config.event_hooks.execute_request_hooks(py, request)
+        })?;
+    }
+
     let method = request.method().parse::<reqwest::Method>()
         .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
     
@@ -32,7 +39,16 @@ pub async fn send_request(client: &Client, request: &HttpRequest, config: &Clien
     }
 
     let response = req.send().await.map_err(map_reqwest_error)?;
-    process_response(response, start_time).await
+    let http_response = process_response(response, start_time).await?;
+    
+    // Execute response hooks after processing response
+    if config.event_hooks.has_response_hooks() {
+        Python::with_gil(|py| {
+            config.event_hooks.execute_response_hooks(py, &http_response)
+        })?;
+    }
+
+    Ok(http_response)
 }
 
 // 优化版：直接从数据发送请求，避免 HttpRequest 中间对象
@@ -138,10 +154,12 @@ pub async fn build_and_send_request(
 ) -> PyResult<HttpResponse> {
     let start_time = Instant::now();
 
-    // 使用与httpx相似的默认配置
-    let client = reqwest::Client::builder()
-        .build()
-        .map_err(|e| RequestError::new_err(format!("Failed to create HTTP client: {}", e)))?;
+    // 使用配置中的客户端或按配置构建新客户端
+    let client = if follow_redirects {
+        config.redirect_client.clone()
+    } else {
+        config.no_redirect_client.clone()
+    };
 
     // 构建URL
     let full_url = if let Some(base) = base_url {
@@ -154,6 +172,9 @@ pub async fn build_and_send_request(
         url.to_string()
     };
 
+    // Store method as string early for hooks
+    let method_str = method.to_string();
+    
     // 创建请求构建器
     let method = method.parse::<reqwest::Method>()
         .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
@@ -165,11 +186,13 @@ pub async fn build_and_send_request(
         request = request.query(&params);
     }
 
-    // 合并header
+    // 合并header - store final headers for hooks
+    let mut final_headers = default_headers.clone();
     for (key, value) in default_headers {
         request = request.header(key, value);
     }
-    if let Some(headers) = headers {
+    if let Some(ref headers) = headers {
+        final_headers.extend(headers.iter().map(|(k, v)| (k.clone(), v.clone())));
         for (key, value) in headers {
             request = request.header(key, value);
         }
@@ -200,8 +223,8 @@ pub async fn build_and_send_request(
     request = request.timeout(timeout_duration);
 
     // 设置body - 优先级：content > files > json > data
-    if let Some(content_bytes) = content {
-        request = request.body(content_bytes);
+    if let Some(ref content_bytes) = content {
+        request = request.body(content_bytes.clone());
     } else if let Some(files_data) = files {
         // 处理文件上传 (multipart/form-data)
         let form = build_multipart_form(files_data)?;
@@ -215,6 +238,21 @@ pub async fn build_and_send_request(
         request = request
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(form_string);
+    }
+
+    // Execute request hooks before sending (if any)
+    if config.event_hooks.has_request_hooks() {
+        // Create HttpRequest object for hooks
+        let hook_request = HttpRequest::new(
+            method_str,
+            full_url.clone(),
+            Some(final_headers),
+            content.clone(),
+        );
+        
+        Python::with_gil(|py| {
+            config.event_hooks.execute_request_hooks(py, &hook_request)
+        })?;
     }
 
     // 发送请求
@@ -232,7 +270,16 @@ pub async fn build_and_send_request(
         })?;
 
     // 处理响应
-    process_response(response, start_time).await
+    let http_response = process_response(response, start_time).await?;
+    
+    // Execute response hooks after processing response (if any)
+    if config.event_hooks.has_response_hooks() {
+        Python::with_gil(|py| {
+            config.event_hooks.execute_response_hooks(py, &http_response)
+        })?;
+    }
+
+    Ok(http_response)
 }
 
 // 核心流式请求构建和发送函数 - 返回 StreamingHttpResponse
@@ -254,10 +301,12 @@ pub async fn build_and_send_streaming_request(
     follow_redirects: bool,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<StreamingHttpResponse> {
-    // 使用与httpx相似的默认配置
-    let client = reqwest::Client::builder()
-        .build()
-        .map_err(|e| RequestError::new_err(format!("Failed to create HTTP client: {}", e)))?;
+    // 使用配置中的客户端或按配置构建新客户端
+    let client = if follow_redirects {
+        config.redirect_client.clone()
+    } else {
+        config.no_redirect_client.clone()
+    };
 
     // 构建URL
     let full_url = if let Some(base) = base_url {

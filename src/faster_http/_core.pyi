@@ -123,13 +123,13 @@ class HttpResponse:
     def iter_raw(self, chunk_size: Optional[int] = None) -> List[bytes]: ...
     
     # Async streaming methods  
-    async def aiter_bytes(self, chunk_size: Optional[int] = None) -> List[bytes]: ...
+    def aiter_bytes(self, chunk_size: Optional[int] = None) -> List[bytes]: ...
     
-    async def aiter_text(self, chunk_size: Optional[int] = None) -> List[str]: ...
+    def aiter_text(self, chunk_size: Optional[int] = None) -> List[str]: ...
     
-    async def aiter_lines(self) -> List[str]: ...
+    def aiter_lines(self) -> List[str]: ...
     
-    async def aiter_raw(self, chunk_size: Optional[int] = None) -> List[bytes]: ...
+    def aiter_raw(self, chunk_size: Optional[int] = None) -> List[bytes]: ...
     
     async def aread(self) -> bytes: ...
     
@@ -164,12 +164,18 @@ class HttpClient:
         base_url: Optional[str] = None,
         timeout: Optional[float] = None,
         headers: Optional[Dict[str, str]] = None,
-        verify: Optional[bool] = None,
+        verify: Optional[Union[bool, str]] = None,
         follow_redirects: Optional[bool] = None,
         auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         proxy: Optional[str] = None,
+        proxies: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
         http2: Optional[bool] = None,
+        event_hooks: Optional[Dict[str, List[Any]]] = None,
+        cert: Optional[Union[str, Tuple[str, str], Tuple[str, str, str]]] = None,
+        trust_env: Optional[bool] = None,
+        transport: Optional[Any] = None,
+        mounts: Optional[Dict[str, Any]] = None,
     ) -> None: ...
     
     def build_request(
@@ -306,12 +312,18 @@ class AsyncHttpClient:
         base_url: Optional[str] = None,
         timeout: Optional[float] = None,
         headers: Optional[Dict[str, str]] = None,
-        verify: Optional[bool] = None,
+        verify: Optional[Union[bool, str]] = None,
         follow_redirects: Optional[bool] = None,
         auth: Optional[Union[Tuple[str, str], "BasicAuth", "DigestAuth", "NetRCAuth"]] = None,
         proxy: Optional[str] = None,
+        proxies: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
         http2: Optional[bool] = None,
+        event_hooks: Optional[Dict[str, List[Any]]] = None,
+        cert: Optional[Union[str, Tuple[str, str], Tuple[str, str, str]]] = None,
+        trust_env: Optional[bool] = None,
+        transport: Optional[Any] = None,
+        mounts: Optional[Dict[str, Any]] = None,
     ) -> None: ...
     
     def build_request(
@@ -732,15 +744,46 @@ class NetRCAuth:
     """NetRC authentication."""
     
     def __init__(self, file: Optional[str] = None) -> None: ...
+
+# Transport classes
+class FasterhttpTransport:
+    """Default faster-http transport implementation."""
     
-    def auth_flow(self, request: Any) -> Any: ...
-    def sync_auth_flow(self, request: Any) -> Any: ...
-    async def async_auth_flow(self, request: Any) -> Any: ...
+    def __init__(self) -> None: ...
     
-    @property
-    def requires_request_body(self) -> bool: ...
+    def handle_request(self, request: HttpRequest) -> HttpResponse: ...
     
-    @property 
-    def requires_response_body(self) -> bool: ...
+    def close(self) -> None: ...
     
-    def __repr__(self) -> str: ...
+    def aclose(self) -> None: ...
+
+class MockTransport:
+    """Mock transport for testing."""
+    
+    def __init__(
+        self, 
+        responses: Optional[Dict[str, HttpResponse]] = None,
+        default_response: Optional[HttpResponse] = None,
+    ) -> None: ...
+    
+    def add_response(self, url: str, response: HttpResponse) -> None: ...
+    
+    def set_default_response(self, response: HttpResponse) -> None: ...
+    
+    def handle_request(self, request: HttpRequest) -> HttpResponse: ...
+    
+    def close(self) -> None: ...
+    
+    def aclose(self) -> None: ...
+
+class HTTPSRedirectTransport:
+    """Transport that redirects HTTP requests to HTTPS."""
+    
+    def __init__(self) -> None: ...
+    
+    def handle_request(self, request: HttpRequest) -> HttpResponse: ...
+    
+    def close(self) -> None: ...
+    
+    def aclose(self) -> None: ...
+
