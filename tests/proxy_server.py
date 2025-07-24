@@ -162,8 +162,8 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     allow_reuse_address = True
 
 
-class TestProxyServer:
-    """Test proxy server manager"""
+class ProxyServer:
+    """Proxy server manager for testing"""
     
     def __init__(self, host='127.0.0.1', port=0):
         self.host = host
@@ -242,8 +242,8 @@ class AuthProxyHandler(ProxyHandler):
         self.end_headers()
 
 
-class AuthTestProxyServer(TestProxyServer):
-    """Test proxy server with authentication"""
+class AuthProxyServer(ProxyServer):
+    """Proxy server with authentication for testing"""
     
     def start(self):
         """Start the authenticated proxy server"""
@@ -262,7 +262,7 @@ if __name__ == "__main__":
     # Test the proxy server
     print("Starting test proxy server...")
     
-    with TestProxyServer() as proxy:
+    with ProxyServer() as proxy:
         proxy_url = proxy.get_proxy_url()
         print(f"Proxy server running at: {proxy_url}")
         print("Press Ctrl+C to stop")

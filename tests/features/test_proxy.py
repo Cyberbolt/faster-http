@@ -9,7 +9,7 @@ import threading
 import time
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from proxy_server import TestProxyServer, AuthTestProxyServer
+from proxy_server import ProxyServer, AuthProxyServer
 
 
 def test_basic_proxy():
@@ -17,7 +17,7 @@ def test_basic_proxy():
     print("=== 测试基本代理配置 ===")
     
     try:
-        with TestProxyServer() as proxy_server:
+        with ProxyServer() as proxy_server:
             proxy_url = proxy_server.get_proxy_url()
             
             # 测试代理客户端创建
@@ -39,7 +39,7 @@ def test_basic_proxy():
                 print(f"⚠️ 代理请求测试跳过（可能网络问题）: {req_error}")
         
         # 测试带认证的代理
-        with AuthTestProxyServer() as auth_proxy:
+        with AuthProxyServer() as auth_proxy:
             auth_proxy_url = auth_proxy.get_proxy_url()
             client_auth = faster_http.Client(proxy=auth_proxy_url)
             print(f"✅ 带认证的代理客户端创建成功: {auth_proxy_url}")
@@ -53,7 +53,7 @@ def test_advanced_proxy_routing():
     print("\n=== 测试高级代理路由 ===")
     
     try:
-        with TestProxyServer() as proxy1, TestProxyServer() as proxy2:
+        with ProxyServer() as proxy1, ProxyServer() as proxy2:
             proxy1_url = proxy1.get_proxy_url()
             proxy2_url = proxy2.get_proxy_url()
             
@@ -98,7 +98,7 @@ def test_proxy_authentication():
     
     try:
         # 测试无认证访问带认证的代理（应该失败）
-        with AuthTestProxyServer() as auth_proxy:
+        with AuthProxyServer() as auth_proxy:
             proxy_host_port = auth_proxy.get_proxy_url().replace("http://test:proxy@", "http://")
             
             print("1. 测试无认证访问（应该失败）:")
@@ -146,7 +146,7 @@ def test_other_proxy_features():
         print("✅ SOCKS5代理配置成功")
         
         # 环境变量代理测试
-        with TestProxyServer() as proxy:
+        with ProxyServer() as proxy:
             proxy_url = proxy.get_proxy_url()
             os.environ["HTTP_PROXY"] = proxy_url
             
