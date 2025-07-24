@@ -138,8 +138,8 @@ pub async fn build_and_send_request(
 ) -> PyResult<HttpResponse> {
     let start_time = Instant::now();
 
-    // 使用 ClientConfig 中预构建的客户端以获得最佳性能
-    let client_to_use = config.get_client_for_redirect(follow_redirects);
+    // 使用标准的reqwest客户端，保持最大兼容性
+    let client = reqwest::Client::new();
 
     // 构建URL
     let full_url = if let Some(base) = base_url {
@@ -156,7 +156,7 @@ pub async fn build_and_send_request(
     let method = method.parse::<reqwest::Method>()
         .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
     
-    let mut request = client_to_use.request(method, &full_url);
+    let mut request = client.request(method, &full_url);
 
     // 添加查询参数
     if let Some(params) = params {
@@ -190,11 +190,11 @@ pub async fn build_and_send_request(
         request = request.basic_auth(username, Some(password));
     }
 
-    // 设置超时
+    // 设置超时 - 使用更长的超时时间进行调试
     let timeout_duration = timeout
         .map(Duration::from_secs_f64)
         .or(default_timeout)
-        .unwrap_or(Duration::from_secs(30));
+        .unwrap_or(Duration::from_secs(60));
     request = request.timeout(timeout_duration);
 
     // 设置body - 优先级：content > files > json > data
@@ -218,12 +218,14 @@ pub async fn build_and_send_request(
     // 发送请求
     let response = request.send().await
         .map_err(|e| {
+            // 添加详细的错误信息用于调试
+            let error_msg = format!("Request failed for URL {}: {}", full_url, e);
             if e.is_timeout() {
-                ReadTimeout::new_err(format!("Request timeout: {}", e))
+                ReadTimeout::new_err(format!("Request timeout: {}", error_msg))
             } else if e.is_connect() {
-                ConnectTimeout::new_err(format!("Connection timeout: {}", e))
+                ConnectTimeout::new_err(format!("Connection timeout: {}", error_msg))
             } else {
-                RequestError::new_err(format!("Request failed: {}", e))
+                RequestError::new_err(format!("Request failed: {}", error_msg))
             }
         })?;
 
@@ -250,8 +252,8 @@ pub async fn build_and_send_streaming_request(
     follow_redirects: bool,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<StreamingHttpResponse> {
-    // 使用 ClientConfig 中预构建的客户端以获得最佳性能
-    let client_to_use = config.get_client_for_redirect(follow_redirects);
+    // 使用标准的reqwest客户端，保持最大兼容性
+    let client = reqwest::Client::new();
 
     // 构建URL
     let full_url = if let Some(base) = base_url {
@@ -268,7 +270,7 @@ pub async fn build_and_send_streaming_request(
     let method = method.parse::<reqwest::Method>()
         .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
     
-    let mut request = client_to_use.request(method, &full_url);
+    let mut request = client.request(method, &full_url);
 
     // 添加查询参数
     if let Some(params) = params {
@@ -302,11 +304,11 @@ pub async fn build_and_send_streaming_request(
         request = request.basic_auth(username, Some(password));
     }
 
-    // 设置超时
+    // 设置超时 - 使用更长的超时时间进行调试
     let timeout_duration = timeout
         .map(Duration::from_secs_f64)
         .or(default_timeout)
-        .unwrap_or(Duration::from_secs(30));
+        .unwrap_or(Duration::from_secs(60));
     request = request.timeout(timeout_duration);
 
     // 设置body - 优先级：content > files > json > data

@@ -52,8 +52,10 @@ pub fn get(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let rt = get_global_runtime();
     let config = get_global_config();
+    
+    // 使用全局runtime，简化实现
+    let rt = get_global_runtime();
     rt.block_on(build_and_send_request(
         config, "GET", url, None, None, None, None, params, headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
@@ -74,8 +76,8 @@ pub fn post(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let rt = get_global_runtime();
     let config = get_global_config();
+    let rt = get_global_runtime();
     let extracted_headers = extract_headers(headers)?;
     rt.block_on(build_and_send_request(
         config, "POST", url, content, data, json, files, params, extracted_headers, timeout,
@@ -97,8 +99,8 @@ pub fn put(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let rt = get_global_runtime();
     let config = get_global_config();
+    let rt = get_global_runtime();
     rt.block_on(build_and_send_request(
         config, "PUT", url, content, data, json, files, params, headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
@@ -119,8 +121,8 @@ pub fn patch(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let rt = get_global_runtime();
     let config = get_global_config();
+    let rt = get_global_runtime();
     rt.block_on(build_and_send_request(
         config, "PATCH", url, content, data, json, files, params, headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
@@ -137,8 +139,8 @@ pub fn delete(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let rt = get_global_runtime();
     let config = get_global_config();
+    let rt = get_global_runtime();
     rt.block_on(build_and_send_request(
         config, "DELETE", url, None, None, None, None, params, headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
@@ -155,8 +157,8 @@ pub fn head(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let rt = get_global_runtime();
     let config = get_global_config();
+    let rt = get_global_runtime();
     rt.block_on(build_and_send_request(
         config, "HEAD", url, None, None, None, None, params, headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
@@ -173,8 +175,8 @@ pub fn options(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let rt = get_global_runtime();
     let config = get_global_config();
+    let rt = get_global_runtime();
     rt.block_on(build_and_send_request(
         config, "OPTIONS", url, None, None, None, None, params, headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
@@ -197,8 +199,8 @@ pub fn request(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let rt = get_global_runtime();
     let config = get_global_config();
+    let rt = get_global_runtime();
     let extracted_headers = extract_headers(headers)?;
     rt.block_on(build_and_send_request(
         config, method, url, content, data, json, files, params, extracted_headers, timeout,
@@ -222,8 +224,8 @@ pub fn stream(
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<StreamingHttpResponse> {
-    let rt = get_global_runtime();
     let config = get_global_config();
+    let rt = get_global_runtime();
     rt.block_on(build_and_send_streaming_request(
         config, method, url, content, data, json, files, params, headers, timeout,
         &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies

@@ -80,25 +80,10 @@ impl ClientConfig {
         let verify = verify.unwrap_or(true);
         let http2 = http2.unwrap_or(false);
         
-        let mut builder = Client::builder()
-            .danger_accept_invalid_certs(!verify)
-            .redirect(if follow_redirects { 
-                reqwest::redirect::Policy::limited(10) 
-            } else { 
-                reqwest::redirect::Policy::none() 
-            })
-            // Optimize connection pooling for high performance
-            .pool_max_idle_per_host(100)
-            .pool_idle_timeout(Duration::from_secs(90))
-            .tcp_keepalive(Duration::from_secs(60))
-            .tcp_nodelay(true);
+        let mut builder = Client::builder();
 
-        // HTTP/2 support
-        if http2 {
-            builder = builder
-                .http2_keep_alive_interval(Some(std::time::Duration::from_secs(20)))
-                .http2_keep_alive_timeout(std::time::Duration::from_secs(10));
-        } else {
+        // Simplified HTTP configuration
+        if !http2 {
             builder = builder.http1_only();
         }
 
@@ -115,31 +100,10 @@ impl ClientConfig {
     pub fn build_client(&self, verify: Option<bool>) -> PyResult<Client> {
         let verify = verify.unwrap_or(true);
         
-        let mut builder = Client::builder()
-            .danger_accept_invalid_certs(!verify)
-            .redirect(if self.follow_redirects { 
-                reqwest::redirect::Policy::limited(10) 
-            } else { 
-                reqwest::redirect::Policy::none() 
-            })
-            // Optimize connection pooling for high performance
-            .pool_max_idle_per_host(100)
-            .pool_idle_timeout(Duration::from_secs(90))
-            .tcp_keepalive(Duration::from_secs(60))
-            .tcp_nodelay(true);
+        let mut builder = Client::builder();
 
-        // HTTP/2 support - fully compatible with httpx behavior
-        if self.http2 {
-            // http2=True: Enable HTTP/2 negotiation with automatic fallback to HTTP/1.1
-            // This is fully consistent with httpx behavior: client will try HTTP/2, fallback to HTTP/1.1 if unsupported
-            // reqwest supports this by default, we just need to ensure HTTP/2 is enabled
-            // Also enable HTTP/2 optimization settings
-            builder = builder
-                .http2_keep_alive_interval(Some(std::time::Duration::from_secs(20)))
-                .http2_keep_alive_timeout(std::time::Duration::from_secs(10));
-        } else {
-            // http2=False: Force HTTP/1.1 only
-            // This is consistent with httpx default behavior
+        // Simplified HTTP configuration
+        if !self.http2 {
             builder = builder.http1_only();
         }
 

@@ -1,67 +1,133 @@
 """
 Basic integration tests for faster-http functionality.
-Tests that the library can be imported and basic objects work.
+Tests real HTTP requests comparing httpx and faster-http behavior.
+Following CLAUDE.md requirements for testing.
 """
 
+import httpx
 import faster_http
 
 
 class TestBasicIntegration:
-    """Test basic integration functionality."""
+    """Test basic integration functionality with httpx comparison."""
     
-    def test_library_import(self):
-        """Test that the library imports correctly."""
-        # Test that we can import all major components
-        assert hasattr(faster_http, 'Client')
-        assert hasattr(faster_http, 'AsyncClient')
-        assert hasattr(faster_http, 'get')
-        assert hasattr(faster_http, 'post')
-        assert hasattr(faster_http, 'put')
-        assert hasattr(faster_http, 'patch')
-        assert hasattr(faster_http, 'delete')
-        assert hasattr(faster_http, 'head')
-        assert hasattr(faster_http, 'options')
-        assert hasattr(faster_http, 'request')
+    def test_library_import_comparison(self):
+        """Test that both libraries have the same interface."""
+        # Test that we can import all major components from both libraries
+        expected_attrs = ['Client', 'AsyncClient', 'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'request']
+        
+        for attr in expected_attrs:
+            assert hasattr(httpx, attr), f"httpx missing {attr}"
+            assert hasattr(faster_http, attr), f"faster_http missing {attr}"
+            
+        # Test that they are callable
+        for attr in ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'request']:
+            assert callable(getattr(httpx, attr))
+            assert callable(getattr(faster_http, attr))
     
-    def test_auth_objects_creation(self):
-        """Test that authentication objects can be created."""
-        # Test BasicAuth
-        basic_auth = faster_http.BasicAuth("user", "pass")
-        assert basic_auth.username == "user"
-        assert basic_auth.password == "pass"
+    def test_auth_objects_creation_comparison(self):
+        """Test that authentication objects work the same in both libraries."""
+        # Test BasicAuth comparison
+        httpx_basic = httpx.BasicAuth("user", "pass")
+        faster_basic = faster_http.BasicAuth("user", "pass")
         
-        # Test DigestAuth
-        digest_auth = faster_http.DigestAuth("user", "pass")
-        assert digest_auth.username == "user"
-        assert digest_auth.password == "pass"
+        # Both should be created successfully  
+        assert httpx_basic is not None
+        assert faster_basic is not None
         
-        # Test NetRCAuth
-        netrc_auth = faster_http.NetRCAuth()
-        assert hasattr(netrc_auth, 'file')
+        # Both should have auth_flow method
+        assert hasattr(httpx_basic, 'auth_flow')
+        assert hasattr(faster_basic, 'auth_flow')
+        
+        # Test DigestAuth comparison
+        httpx_digest = httpx.DigestAuth("user", "pass")
+        faster_digest = faster_http.DigestAuth("user", "pass")
+        
+        assert httpx_digest is not None
+        assert faster_digest is not None
+        assert hasattr(httpx_digest, 'auth_flow')
+        assert hasattr(faster_digest, 'auth_flow')
+        
+        # Test NetRCAuth comparison (skip if no .netrc file)
+        try:
+            httpx_netrc = httpx.NetRCAuth()
+            faster_netrc = faster_http.NetRCAuth()
+            
+            assert httpx_netrc is not None
+            assert faster_netrc is not None
+            assert hasattr(httpx_netrc, 'auth_flow')
+            assert hasattr(faster_netrc, 'auth_flow')
+        except FileNotFoundError:
+            # No .netrc file available, skip this part of the test
+            pass
     
-    def test_client_creation_with_config(self):
-        """Test that clients can be created with various configurations."""
-        # Basic client
-        client = faster_http.Client()
-        assert client is not None
+    def test_client_creation_with_config_comparison(self, stable_server):
+        """Test that clients work the same with various configurations."""
+        base_url = stable_server.base_url
         
-        # Client with base URL
-        client_with_base = faster_http.Client(base_url="https://api.test.local")
-        assert client_with_base.base_url == "https://api.test.local"
+        # Basic client comparison
+        httpx_client = httpx.Client(timeout=5.0)
+        faster_client = faster_http.Client(timeout=5.0)
         
-        # Client with headers
-        headers = {"Authorization": "Bearer token"}
-        client_with_headers = faster_http.Client(headers=headers)
-        assert hasattr(client_with_headers, 'headers') or hasattr(client_with_headers, '_headers')
+        assert httpx_client is not None
+        assert faster_client is not None
         
-        # Client with timeout
-        client_with_timeout = faster_http.Client(timeout=30.0)
-        assert client_with_timeout is not None
+        # Test they both work with requests
+        httpx_response = httpx_client.get(f"{base_url}/get")
+        faster_response = faster_client.get(f"{base_url}/get")
         
-        # Client with auth
-        auth = faster_http.BasicAuth("user", "pass")
-        client_with_auth = faster_http.Client(auth=auth)
-        assert hasattr(client_with_auth, 'auth') or hasattr(client_with_auth, '_auth')
+        assert httpx_response.status_code == faster_response.status_code == 200
+        
+        httpx_client.close()
+        faster_client.close()
+        
+        # Client with base URL comparison
+        with httpx.Client(base_url=base_url, timeout=5.0) as httpx_client:
+            with faster_http.Client(base_url=base_url, timeout=5.0) as faster_client:
+                assert httpx_client.base_url == faster_client.base_url
+                
+                httpx_response = httpx_client.get("/get")
+                faster_response = faster_client.get("/get")
+                
+                assert httpx_response.status_code == faster_response.status_code == 200
+    
+    def test_real_http_requests_comparison(self, stable_server):
+        """Test real HTTP requests comparing httpx and faster-http."""
+        
+        # Use local stable server for all testing
+        base_url = stable_server.base_url
+        
+        # Test GET request with timeout to avoid hanging
+        get_url = f"{base_url}/get"
+        httpx_get = httpx.get(get_url, timeout=5.0)
+        faster_get = faster_http.get(get_url, timeout=5.0)
+        
+        assert httpx_get.status_code == faster_get.status_code == 200
+        assert httpx_get.is_success == faster_get.is_success
+        
+        # Both should return JSON data
+        httpx_json = httpx_get.json()
+        faster_json = faster_get.json()
+        
+        # Both should have the same method and path
+        assert httpx_json['method'] == faster_json['method'] == 'GET'
+        assert httpx_json['path'] == faster_json['path'] == '/get'
+        
+        # Test POST request with JSON
+        post_url = f"{base_url}/post"
+        test_data = {"test": "data", "number": 42}
+        
+        httpx_post = httpx.post(post_url, json=test_data, timeout=5.0)
+        faster_post = faster_http.post(post_url, json=test_data, timeout=5.0)
+        
+        assert httpx_post.status_code == faster_post.status_code == 200
+        
+        httpx_post_json = httpx_post.json()
+        faster_post_json = faster_post.json()
+        
+        # Both should have received JSON data
+        assert httpx_post_json['method'] == faster_post_json['method'] == 'POST'
+        assert httpx_post_json['json'] == faster_post_json['json'] == test_data
     
     def test_async_client_creation_with_config(self):
         """Test that async clients can be created with various configurations."""

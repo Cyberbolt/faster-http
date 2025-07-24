@@ -213,9 +213,9 @@ impl HttpResponse {
     pub fn json(&self, py: Python) -> PyResult<PyObject> {
         let text = self.text()?;
         let json_value: Value = serde_json::from_str(&text)
-            .map_err(|e| PyValueError::new_err(format!("JSON decode error: {}", e)))?;
+            .map_err(|e| PyValueError::new_err(format!("JSON decode error: {e}")))?;
         pythonize::pythonize(py, &json_value)
-            .map_err(|e| PyValueError::new_err(format!("Failed to convert JSON to Python: {}", e)))
+            .map_err(|e| PyValueError::new_err(format!("Failed to convert JSON to Python: {e}")))
     }
 
     // ==================== 流式方法 - 生产级实现 ====================
@@ -473,12 +473,12 @@ fn normalize_encoding_name(encoding: &str) -> String {
 
 // 检测 HTTP 版本
 pub fn detect_http_version(version: &reqwest::Version) -> String {
-    match version {
-        &reqwest::Version::HTTP_09 => "HTTP/0.9".to_string(),
-        &reqwest::Version::HTTP_10 => "HTTP/1.0".to_string(),
-        &reqwest::Version::HTTP_11 => "HTTP/1.1".to_string(),
-        &reqwest::Version::HTTP_2 => "HTTP/2".to_string(),
-        &reqwest::Version::HTTP_3 => "HTTP/3".to_string(),
+    match *version {
+        reqwest::Version::HTTP_09 => "HTTP/0.9".to_string(),
+        reqwest::Version::HTTP_10 => "HTTP/1.0".to_string(),
+        reqwest::Version::HTTP_11 => "HTTP/1.1".to_string(),
+        reqwest::Version::HTTP_2 => "HTTP/2".to_string(),
+        reqwest::Version::HTTP_3 => "HTTP/3".to_string(),
         _ => "HTTP/1.1".to_string(), // 默认值
     }
 } 

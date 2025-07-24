@@ -10,10 +10,10 @@ pyo3::create_exception!(faster_http, RequestError, HTTPError);
 // 错误处理工具
 pub fn map_reqwest_error(error: reqwest::Error) -> PyErr {
     if error.is_timeout() {
-        ReadTimeout::new_err(format!("Request timeout: {}", error))
+        ReadTimeout::new_err(format!("Request timeout: {error}"))
     } else if error.is_connect() {
-        ConnectTimeout::new_err(format!("Connection timeout: {}", error))
+        ConnectTimeout::new_err(format!("Connection timeout: {error}"))
     } else {
-        RequestError::new_err(format!("Request failed: {}", error))
+        RequestError::new_err(format!("Request failed: {error}"))
     }
 } 

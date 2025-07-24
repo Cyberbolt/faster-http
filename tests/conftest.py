@@ -1,13 +1,33 @@
 """
 Shared test configuration and utilities for faster_http tests.
+Uses stable local server instead of external dependencies.
 """
 
 import pytest
 import sys
 import os
+from .stable_server import StableHTTPServer
 
 # Add the src directory to the path so we can import faster_http
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+
+@pytest.fixture(scope="session")
+def stable_server():
+    """Session-wide stable test server."""
+    server = StableHTTPServer()
+    server.start()
+    yield server
+    server.stop()
+
+
+@pytest.fixture(scope="function")
+def server():
+    """Function-scoped server for tests that need a fresh server."""
+    server = StableHTTPServer()
+    server.start()
+    yield server
+    server.stop()
 
 
 @pytest.fixture
