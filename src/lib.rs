@@ -27,7 +27,8 @@ pub use streaming::{StreamingHttpResponse, StreamingBytesIterator, StreamingText
 pub use config::ClientConfig;
 pub use client::HttpClient;
 pub use async_client::AsyncHttpClient;
-pub use global::*;
+// Re-export global functions (request function is available via Python module, not Rust re-export)
+pub use global::{get, post, put, patch, delete, head, options, stream};
 pub use models::{HttpHeaders, HttpQueryParams, HttpCookies, HttpUrl, HttpTimeout, HttpLimits, HttpBasicAuth, HttpDigestAuth, HttpNetRCAuth};
 
 // Python module definition

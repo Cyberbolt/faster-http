@@ -1,7 +1,6 @@
 use pyo3::prelude::*;
-use reqwest::Client;
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 use crate::response::HttpResponse;
 use crate::streaming::StreamingHttpResponse;
 use crate::core::{build_and_send_request, build_and_send_streaming_request};
@@ -9,8 +8,7 @@ use crate::runtime::get_global_runtime;
 use crate::config::ClientConfig;
 use crate::models::HttpHeaders;
 
-// 全局客户端实例，用于复用连接池
-static GLOBAL_CLIENT: OnceLock<Arc<Client>> = OnceLock::new();
+// 全局配置实例
 static GLOBAL_CONFIG: OnceLock<ClientConfig> = OnceLock::new();
 
 // Helper function to extract headers from either HashMap or Headers object
@@ -33,15 +31,6 @@ fn extract_headers(headers: Option<PyObject>) -> PyResult<Option<HashMap<String,
     } else {
         Ok(None)
     }
-}
-
-fn get_global_client() -> Arc<Client> {
-    GLOBAL_CLIENT.get_or_init(|| {
-        Arc::new(Client::builder()
-            .redirect(reqwest::redirect::Policy::limited(10)) // 全局客户端默认跟随重定向
-            .build()
-            .expect("Failed to create global client"))
-    }).clone()
 }
 
 fn get_global_config() -> &'static ClientConfig {

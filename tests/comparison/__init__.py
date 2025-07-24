@@ -1,1 +1,0 @@
-"""Comparison tests for faster-http."""

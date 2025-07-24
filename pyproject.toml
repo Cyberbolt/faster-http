@@ -54,4 +54,5 @@ dev = [
     "fastapi>=0.115.14",
     "uvicorn>=0.35.0",
     "ruff>=0.12.1",
+    "pytest-httpserver>=1.1.3",
 ]
