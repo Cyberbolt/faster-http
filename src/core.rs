@@ -138,8 +138,10 @@ pub async fn build_and_send_request(
 ) -> PyResult<HttpResponse> {
     let start_time = Instant::now();
 
-    // 使用标准的reqwest客户端，保持最大兼容性
-    let client = reqwest::Client::new();
+    // 使用与httpx相似的默认配置
+    let client = reqwest::Client::builder()
+        .build()
+        .map_err(|e| RequestError::new_err(format!("Failed to create HTTP client: {}", e)))?;
 
     // 构建URL
     let full_url = if let Some(base) = base_url {
@@ -252,8 +254,10 @@ pub async fn build_and_send_streaming_request(
     follow_redirects: bool,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<StreamingHttpResponse> {
-    // 使用标准的reqwest客户端，保持最大兼容性
-    let client = reqwest::Client::new();
+    // 使用与httpx相似的默认配置
+    let client = reqwest::Client::builder()
+        .build()
+        .map_err(|e| RequestError::new_err(format!("Failed to create HTTP client: {}", e)))?;
 
     // 构建URL
     let full_url = if let Some(base) = base_url {

@@ -9,8 +9,6 @@ pub fn get_global_runtime() -> &'static tokio::runtime::Runtime {
     GLOBAL_RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
-            .worker_threads(2)
-            .thread_name("faster-http-runtime")
             .build()
             .expect("Failed to create global tokio runtime")
     })

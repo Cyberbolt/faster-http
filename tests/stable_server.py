@@ -16,18 +16,8 @@ import sys
 def get_working_localhost_address():
     """
     获取在当前环境中可工作的本地地址。
-    在容器环境中，localhost/127.0.0.1可能不工作，但hostname可以。
+    保持简单，使用127.0.0.1。
     """
-    # 尝试获取hostname
-    try:
-        hostname = socket.gethostname()
-        # 验证hostname是否可以解析
-        socket.gethostbyname(hostname)
-        return hostname
-    except (socket.error, OSError):
-        pass
-    
-    # 回退到localhost
     return "127.0.0.1"
 
 
@@ -41,16 +31,25 @@ class StableHTTPRequestHandler(BaseHTTPRequestHandler):
     def _safe_send_response(self, status_code: int, data: Dict[str, Any], headers: Optional[Dict[str, str]] = None):
         """Safely send JSON response, handling broken pipe errors."""
         try:
+            # Prepare response data first
+            response_data = json.dumps(data).encode('utf-8')
+            
+            # Send status and headers
             self.send_response(status_code)
-            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(response_data)))
             self.send_header('Connection', 'close')  # Ensure connection closes properly
+            
             if headers:
                 for key, value in headers.items():
                     self.send_header(key, value)
+            
             self.end_headers()
             
-            response_data = json.dumps(data).encode('utf-8')
+            # Send response body
             self.wfile.write(response_data)
+            self.wfile.flush()  # Ensure data is sent immediately
+            
         except (BrokenPipeError, ConnectionResetError, OSError):
             # Client disconnected before we could send response
             # This is normal in some test scenarios, just ignore
@@ -221,13 +220,16 @@ class StableHTTPServer:
     """Stable HTTP server that handles connection issues gracefully."""
     
     def __init__(self, host=None, port=0):
-        # 服务器绑定到127.0.0.1，客户端连接使用hostname
-        bind_host = '127.0.0.1'
-        client_host = get_working_localhost_address()
-        
+        # 确保服务器和客户端使用兼容的地址
         if host is not None:
+            # 如果指定了host，直接使用
             bind_host = host
             client_host = host
+        else:
+            # 自动选择在当前环境中可工作的地址
+            working_host = get_working_localhost_address()
+            bind_host = working_host
+            client_host = working_host
         
         # Use SO_REUSEADDR to avoid "Address already in use" errors
         self.server = HTTPServer((bind_host, port), StableHTTPRequestHandler)
