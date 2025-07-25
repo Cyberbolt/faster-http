@@ -14,7 +14,7 @@ mod utils;
 mod core;
 mod client;
 mod async_client;
-mod global;
+mod api;
 mod runtime;
 mod models;
 mod hooks;
@@ -31,8 +31,8 @@ pub use streaming::{StreamingHttpResponse, StreamingBytesIterator, StreamingText
 pub use config::ClientConfig;
 pub use client::HttpClient;
 pub use async_client::AsyncHttpClient;
-// Re-export global functions (request function is available via Python module, not Rust re-export)
-pub use global::{get, post, put, patch, delete, head, options, stream};
+// Re-export API functions (request function is available via Python module, not Rust re-export)
+pub use api::{get, post, put, patch, delete, head, options, stream};
 pub use models::{HttpHeaders, HttpQueryParams, HttpCookies, HttpUrl, HttpTimeout, HttpLimits, HttpBasicAuth, HttpDigestAuth, HttpNetRCAuth};
 
 // Python module definition
@@ -65,16 +65,16 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<transport::MockTransport>()?;
     m.add_class::<transport::HTTPSRedirectTransport>()?;
     
-    // Add global functions
-    m.add_function(wrap_pyfunction!(global::get, m)?)?;
-    m.add_function(wrap_pyfunction!(global::post, m)?)?;
-    m.add_function(wrap_pyfunction!(global::put, m)?)?;
-    m.add_function(wrap_pyfunction!(global::patch, m)?)?;
-    m.add_function(wrap_pyfunction!(global::delete, m)?)?;
-    m.add_function(wrap_pyfunction!(global::head, m)?)?;
-    m.add_function(wrap_pyfunction!(global::options, m)?)?;
-    m.add_function(wrap_pyfunction!(global::request, m)?)?;
-    m.add_function(wrap_pyfunction!(global::stream, m)?)?;
+    // Add API functions
+    m.add_function(wrap_pyfunction!(api::get, m)?)?;
+    m.add_function(wrap_pyfunction!(api::post, m)?)?;
+    m.add_function(wrap_pyfunction!(api::put, m)?)?;
+    m.add_function(wrap_pyfunction!(api::patch, m)?)?;
+    m.add_function(wrap_pyfunction!(api::delete, m)?)?;
+    m.add_function(wrap_pyfunction!(api::head, m)?)?;
+    m.add_function(wrap_pyfunction!(api::options, m)?)?;
+    m.add_function(wrap_pyfunction!(api::request, m)?)?;
+    m.add_function(wrap_pyfunction!(api::stream, m)?)?;
     
     // Add exception types - complete hierarchy
     m.add("HTTPError", py.get_type::<HTTPError>())?;
