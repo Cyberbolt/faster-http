@@ -159,11 +159,11 @@ impl ClientConfig {
         builder = ssl_config.apply_to_client_builder(builder)
             .map_err(|e| RequestError::new_err(format!("SSL configuration error: {}", e)))?;
 
-        // Configure HTTP version with enhanced support and compatibility improvements
+        // Configure connection pool for better performance under load
         builder = builder
-            .pool_idle_timeout(Some(Duration::from_secs(1)))  // Short idle timeout
-            .pool_max_idle_per_host(1)  // Minimal connection pooling
-            .tcp_keepalive(None)  // Disable keepalive for simple servers
+            .pool_idle_timeout(Some(Duration::from_secs(30)))  // Reasonable idle timeout
+            .pool_max_idle_per_host(50)  // Support high concurrency
+            .tcp_keepalive(Some(Duration::from_secs(60)))  // Enable keepalive for better performance
             .tcp_nodelay(true)
             .timeout(Duration::from_secs(60));  // Overall timeout
             
@@ -225,11 +225,11 @@ impl ClientConfig {
         builder = ssl_config.apply_to_client_builder(builder)
             .map_err(|e| RequestError::new_err(format!("SSL configuration error: {}", e)))?;
 
-        // Configure HTTP version with enhanced support and compatibility improvements
+        // Configure connection pool for better performance under load
         builder = builder
-            .pool_idle_timeout(Some(Duration::from_secs(1)))  // Short idle timeout
-            .pool_max_idle_per_host(1)  // Minimal connection pooling
-            .tcp_keepalive(None)  // Disable keepalive for simple servers
+            .pool_idle_timeout(Some(Duration::from_secs(30)))  // Reasonable idle timeout
+            .pool_max_idle_per_host(50)  // Support high concurrency
+            .tcp_keepalive(Some(Duration::from_secs(60)))  // Enable keepalive for better performance
             .tcp_nodelay(true)
             .timeout(Duration::from_secs(60));  // Overall timeout
             

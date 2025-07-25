@@ -83,7 +83,7 @@ impl StreamingHttpResponse {
                     .status(200)
                     .header("content-type", "application/json")
                     .body(reqwest::Body::from("{}"))
-                    .unwrap()
+                    .map_err(|e| RequestError::new_err(format!("Failed to create dummy response: {}", e)))?
             );
             
             Ok(StreamingHttpResponse::new(dummy_response))
@@ -138,7 +138,8 @@ impl StreamingHttpResponse {
         let _chunk_size = chunk_size.unwrap_or(8192);
         
         let response_arc = self.response.clone();
-        let mut response_guard = response_arc.lock().unwrap();
+        let mut response_guard = response_arc.lock()
+            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
         
         if let Some(response) = response_guard.as_mut() {
             let rt = get_global_runtime();
@@ -166,7 +167,8 @@ impl StreamingHttpResponse {
     pub fn iter_bytes(&mut self, chunk_size: Option<usize>) -> PyResult<Vec<Vec<u8>>> {
         let _chunk_size = chunk_size.unwrap_or(8192);
         let response_arc = self.response.clone();
-        let mut response_guard = response_arc.lock().unwrap();
+        let mut response_guard = response_arc.lock()
+            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
         
         if let Some(response) = response_guard.take() {
             let rt = get_global_runtime();
@@ -193,7 +195,8 @@ impl StreamingHttpResponse {
     pub fn iter_text(&mut self, chunk_size: Option<usize>) -> PyResult<Vec<String>> {
         let _chunk_size = chunk_size.unwrap_or(8192);
         let response_arc = self.response.clone();
-        let mut response_guard = response_arc.lock().unwrap();
+        let mut response_guard = response_arc.lock()
+            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
         
         if let Some(response) = response_guard.take() {
             let rt = get_global_runtime();
@@ -219,7 +222,8 @@ impl StreamingHttpResponse {
     /// 流式行迭代器 - 返回实际行列表
     pub fn iter_lines(&mut self) -> PyResult<Vec<String>> {
         let response_arc = self.response.clone();
-        let mut response_guard = response_arc.lock().unwrap();
+        let mut response_guard = response_arc.lock()
+            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
         
         if let Some(response) = response_guard.take() {
             let rt = get_global_runtime();
@@ -250,7 +254,8 @@ impl StreamingHttpResponse {
     #[getter]
     pub fn content(&mut self, py: Python) -> PyResult<PyObject> {
         let response_arc = self.response.clone();
-        let mut response_guard = response_arc.lock().unwrap();
+        let mut response_guard = response_arc.lock()
+            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
         
         if let Some(response) = response_guard.take() {
             let rt = get_global_runtime();
@@ -269,7 +274,8 @@ impl StreamingHttpResponse {
     #[getter]
     pub fn text(&mut self) -> PyResult<String> {
         let response_arc = self.response.clone();
-        let mut response_guard = response_arc.lock().unwrap();
+        let mut response_guard = response_arc.lock()
+            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
         
         if let Some(response) = response_guard.take() {
             let rt = get_global_runtime();
@@ -297,7 +303,8 @@ impl StreamingHttpResponse {
     
     pub fn close(&mut self) -> PyResult<()> {
         let response_arc = self.response.clone();
-        let mut response_guard = response_arc.lock().unwrap();
+        let mut response_guard = response_arc.lock()
+            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
         *response_guard = None;
         self._closed = true;
         self._consumed = true;  // Mark as consumed when closed
@@ -332,7 +339,8 @@ impl StreamingHttpResponse {
         
         future_into_py(py, async move {
             let response = {
-                let mut response_guard = response_arc.lock().unwrap();
+                let mut response_guard = response_arc.lock()
+            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
                 response_guard.take()
             };
             
@@ -358,7 +366,8 @@ impl StreamingHttpResponse {
         
         future_into_py(py, async move {
             let response = {
-                let mut response_guard = response_arc.lock().unwrap();
+                let mut response_guard = response_arc.lock()
+            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
                 response_guard.take()
             };
             
@@ -383,7 +392,8 @@ impl StreamingHttpResponse {
         
         future_into_py(py, async move {
             let response = {
-                let mut response_guard = response_arc.lock().unwrap();
+                let mut response_guard = response_arc.lock()
+            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
                 response_guard.take()
             };
             
@@ -410,7 +420,8 @@ impl StreamingHttpResponse {
         
         future_into_py(py, async move {
             let response = {
-                let mut response_guard = response_arc.lock().unwrap();
+                let mut response_guard = response_arc.lock()
+            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
                 response_guard.take()
             };
             
