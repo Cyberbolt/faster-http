@@ -62,6 +62,10 @@ from ._core import (
     NetRCAuth,
 )
 
+# Import additional modules
+from .codes import codes
+from .proxy import Proxy
+
 import asyncio
 from typing import List, Union
 
@@ -185,6 +189,9 @@ __all__ = [
     "BasicAuth",
     "DigestAuth", 
     "NetRCAuth",
+    # Status codes and proxy configuration
+    "codes",
+    "Proxy",
 ]
 
 def main():

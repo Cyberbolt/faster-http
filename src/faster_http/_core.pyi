@@ -875,3 +875,135 @@ class StreamingClient:
     
     def __repr__(self) -> str: ...
 
+
+# Status codes and proxy configuration classes
+class _StatusCodes:
+    """HTTP status code constants"""
+    
+    # Informational 1xx
+    CONTINUE: int
+    SWITCHING_PROTOCOLS: int
+    PROCESSING: int
+    EARLY_HINTS: int
+    
+    # Successful 2xx
+    OK: int
+    CREATED: int
+    ACCEPTED: int
+    NON_AUTHORITATIVE_INFORMATION: int
+    NO_CONTENT: int
+    RESET_CONTENT: int
+    PARTIAL_CONTENT: int
+    MULTI_STATUS: int
+    ALREADY_REPORTED: int
+    IM_USED: int
+    
+    # Redirection 3xx
+    MULTIPLE_CHOICES: int
+    MOVED_PERMANENTLY: int
+    FOUND: int
+    SEE_OTHER: int
+    NOT_MODIFIED: int
+    USE_PROXY: int
+    TEMPORARY_REDIRECT: int
+    PERMANENT_REDIRECT: int
+    
+    # Client Error 4xx
+    BAD_REQUEST: int
+    UNAUTHORIZED: int
+    PAYMENT_REQUIRED: int
+    FORBIDDEN: int
+    NOT_FOUND: int
+    METHOD_NOT_ALLOWED: int
+    NOT_ACCEPTABLE: int
+    PROXY_AUTHENTICATION_REQUIRED: int
+    REQUEST_TIMEOUT: int
+    CONFLICT: int
+    GONE: int
+    LENGTH_REQUIRED: int
+    PRECONDITION_FAILED: int
+    PAYLOAD_TOO_LARGE: int
+    URI_TOO_LONG: int
+    UNSUPPORTED_MEDIA_TYPE: int
+    RANGE_NOT_SATISFIABLE: int
+    EXPECTATION_FAILED: int
+    IM_A_TEAPOT: int
+    MISDIRECTED_REQUEST: int
+    UNPROCESSABLE_ENTITY: int
+    LOCKED: int
+    FAILED_DEPENDENCY: int
+    TOO_EARLY: int
+    UPGRADE_REQUIRED: int
+    PRECONDITION_REQUIRED: int
+    TOO_MANY_REQUESTS: int
+    REQUEST_HEADER_FIELDS_TOO_LARGE: int
+    UNAVAILABLE_FOR_LEGAL_REASONS: int
+    
+    # Server Error 5xx
+    INTERNAL_SERVER_ERROR: int
+    NOT_IMPLEMENTED: int
+    BAD_GATEWAY: int
+    SERVICE_UNAVAILABLE: int
+    GATEWAY_TIMEOUT: int
+    HTTP_VERSION_NOT_SUPPORTED: int
+    VARIANT_ALSO_NEGOTIATES: int
+    INSUFFICIENT_STORAGE: int
+    LOOP_DETECTED: int
+    NOT_EXTENDED: int
+    NETWORK_AUTHENTICATION_REQUIRED: int
+    
+    def __contains__(self, status_code: int) -> bool: ...
+    def get_reason_phrase(self, status_code: int) -> str: ...
+
+
+# Create singleton instance
+codes: _StatusCodes
+
+
+class Proxy:
+    """HTTP proxy configuration class"""
+    
+    def __init__(
+        self,
+        url: Union[str, URL],
+        *,
+        ssl_context: Optional[Any] = None,
+        auth: Optional[Tuple[str, str]] = None,
+        headers: Optional[Dict[str, str]] = None
+    ) -> None: ...
+    
+    @property
+    def url(self) -> URL: ...
+    
+    @property
+    def auth(self) -> Optional[Tuple[str, str]]: ...
+    
+    @property
+    def headers(self) -> Headers: ...
+    
+    @property
+    def ssl_context(self) -> Optional[Any]: ...
+    
+    def copy_with(
+        self,
+        *,
+        url: Optional[Union[str, URL]] = None,
+        ssl_context: Optional[Any] = None,
+        auth: Optional[Tuple[str, str]] = None,
+        headers: Optional[Dict[str, str]] = None
+    ) -> "Proxy": ...
+    
+    def get_proxy_url_for_scheme(self, scheme: str) -> str: ...
+    
+    def supports_scheme(self, scheme: str) -> bool: ...
+    
+    def to_dict(self) -> Dict[str, str]: ...
+    
+    def __repr__(self) -> str: ...
+    
+    def __str__(self) -> str: ...
+    
+    def __eq__(self, other: Any) -> bool: ...
+    
+    def __hash__(self) -> int: ...
+
