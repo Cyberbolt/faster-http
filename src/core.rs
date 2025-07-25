@@ -182,7 +182,7 @@ pub async fn build_and_send_request(
     let mut request = client.request(method, &full_url);
 
     // 添加查询参数
-    if let Some(params) = params {
+    if let Some(ref params) = params {
         request = request.query(&params);
     }
 
@@ -199,7 +199,7 @@ pub async fn build_and_send_request(
     }
 
     // 添加 cookies 到请求头
-    if let Some(cookie_map) = cookies {
+    if let Some(ref cookie_map) = cookies {
         if !cookie_map.is_empty() {
             let cookie_string = cookie_map
                 .iter()
@@ -248,6 +248,12 @@ pub async fn build_and_send_request(
             full_url.clone(),
             Some(final_headers),
             content.clone(),
+            params.clone(),
+            cookies.clone(),
+            None, // data: handled separately in request processing
+            None, // files: handled separately in request processing
+            None, // json: handled separately in request processing
+            Some(false), // stream
         );
         
         Python::with_gil(|py| {
@@ -326,7 +332,7 @@ pub async fn build_and_send_streaming_request(
     let mut request = client.request(method, &full_url);
 
     // 添加查询参数
-    if let Some(params) = params {
+    if let Some(ref params) = params {
         request = request.query(&params);
     }
 
@@ -341,7 +347,7 @@ pub async fn build_and_send_streaming_request(
     }
 
     // 添加 cookies 到请求头
-    if let Some(cookie_map) = cookies {
+    if let Some(ref cookie_map) = cookies {
         if !cookie_map.is_empty() {
             let cookie_string = cookie_map
                 .iter()

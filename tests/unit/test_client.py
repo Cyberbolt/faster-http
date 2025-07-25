@@ -4,6 +4,7 @@ Tests the synchronous and asynchronous client implementations.
 """
 
 import faster_http
+import asyncio
 
 
 class TestSyncClient:
@@ -227,3 +228,38 @@ class TestClientConfiguration:
         params_dict_from_string = dict(params_from_string)
         assert 'search' in params_dict_from_string
         assert 'limit' in params_dict_from_string
+    
+    def test_client_new_constructor_parameters(self):
+        """Test new Client constructor parameters added for httpx compatibility."""
+        # Test with new parameters
+        client = faster_http.Client(
+            base_url="https://api.example.com",
+            timeout=10.0,
+            headers={"User-Agent": "faster-http-test"},
+            http1=True,
+            http2=False,
+            max_redirects=5,
+            default_encoding="utf-8",
+            params={"api_key": "test123"}
+        )
+        
+        # Test getter methods
+        assert client.base_url == "https://api.example.com"
+        assert "User-Agent" in client.headers
+        assert client.params["api_key"] == "test123"
+        
+    def test_async_client_new_constructor_parameters(self):
+        """Test new AsyncClient constructor parameters."""
+        async_client = faster_http.AsyncClient(
+            base_url="https://api.example.com",
+            timeout=15.0,
+            http1=False,
+            http2=True,
+            max_redirects=10,
+            default_encoding="utf-8",
+            params={"version": "v1"}
+        )
+        
+        # Test getter methods for AsyncClient
+        assert async_client.base_url == "https://api.example.com"
+        assert async_client.params["version"] == "v1"

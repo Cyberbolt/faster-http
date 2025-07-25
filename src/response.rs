@@ -260,6 +260,48 @@ impl HttpResponse {
         self.iter_bytes(chunk_size)
     }
 
+    // ==================== Read methods - httpx compatible ====================
+    pub fn read(&self) -> PyResult<Py<PyBytes>> {
+        // Synchronous read - return the entire response body
+        Python::with_gil(|py| {
+            Ok(PyBytes::new(py, &self.body).into())
+        })
+    }
+
+    pub fn aread<'p>(&self, py: Python<'p>) -> PyResult<&'p PyAny> {
+        // Asynchronous read - return the entire response body
+        use pyo3_asyncio::tokio::future_into_py;
+        let body = self.body.clone();
+        
+        future_into_py(py, async move {
+            Python::with_gil(|py| -> PyResult<Py<PyBytes>> {
+                Ok(PyBytes::new(py, &body).into())
+            })
+        })
+    }
+
+    // ==================== Next methods for redirect handling ====================
+    pub fn next(&self) -> PyResult<Option<PyObject>> {
+        // Return the next response in redirect chain (synchronous)
+        Ok(self.next_request.clone())
+    }
+
+    pub fn anext<'p>(&self, py: Python<'p>) -> PyResult<&'p PyAny> {
+        // Asynchronous version of next()
+        use pyo3_asyncio::tokio::future_into_py;
+        let next_request = self.next_request.clone();
+        
+        future_into_py(py, async move {
+            Ok(next_request)
+        })
+    }
+
+    // ==================== Next request property ====================
+    #[setter]
+    pub fn set_next_request(&mut self, request: Option<PyObject>) {
+        self.next_request = request;
+    }
+
     // ==================== 其他方法 ====================
     pub fn raise_for_status(&self) -> PyResult<()> {
         if self.status_code >= 400 {
@@ -414,15 +456,6 @@ impl HttpResponse {
         Ok(())
     }
 
-    pub fn aread(&self, py: Python) -> PyResult<PyObject> {
-        // 异步版本的 read，但在同步环境中直接返回内容
-        self.content(py)
-    }
-
-    pub fn read(&self, py: Python) -> PyResult<PyObject> {
-        // 读取内容（同步版本）
-        self.content(py)
-    }
 
     pub fn stream(&self) -> PyResult<()> {
         // 流式访问（在我们的实现中是 no-op）

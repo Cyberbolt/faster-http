@@ -141,7 +141,7 @@ impl FasterhttpTransport {
         // 创建默认的配置和headers来调用build_and_send_request
         let empty_headers = HashMap::new();
         let config = crate::config::ClientConfig::new(
-            None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None
         )?;
         
         // 使用tokio运行时同步执行异步请求
@@ -273,6 +273,12 @@ impl HTTPSRedirectTransport {
                 https_url,
                 Some(request.headers()),
                 request.content().map(|c| c.to_vec()),
+                Some(request.params()),
+                Some(request.cookies()),
+                request.data(),
+                request.files(),
+                request.json(),
+                Some(request.stream()),
             );
             
             // 使用底层transport发送HTTPS请求

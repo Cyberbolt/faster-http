@@ -213,3 +213,28 @@ class TestResponseHelpers:
             except (LookupError, TypeError):
                 valid = False
             assert valid, f"Encoding {encoding} should be valid"
+
+
+class TestResponseMethods:
+    """Test new Response methods added for httpx compatibility."""
+    
+    def test_response_methods_exist(self):
+        """Test that new Response methods exist."""
+        # Test method existence on Response class
+        methods_to_check = [
+            ('read', 'Method for reading response content'),
+            ('next', 'Method for getting next response in redirect chain'), 
+            ('next_request', 'Property for next request in redirect chain'),
+        ]
+        
+        for method, description in methods_to_check:
+            assert hasattr(faster_http.Response, method), f"Missing {method}: {description}"
+    
+    def test_response_class_accessible(self):
+        """Test that Response class is accessible and has expected methods."""
+        # Test that our new methods are in the class
+        response_methods = [attr for attr in dir(faster_http.Response) if not attr.startswith('_')]
+        
+        new_methods = ['read', 'next', 'next_request']
+        for method in new_methods:
+            assert method in response_methods, f"{method} not found in Response class"

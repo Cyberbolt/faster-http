@@ -32,6 +32,7 @@ impl HttpClient {
         proxy: Option<&PyAny>,
         proxies: Option<&pyo3::types::PyDict>,
         cookies: Option<HashMap<String, String>>,
+        http1: Option<bool>,
         http2: Option<bool>,
         event_hooks: Option<PyObject>,
         cert: Option<&PyAny>,
@@ -39,11 +40,14 @@ impl HttpClient {
         transport: Option<PyObject>,
         mounts: Option<&pyo3::types::PyDict>,
         limits: Option<PyObject>,
+        max_redirects: Option<i32>,
+        default_encoding: Option<String>,
+        params: Option<HashMap<String, String>>,
     ) -> PyResult<Self> {
         let config = ClientConfig::new(
             base_url, timeout, headers, verify, follow_redirects, 
-            auth, proxy, proxies, cookies, http2, event_hooks, cert, trust_env,
-            transport, mounts, limits
+            auth, proxy, proxies, cookies, http1, http2, event_hooks, cert, trust_env,
+            transport, mounts, limits, max_redirects, default_encoding, params
         )?;
         let client = config.build_client(None)?;
 
@@ -62,6 +66,10 @@ impl HttpClient {
         params: Option<HashMap<String, String>>,
         headers: Option<HashMap<String, String>>,
         content: Option<Vec<u8>>,
+        data: Option<PyObject>,
+        files: Option<PyObject>,
+        json: Option<PyObject>,
+        stream: Option<bool>,
     ) -> PyResult<HttpRequest> {
         // Use centralized URL building
         let final_url = build_url(url, self.config.base_url.as_ref(), params.as_ref())
@@ -73,11 +81,21 @@ impl HttpClient {
             final_headers.extend(headers);
         }
 
+        // Merge cookies
+        let final_cookies = self.config.default_cookies.clone();
+        // Note: Individual request cookies would be handled at higher level
+
         Ok(HttpRequest::new(
             method.to_string(),
             final_url,
             Some(final_headers),
             content,
+            params,
+            Some(final_cookies),
+            data,
+            files,
+            json,
+            stream,
         ))
     }
 
@@ -360,8 +378,7 @@ impl HttpClient {
 
     #[getter]
     pub fn params(&self) -> HashMap<String, String> {
-        // Return empty hashmap for now (could be extended if needed)
-        HashMap::new()
+        self.config.default_params.clone()
     }
 
     #[getter]

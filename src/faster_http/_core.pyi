@@ -35,6 +35,12 @@ class HttpRequest:
         url: str,
         headers: Optional[Dict[str, str]] = None,
         content: Optional[bytes] = None,
+        params: Optional[Dict[str, str]] = None,
+        cookies: Optional[Dict[str, str]] = None,
+        data: Optional[Any] = None,
+        files: Optional[Any] = None,
+        json: Optional[Any] = None,
+        stream: Optional[bool] = None,
     ) -> None: ...
     
     @property
@@ -48,6 +54,24 @@ class HttpRequest:
     
     @property
     def content(self) -> Optional[bytes]: ...
+    
+    @property
+    def params(self) -> Dict[str, str]: ...
+    
+    @property
+    def cookies(self) -> Dict[str, str]: ...
+    
+    @property
+    def data(self) -> Optional[Any]: ...
+    
+    @property
+    def files(self) -> Optional[Any]: ...
+    
+    @property
+    def json(self) -> Optional[Any]: ...
+    
+    @property
+    def stream(self) -> bool: ...
     
     def __repr__(self) -> str: ...
 
@@ -131,7 +155,13 @@ class HttpResponse:
     
     def aiter_raw(self, chunk_size: Optional[int] = None) -> List[bytes]: ...
     
+    def read(self) -> bytes: ...
+    
     async def aread(self) -> bytes: ...
+    
+    def next(self) -> Optional[Any]: ...
+    
+    async def anext(self) -> Optional[Any]: ...
     
     async def aclose(self) -> None: ...
     
@@ -170,12 +200,16 @@ class HttpClient:
         proxy: Optional[str] = None,
         proxies: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
+        http1: Optional[bool] = None,
         http2: Optional[bool] = None,
         event_hooks: Optional[Dict[str, List[Any]]] = None,
         cert: Optional[Union[str, Tuple[str, str], Tuple[str, str, str]]] = None,
         trust_env: Optional[bool] = None,
         transport: Optional[Any] = None,
         mounts: Optional[Dict[str, Any]] = None,
+        max_redirects: Optional[int] = None,
+        default_encoding: Optional[str] = None,
+        params: Optional[Dict[str, str]] = None,
     ) -> None: ...
     
     def build_request(
@@ -185,6 +219,10 @@ class HttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         content: Optional[bytes] = None,
+        data: Optional[Any] = None,
+        files: Optional[Any] = None,
+        json: Optional[Any] = None,
+        stream: Optional[bool] = None,
     ) -> HttpRequest: ...
     
     def send(self, request: HttpRequest) -> HttpResponse: ...
@@ -318,12 +356,16 @@ class AsyncHttpClient:
         proxy: Optional[str] = None,
         proxies: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
+        http1: Optional[bool] = None,
         http2: Optional[bool] = None,
         event_hooks: Optional[Dict[str, List[Any]]] = None,
         cert: Optional[Union[str, Tuple[str, str], Tuple[str, str, str]]] = None,
         trust_env: Optional[bool] = None,
         transport: Optional[Any] = None,
         mounts: Optional[Dict[str, Any]] = None,
+        max_redirects: Optional[int] = None,
+        default_encoding: Optional[str] = None,
+        params: Optional[Dict[str, str]] = None,
     ) -> None: ...
     
     def build_request(
@@ -333,6 +375,10 @@ class AsyncHttpClient:
         params: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
         content: Optional[bytes] = None,
+        data: Optional[Any] = None,
+        files: Optional[Any] = None,
+        json: Optional[Any] = None,
+        stream: Optional[bool] = None,
     ) -> HttpRequest: ...
     
     async def send(self, request: HttpRequest) -> HttpResponse: ...
