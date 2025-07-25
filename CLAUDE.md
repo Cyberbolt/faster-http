@@ -38,7 +38,7 @@ Rust 部分，应该把 Python 部分的输入转为 reqwest 的输入，然后�
 
 - 测试依赖应该使用 `uv add xxx --dev` 来添加，除非都需要使用，不得添加到生产环境中
 
-- 运行全部测试时，应该使用 `pytest tests/ -n auto` 来并发运行，以节约测试时间
+- 运行全部测试时，应该使用 `uv run -m pytest tests/ -n auto` 来并发运行，以节约测试时间
 
 ## docs 文档编写规范
 
