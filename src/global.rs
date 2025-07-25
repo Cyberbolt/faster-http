@@ -2,8 +2,8 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use crate::response::HttpResponse;
-use crate::streaming::StreamingHttpResponse;
-use crate::core::{build_and_send_request, build_and_send_streaming_request};
+use crate::streaming::StreamingClient;
+use crate::core::build_and_send_request;
 use crate::runtime::get_global_runtime;
 use crate::config::ClientConfig;
 use crate::models::HttpHeaders;
@@ -208,7 +208,8 @@ pub fn request(
     ))
 }
 
-// 流式请求函数
+// Enhanced streaming request function with context manager support
+// Returns StreamingClient that can be used with context manager: with stream(...) as response:
 #[pyfunction]
 pub fn stream(
     method: &str,
@@ -223,11 +224,22 @@ pub fn stream(
     auth: Option<(String, String)>,
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
-) -> PyResult<StreamingHttpResponse> {
-    let config = get_global_config();
-    let rt = get_global_runtime();
-    rt.block_on(build_and_send_streaming_request(
-        config, method, url, content, data, json, files, params, headers, timeout,
-        &None, &HashMap::new(), None, auth, follow_redirects.unwrap_or(false), cookies
+) -> PyResult<StreamingClient> {
+    let config = get_global_config().clone();
+    
+    Ok(StreamingClient::new(
+        config,
+        method.to_string(),
+        url.to_string(),
+        content,
+        data,
+        json,
+        files,
+        params,
+        headers,
+        timeout,
+        auth,
+        follow_redirects.unwrap_or(false),
+        cookies,
     ))
 } 

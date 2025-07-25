@@ -563,7 +563,7 @@ def stream(
     auth: Optional[Tuple[str, str]] = None,
     follow_redirects: Optional[bool] = None,
     cookies: Optional[Dict[str, str]] = None,
-) -> HttpResponse: ...
+) -> StreamingClient: ...
 
 # Rust-implemented data structures
 class Headers:
@@ -786,4 +786,46 @@ class HTTPSRedirectTransport:
     def close(self) -> None: ...
     
     def aclose(self) -> None: ...
+
+class StreamingClient:
+    """Streaming HTTP client providing httpx.stream() context manager functionality."""
+    
+    def __init__(
+        self,
+        config: Any,
+        method: str,
+        url: str,
+        content: Optional[bytes] = None,
+        data: Optional[Dict[str, Any]] = None,
+        json: Optional[Dict[str, Any]] = None,
+        files: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, str]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        timeout: Optional[float] = None,
+        auth: Optional[Tuple[str, str]] = None,
+        follow_redirects: bool = False,
+        cookies: Optional[Dict[str, str]] = None,
+    ) -> None: ...
+    
+    # Context manager support
+    def __enter__(self) -> HttpResponse: ...
+    
+    def __exit__(
+        self,
+        exc_type: Optional[type],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> bool: ...
+    
+    # Async context manager support
+    async def __aenter__(self) -> HttpResponse: ...
+    
+    async def __aexit__(
+        self,
+        exc_type: Optional[type],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> bool: ...
+    
+    def __repr__(self) -> str: ...
 

@@ -6,9 +6,12 @@ use std::sync::{Arc, Mutex};
 use crate::error::RequestError;
 use crate::response::{detect_encoding, parse_cookies_from_headers, detect_http_version};
 use crate::runtime::get_global_runtime;
+use crate::config::ClientConfig;
+use crate::core::build_and_send_streaming_request;
 
 // 真正的流式响应 - 直接对接 reqwest，使用同步运行时
 #[pyclass]
+#[derive(Clone)]
 pub struct StreamingHttpResponse {
     // 基本响应信息
     status_code: u16,
@@ -540,3 +543,130 @@ impl StreamingLinesIterator {
 // ==================== 异步迭代器暂时简化 ====================
 // 真正的异步迭代器实现需要更复杂的 Send + Sync 设计
 // 现在为了兼容性暂时简化 
+
+// ==================== StreamingClient for httpx.stream() compatibility ====================
+
+/// StreamingClient provides httpx.stream() context manager functionality
+/// This allows users to do: with httpx.stream("GET", url) as response:
+#[pyclass]
+pub struct StreamingClient {
+    config: ClientConfig,
+    method: String,
+    url: String,
+    content: Option<Vec<u8>>,
+    data: Option<HashMap<String, PyObject>>,
+    json: Option<HashMap<String, PyObject>>,
+    files: Option<HashMap<String, PyObject>>,
+    params: Option<HashMap<String, String>>,
+    headers: Option<HashMap<String, String>>,
+    timeout: Option<f64>,
+    auth: Option<(String, String)>,
+    follow_redirects: bool,
+    cookies: Option<HashMap<String, String>>,
+    response: Arc<Mutex<Option<StreamingHttpResponse>>>,
+}
+
+impl StreamingClient {
+    pub fn new(
+        config: ClientConfig,
+        method: String,
+        url: String,
+        content: Option<Vec<u8>>,
+        data: Option<HashMap<String, PyObject>>,
+        json: Option<HashMap<String, PyObject>>,
+        files: Option<HashMap<String, PyObject>>,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+        auth: Option<(String, String)>,
+        follow_redirects: bool,
+        cookies: Option<HashMap<String, String>>,
+    ) -> Self {
+        Self {
+            config,
+            method,
+            url,
+            content,
+            data,
+            json,
+            files,
+            params,
+            headers,
+            timeout,
+            auth,
+            follow_redirects,
+            cookies,
+            response: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Execute the request and return the streaming response
+    fn execute_request(&self) -> PyResult<StreamingHttpResponse> {
+        let rt = get_global_runtime();
+        rt.block_on(build_and_send_streaming_request(
+            &self.config,
+            &self.method,
+            &self.url,
+            self.content.clone(),
+            self.data.clone(),
+            self.json.clone(),
+            self.files.clone(),
+            self.params.clone(),
+            self.headers.clone(),
+            self.timeout,
+            &None,
+            &HashMap::new(),
+            None,
+            self.auth.clone(),
+            self.follow_redirects,
+            self.cookies.clone(),
+        ))
+    }
+}
+
+#[pymethods]
+impl StreamingClient {
+    /// Context manager entry - execute request and return response
+    fn __enter__(slf: PyRef<Self>) -> PyResult<StreamingHttpResponse> {
+        let response = slf.execute_request()?;
+        Ok(response)
+    }
+
+    /// Context manager exit - cleanup resources
+    fn __exit__(
+        slf: PyRefMut<Self>,
+        _exc_type: Option<PyObject>,
+        _exc_val: Option<PyObject>,
+        _exc_tb: Option<PyObject>,
+    ) -> PyResult<bool> {
+        // Resources are automatically cleaned up when response goes out of scope
+        Ok(false)
+    }
+
+    /// Async context manager entry
+    fn __aenter__<'py>(slf: PyRef<Self>, py: Python<'py>) -> PyResult<&'py PyAny> {
+        let response = slf.execute_request()?;
+        
+        future_into_py(py, async move {
+            Ok(response)
+        })
+    }
+
+    /// Async context manager exit
+    fn __aexit__<'py>(
+        slf: PyRefMut<Self>,
+        py: Python<'py>,
+        _exc_type: Option<PyObject>,
+        _exc_val: Option<PyObject>,
+        _exc_tb: Option<PyObject>,
+    ) -> PyResult<&'py PyAny> {
+        // Resources are automatically cleaned up when response goes out of scope
+        future_into_py(py, async move {
+            Ok(false)
+        })
+    }
+
+    fn __repr__(&self) -> String {
+        format!("<StreamingClient {}>", self.method)
+    }
+}

@@ -14,6 +14,7 @@ from ._core import (
     HttpRequest as Request,
     HttpResponse as Response,
     StreamingHttpResponse as StreamingResponse,
+    StreamingClient,
     # Complete exception hierarchy
     HTTPError,
     ConnectError,
@@ -132,6 +133,7 @@ __all__ = [
     "Request", 
     "Response",
     "StreamingResponse",
+    "StreamingClient",
     # Original names (for advanced users)
     "HttpClient",
     "AsyncHttpClient",

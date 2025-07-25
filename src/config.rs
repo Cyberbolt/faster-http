@@ -141,8 +141,15 @@ impl ClientConfig {
         builder = ssl_config.apply_to_client_builder(builder)
             .map_err(|e| RequestError::new_err(format!("SSL configuration error: {}", e)))?;
 
-        // Configure HTTP version
-        if !http2 {
+        // Configure HTTP version with enhanced HTTP/2 support
+        if http2 {
+            builder = builder
+                .http2_prior_knowledge()
+                .http2_initial_stream_window_size(Some(65535))
+                .http2_initial_connection_window_size(Some(1048576))
+                .http2_adaptive_window(true)
+                .http2_max_frame_size(Some(16384));
+        } else {
             builder = builder.http1_only();
         }
 
@@ -171,8 +178,15 @@ impl ClientConfig {
         builder = ssl_config.apply_to_client_builder(builder)
             .map_err(|e| RequestError::new_err(format!("SSL configuration error: {}", e)))?;
 
-        // Configure HTTP version
-        if !self.http2 {
+        // Configure HTTP version with enhanced HTTP/2 support
+        if self.http2 {
+            builder = builder
+                .http2_prior_knowledge()
+                .http2_initial_stream_window_size(Some(65535))
+                .http2_initial_connection_window_size(Some(1048576))
+                .http2_adaptive_window(true)
+                .http2_max_frame_size(Some(16384));
+        } else {
             builder = builder.http1_only();
         }
 

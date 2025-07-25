@@ -27,7 +27,7 @@ pub use error::*;
 pub use auth::*;
 pub use request::HttpRequest;
 pub use response::HttpResponse;
-pub use streaming::{StreamingHttpResponse, StreamingBytesIterator, StreamingTextIterator, StreamingLinesIterator};
+pub use streaming::{StreamingHttpResponse, StreamingBytesIterator, StreamingTextIterator, StreamingLinesIterator, StreamingClient};
 pub use config::ClientConfig;
 pub use client::HttpClient;
 pub use async_client::AsyncHttpClient;
@@ -42,6 +42,7 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<HttpRequest>()?;
     m.add_class::<HttpResponse>()?;
     m.add_class::<StreamingHttpResponse>()?;
+    m.add_class::<StreamingClient>()?;
     m.add_class::<StreamingBytesIterator>()?;
     m.add_class::<StreamingTextIterator>()?;
     m.add_class::<StreamingLinesIterator>()?;
