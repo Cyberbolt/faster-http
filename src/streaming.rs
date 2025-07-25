@@ -563,6 +563,7 @@ pub struct StreamingClient {
     auth: Option<(String, String)>,
     follow_redirects: bool,
     cookies: Option<HashMap<String, String>>,
+    #[allow(dead_code)]
     response: Arc<Mutex<Option<StreamingHttpResponse>>>,
 }
 
@@ -634,7 +635,7 @@ impl StreamingClient {
 
     /// Context manager exit - cleanup resources
     fn __exit__(
-        slf: PyRefMut<Self>,
+        _slf: PyRefMut<Self>,
         _exc_type: Option<PyObject>,
         _exc_val: Option<PyObject>,
         _exc_tb: Option<PyObject>,
@@ -654,7 +655,7 @@ impl StreamingClient {
 
     /// Async context manager exit
     fn __aexit__<'py>(
-        slf: PyRefMut<Self>,
+        _slf: PyRefMut<Self>,
         py: Python<'py>,
         _exc_type: Option<PyObject>,
         _exc_val: Option<PyObject>,

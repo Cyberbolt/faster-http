@@ -159,7 +159,14 @@ impl ClientConfig {
         builder = ssl_config.apply_to_client_builder(builder)
             .map_err(|e| RequestError::new_err(format!("SSL configuration error: {}", e)))?;
 
-        // Configure HTTP version with enhanced support
+        // Configure HTTP version with enhanced support and compatibility improvements
+        builder = builder
+            .pool_idle_timeout(Some(Duration::from_secs(1)))  // Short idle timeout
+            .pool_max_idle_per_host(1)  // Minimal connection pooling
+            .tcp_keepalive(None)  // Disable keepalive for simple servers
+            .tcp_nodelay(true)
+            .timeout(Duration::from_secs(60));  // Overall timeout
+            
         match (http1, http2) {
             (true, true) => {
                 // Both protocols enabled - this is the default in reqwest
@@ -180,12 +187,16 @@ impl ClientConfig {
                     .http2_max_frame_size(Some(16384));
             }
             (true, false) => {
-                // HTTP/1.1 only
-                builder = builder.http1_only();
+                // HTTP/1.1 only - add compatibility settings for simple servers
+                builder = builder
+                    .http1_only()
+                    .http1_title_case_headers();
             }
             (false, false) => {
-                // Neither enabled - default to HTTP/1.1
-                builder = builder.http1_only();
+                // Neither enabled - default to HTTP/1.1 with compatibility
+                builder = builder
+                    .http1_only()
+                    .http1_title_case_headers();
             }
         }
 
@@ -214,7 +225,14 @@ impl ClientConfig {
         builder = ssl_config.apply_to_client_builder(builder)
             .map_err(|e| RequestError::new_err(format!("SSL configuration error: {}", e)))?;
 
-        // Configure HTTP version with enhanced support
+        // Configure HTTP version with enhanced support and compatibility improvements
+        builder = builder
+            .pool_idle_timeout(Some(Duration::from_secs(1)))  // Short idle timeout
+            .pool_max_idle_per_host(1)  // Minimal connection pooling
+            .tcp_keepalive(None)  // Disable keepalive for simple servers
+            .tcp_nodelay(true)
+            .timeout(Duration::from_secs(60));  // Overall timeout
+            
         match (self.http1, self.http2) {
             (true, true) => {
                 // Both protocols enabled - this is the default in reqwest
@@ -235,12 +253,16 @@ impl ClientConfig {
                     .http2_max_frame_size(Some(16384));
             }
             (true, false) => {
-                // HTTP/1.1 only
-                builder = builder.http1_only();
+                // HTTP/1.1 only - add compatibility settings for simple servers
+                builder = builder
+                    .http1_only()
+                    .http1_title_case_headers();
             }
             (false, false) => {
-                // Neither enabled - default to HTTP/1.1
-                builder = builder.http1_only();
+                // Neither enabled - default to HTTP/1.1 with compatibility
+                builder = builder
+                    .http1_only()
+                    .http1_title_case_headers();
             }
         }
 

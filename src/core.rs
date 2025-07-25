@@ -108,7 +108,13 @@ pub async fn process_response(response: reqwest::Response, start_time: Instant) 
 
     // 读取 body - 让 reqwest 处理流式优化
     let body = response.bytes().await
-        .map_err(|e| RequestError::new_err(format!("Failed to read response body: {}", e)))?;
+        .map_err(|e| {
+            if e.is_timeout() {
+                ReadTimeout::new_err(format!("Timeout reading response body: {}", e))
+            } else {
+                RequestError::new_err(format!("Failed to read response body: {}", e))
+            }
+        })?;
 
     let elapsed = start_time.elapsed().as_secs_f64();
     let is_redirect_status = matches!(status_code, 301 | 302 | 303 | 307 | 308);

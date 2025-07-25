@@ -6,7 +6,6 @@ use reqwest::Client;
 use crate::request::HttpRequest;
 use crate::response::HttpResponse;
 use crate::error::RequestError;
-use crate::core::build_and_send_request;
 
 /// Transport配置结构体 - 对应httpx的Transport系统
 #[derive(Clone)]
@@ -122,6 +121,7 @@ impl TransportConfig {
 /// 这个类包装了reqwest客户端，提供了与httpx.BaseTransport兼容的接口
 #[pyclass]
 pub struct FasterhttpTransport {
+    #[allow(dead_code)]
     client: Client,
 }
 
@@ -147,7 +147,7 @@ impl FasterhttpTransport {
         // 使用tokio运行时同步执行异步请求
         let rt = crate::runtime::get_global_runtime();
         let response = rt.block_on(async {
-            build_and_send_request(
+            crate::core::build_and_send_request(
                 &config,
                 request.method(),
                 request.url(),
@@ -312,7 +312,7 @@ mod tests {
     
     #[test]
     fn test_transport_url_selection() {
-        let mut config = TransportConfig::default();
+        let config = TransportConfig::default();
         
         // 这个测试需要Python对象，暂时跳过
         // 在实际使用中会有Python对象
@@ -328,6 +328,12 @@ mod tests {
         let request = HttpRequest::new(
             "GET".to_string(),
             "https://example.com".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
             None,
             None,
         );
