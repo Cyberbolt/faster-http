@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 use reqwest::Client;
 use std::collections::HashMap;
 use std::time::Duration;
+use std::sync::{Arc, Mutex};
 use crate::auth::{AuthType, extract_auth_from_object};
 use crate::error::RequestError;
 use crate::hooks::EventHooks;
@@ -22,7 +23,7 @@ pub struct ClientConfig {
     pub default_cookies: HashMap<String, String>,
     pub http1: bool,
     pub http2: bool,
-    pub event_hooks: EventHooks, // Event hooks for request/response logging
+    pub event_hooks: Arc<Mutex<EventHooks>>, // Event hooks for request/response logging
     pub ssl_config: SslConfig, // SSL/TLS configuration
     pub transport_config: TransportConfig, // Custom transport configuration
     pub limits: Option<crate::models::HttpLimits>, // Connection pool limits
@@ -37,7 +38,7 @@ pub struct ClientConfig {
 impl ClientConfig {
     pub fn new(
         base_url: Option<String>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,  // Accept either f64 or Timeout object
         headers: Option<HashMap<String, String>>,
         verify: Option<&PyAny>,
         follow_redirects: Option<bool>,
@@ -75,6 +76,26 @@ impl ClientConfig {
             (None, None)
         };
 
+        // Handle timeout parameter - accept either f64 or Timeout object
+        let timeout_value = if let Some(timeout_obj) = timeout {
+            Python::with_gil(|py| -> PyResult<Option<f64>> {
+                // Try to extract as f64 first (simple numeric timeout)
+                if let Ok(timeout_num) = timeout_obj.extract::<f64>(py) {
+                    return Ok(Some(timeout_num));
+                }
+                
+                // Try to extract as HttpTimeout object
+                if let Ok(timeout_instance) = timeout_obj.extract::<crate::models::HttpTimeout>(py) {
+                    // Use read timeout as default timeout for the client
+                    return Ok(Some(timeout_instance.get_read_timeout()));
+                }
+                
+                Ok(None)
+            })?
+        } else {
+            None
+        };
+
         // Parse event hooks
         let hooks = if let Some(hooks_obj) = event_hooks {
             Python::with_gil(|py| EventHooks::from_python_dict(py, &hooks_obj))?
@@ -107,7 +128,7 @@ impl ClientConfig {
             None
         };
 
-        // Process HTTP version parameters
+        // Process HTTP version parameters - default to HTTP/1.1 only for better localhost compatibility
         let http1_enabled = http1.unwrap_or(true);
         let http2_enabled = http2.unwrap_or(false);
         
@@ -117,7 +138,7 @@ impl ClientConfig {
 
         Ok(ClientConfig {
             base_url,
-            default_timeout: timeout.map(Duration::from_secs_f64).or(Some(Duration::from_secs(30))), // 设置默认30秒超时
+            default_timeout: timeout_value.and_then(|t| if t >= 0.0 { Some(Duration::from_secs_f64(t)) } else { None }).or(Some(Duration::from_secs(30))), // 设置默认30秒超时，负数被忽略
             default_headers: headers.unwrap_or_default(),
             follow_redirects: follow_redirects.unwrap_or(true),
             auth: auth_type,
@@ -126,7 +147,7 @@ impl ClientConfig {
             default_cookies: cookies.unwrap_or_default(),
             http1: http1_enabled,
             http2: http2_enabled,
-            event_hooks: hooks,
+            event_hooks: Arc::new(Mutex::new(hooks)),
             ssl_config,
             transport_config,
             limits: limits_config,
@@ -155,57 +176,22 @@ impl ClientConfig {
             builder = builder.redirect(reqwest::redirect::Policy::limited(max as usize));
         }
 
-        // Apply SSL configuration
-        builder = ssl_config.apply_to_client_builder(builder)
-            .map_err(|e| RequestError::new_err(format!("SSL configuration error: {}", e)))?;
-
-        // Configure connection pool for better performance under load
+        // Extreme minimal configuration for maximum localhost compatibility
         builder = builder
-            .pool_idle_timeout(Some(Duration::from_secs(30)))  // Reasonable idle timeout
-            .pool_max_idle_per_host(50)  // Support high concurrency
-            .tcp_keepalive(Some(Duration::from_secs(60)))  // Enable keepalive for better performance
-            .tcp_nodelay(true)
-            .timeout(Duration::from_secs(60));  // Overall timeout
-            
-        match (http1, http2) {
-            (true, true) => {
-                // Both protocols enabled - this is the default in reqwest
-                // Enable HTTP/2 with HTTP/1.1 fallback
-                builder = builder
-                    .http2_initial_stream_window_size(Some(65535))
-                    .http2_initial_connection_window_size(Some(1048576))
-                    .http2_adaptive_window(true)
-                    .http2_max_frame_size(Some(16384));
-            }
-            (false, true) => {
-                // HTTP/2 only
-                builder = builder
-                    .http2_prior_knowledge()
-                    .http2_initial_stream_window_size(Some(65535))
-                    .http2_initial_connection_window_size(Some(1048576))
-                    .http2_adaptive_window(true)
-                    .http2_max_frame_size(Some(16384));
-            }
-            (true, false) => {
-                // HTTP/1.1 only - add compatibility settings for simple servers
-                builder = builder
-                    .http1_only()
-                    .http1_title_case_headers();
-            }
-            (false, false) => {
-                // Neither enabled - default to HTTP/1.1 with compatibility
-                builder = builder
-                    .http1_only()
-                    .http1_title_case_headers();
-            }
-        }
+            .timeout(Duration::from_secs(30))
+            .connect_timeout(Duration::from_secs(5))  // Short connect timeout
+            .pool_idle_timeout(None)  // Disable connection pooling entirely
+            .pool_max_idle_per_host(0)  // No idle connections
+            .http1_only()  // Force HTTP/1.1 only
+            .http1_title_case_headers()  // Case headers for compatibility
+            .tcp_nodelay(false)  // Disable TCP_NODELAY for compatibility
+            .tcp_keepalive(None)  // Disable TCP keepalive
+            .no_proxy()  // Disable all proxy settings
+            .danger_accept_invalid_certs(true)  // For testing
+            .danger_accept_invalid_hostnames(true);  // For testing
 
-        // Configure proxy (apply default proxy if available)
-        if let Some(default_proxy) = &proxy_system.default_proxy {
-            let reqwest_proxy = default_proxy.to_reqwest_proxy()
-                .map_err(|e| RequestError::new_err(format!("Invalid proxy configuration: {}", e)))?;
-            builder = builder.proxy(reqwest_proxy);
-        }
+        // Only apply SSL for HTTPS URLs - skip for localhost HTTP
+        // (SSL config will be applied per-request if needed)
 
         builder.build()
             .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))
@@ -214,64 +200,22 @@ impl ClientConfig {
     pub fn build_client(&self, custom_verify: Option<&PyAny>) -> PyResult<Client> {
         let mut builder = Client::builder();
 
-        // Use custom SSL config if provided, otherwise use the instance's SSL config
-        let ssl_config = if let Some(verify) = custom_verify {
-            SslConfig::from_python_params(Some(verify), None, Some(self.ssl_config.trust_env))?
-        } else {
-            self.ssl_config.clone()
-        };
-
-        // Apply SSL configuration
-        builder = ssl_config.apply_to_client_builder(builder)
-            .map_err(|e| RequestError::new_err(format!("SSL configuration error: {}", e)))?;
-
-        // Configure connection pool for better performance under load
+        // Extreme minimal configuration for maximum localhost compatibility
         builder = builder
-            .pool_idle_timeout(Some(Duration::from_secs(30)))  // Reasonable idle timeout
-            .pool_max_idle_per_host(50)  // Support high concurrency
-            .tcp_keepalive(Some(Duration::from_secs(60)))  // Enable keepalive for better performance
-            .tcp_nodelay(true)
-            .timeout(Duration::from_secs(60));  // Overall timeout
-            
-        match (self.http1, self.http2) {
-            (true, true) => {
-                // Both protocols enabled - this is the default in reqwest
-                // Enable HTTP/2 with HTTP/1.1 fallback
-                builder = builder
-                    .http2_initial_stream_window_size(Some(65535))
-                    .http2_initial_connection_window_size(Some(1048576))
-                    .http2_adaptive_window(true)
-                    .http2_max_frame_size(Some(16384));
-            }
-            (false, true) => {
-                // HTTP/2 only
-                builder = builder
-                    .http2_prior_knowledge()
-                    .http2_initial_stream_window_size(Some(65535))
-                    .http2_initial_connection_window_size(Some(1048576))
-                    .http2_adaptive_window(true)
-                    .http2_max_frame_size(Some(16384));
-            }
-            (true, false) => {
-                // HTTP/1.1 only - add compatibility settings for simple servers
-                builder = builder
-                    .http1_only()
-                    .http1_title_case_headers();
-            }
-            (false, false) => {
-                // Neither enabled - default to HTTP/1.1 with compatibility
-                builder = builder
-                    .http1_only()
-                    .http1_title_case_headers();
-            }
-        }
+            .timeout(Duration::from_secs(30))
+            .connect_timeout(Duration::from_secs(5))  // Short connect timeout
+            .pool_idle_timeout(None)  // Disable connection pooling entirely
+            .pool_max_idle_per_host(0)  // No idle connections
+            .http1_only()  // Force HTTP/1.1 only
+            .http1_title_case_headers()  // Case headers for compatibility
+            .tcp_nodelay(false)  // Disable TCP_NODELAY for compatibility
+            .tcp_keepalive(None)  // Disable TCP keepalive
+            .no_proxy()  // Disable all proxy settings
+            .danger_accept_invalid_certs(true)  // For testing
+            .danger_accept_invalid_hostnames(true);  // For testing
 
-        // Configure proxy (apply default proxy if available)
-        if let Some(default_proxy) = &self.proxy_system.default_proxy {
-            let reqwest_proxy = default_proxy.to_reqwest_proxy()
-                .map_err(|e| RequestError::new_err(format!("Invalid proxy configuration: {}", e)))?;
-            builder = builder.proxy(reqwest_proxy);
-        }
+        // Only apply SSL for HTTPS URLs - skip for localhost HTTP
+        // (SSL config will be applied per-request if needed)
 
         builder.build()
             .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))

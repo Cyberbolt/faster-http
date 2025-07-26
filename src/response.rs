@@ -4,7 +4,7 @@ use pyo3::types::{PyBytes, IntoPyDict};
 use bytes::Bytes;
 use serde_json::Value;
 use std::collections::HashMap;
-use crate::error::HTTPError;
+use crate::error::HTTPStatusError;
 
 // 响应对象 - 生产级版本，与 httpx 完全对齐
 #[pyclass]
@@ -79,7 +79,7 @@ impl HttpResponse {
     }
 
     #[getter]
-    pub fn url(&self) -> crate::models::HttpUrl {
+    pub fn url(&self) -> PyResult<crate::models::HttpUrl> {
         // 返回 URL 对象以保持与 httpx 兼容
         crate::models::HttpUrl::new(self.url.clone())
     }
@@ -124,10 +124,7 @@ impl HttpResponse {
         self.is_redirect_status
     }
 
-    #[getter]
-    pub fn ok(&self) -> bool {
-        self.status_code >= 200 && self.status_code < 300
-    }
+    // Removed: ok() method - httpx uses is_success() instead
 
     #[getter]
     pub fn is_client_error(&self) -> bool {
@@ -280,21 +277,7 @@ impl HttpResponse {
         })
     }
 
-    // ==================== Next methods for redirect handling ====================
-    pub fn next(&self) -> PyResult<Option<PyObject>> {
-        // Return the next response in redirect chain (synchronous)
-        Ok(self.next_request.clone())
-    }
-
-    pub fn anext<'p>(&self, py: Python<'p>) -> PyResult<&'p PyAny> {
-        // Asynchronous version of next()
-        use pyo3_asyncio::tokio::future_into_py;
-        let next_request = self.next_request.clone();
-        
-        future_into_py(py, async move {
-            Ok(next_request)
-        })
-    }
+    // Removed next() and anext() methods - httpx only provides next_request property
 
     // ==================== Next request property ====================
     #[setter]
@@ -305,10 +288,15 @@ impl HttpResponse {
     // ==================== 其他方法 ====================
     pub fn raise_for_status(&self) -> PyResult<()> {
         if self.status_code >= 400 {
-            return Err(HTTPError::new_err(format!(
-                "HTTP {} error for url: {}",
-                self.status_code, self.url
-            )));
+            let response_obj = Python::with_gil(|py| {
+                // Convert self to PyObject
+                Py::new(py, self.clone()).map(|obj| obj.to_object(py))
+            });
+            
+            return Err(HTTPStatusError::new_err_with_response(
+                format!("HTTP {} error for url: {}", self.status_code, self.url),
+                response_obj.ok()
+            ));
         }
         Ok(())
     }
@@ -340,55 +328,18 @@ impl HttpResponse {
     }
 
     // ==================== Extensions manipulation ====================
-    pub fn get_extension(&self, key: &str) -> Option<PyObject> {
-        self.extensions.get(key).cloned()
-    }
+    // Removed get_extension method - httpx only provides extensions property
 
-    pub fn set_extension(&mut self, key: String, value: PyObject) {
-        self.extensions.insert(key, value);
-    }
+    // Removed extension manipulation methods - httpx only provides read-only extensions property
 
-    pub fn has_extension(&self, key: &str) -> bool {
-        self.extensions.contains_key(key)
-    }
-
-    pub fn remove_extension(&mut self, key: &str) -> Option<PyObject> {
-        self.extensions.remove(key)
-    }
-
-    pub fn clear_extensions(&mut self) {
-        self.extensions.clear();
-    }
-
-    // ==================== Request association ====================
-    pub fn set_request(&mut self, request: PyObject) {
-        self.request = Some(request);
-    }
-
-    pub fn clear_request(&mut self) {
-        self.request = None;
-    }
-
-    // ==================== History manipulation ====================
-    pub fn add_history_entry(&mut self, response: PyObject) {
-        self.history.push(response);
-    }
-
-    pub fn clear_history(&mut self) {
-        self.history.clear();
-    }
+    // Removed request and history manipulation methods - httpx only provides read-only properties
 
     #[getter] 
     pub fn has_redirect_location(&self) -> bool {
         self.headers.contains_key("location") || self.headers.contains_key("Location")
     }
 
-    #[getter]
-    pub fn redirect_location(&self) -> Option<String> {
-        self.headers.get("location")
-            .or_else(|| self.headers.get("Location"))
-            .cloned()
-    }
+    // Removed redirect_location method - httpx only provides has_redirect_location
 
     // ==================== Additional httpx compatibility ====================
     #[getter]
@@ -463,21 +414,78 @@ impl HttpResponse {
     }
 
     // ==================== 异步迭代器方法 ====================
-    // 为了简化和兼容性，返回同步数据，让Python端包装为异步迭代器
-    pub fn aiter_bytes(&self, chunk_size: Option<usize>) -> PyResult<Vec<Py<PyBytes>>> {
-        self.iter_bytes(chunk_size)
+    pub fn aiter_bytes(&self, chunk_size: Option<usize>) -> PyResult<PyObject> {
+        let chunk_size = chunk_size.unwrap_or(8192);
+        let body = self.body.clone();
+        
+        Python::with_gil(|py| {
+            // Create Python bytes object from the body data
+            let py_bytes = pyo3::types::PyBytes::new(py, &body);
+            
+            let code = format!(
+                r#"
+async def aiter_bytes_impl(data, chunk_size):
+    for i in range(0, len(data), chunk_size):
+        yield data[i:i+chunk_size]
+
+aiter_bytes_impl(data, chunk_size)
+"#
+            );
+            
+            let locals = pyo3::types::PyDict::new(py);
+            locals.set_item("data", py_bytes)?;
+            locals.set_item("chunk_size", chunk_size)?;
+            py.run(&code, None, Some(locals))?;
+            Ok(locals.get_item("aiter_bytes_impl")?.unwrap().call1((py_bytes, chunk_size))?.to_object(py))
+        })
     }
 
-    pub fn aiter_text(&self, chunk_size: Option<usize>) -> PyResult<Vec<String>> {
-        self.iter_text(chunk_size)
+    pub fn aiter_text(&self, chunk_size: Option<usize>) -> PyResult<PyObject> {
+        let chunk_size = chunk_size.unwrap_or(8192);
+        let text = self.text()?;
+        
+        Python::with_gil(|py| {
+            let code = r#"
+async def aiter_text_impl(text, chunk_size):
+    for i in range(0, len(text), chunk_size):
+        yield text[i:i+chunk_size]
+
+aiter_text_impl(text, chunk_size)
+"#;
+            
+            let locals = pyo3::types::PyDict::new(py);
+            locals.set_item("text", text.clone())?;
+            locals.set_item("chunk_size", chunk_size)?;
+            py.run(&code, None, Some(locals))?;
+            Ok(locals.get_item("aiter_text_impl")?.unwrap().call1((text, chunk_size))?.to_object(py))
+        })
     }
 
-    pub fn aiter_lines(&self) -> PyResult<Vec<String>> {
-        self.iter_lines()
+    pub fn aiter_lines(&self) -> PyResult<PyObject> {
+        let text = self.text()?;
+        
+        Python::with_gil(|py| {
+            let lines: Vec<String> = text.lines().map(|line| line.to_string()).collect();
+            let py_lines = lines.to_object(py);
+            
+            let code = r#"
+async def aiter_lines_impl(lines):
+    for line in lines:
+        yield line
+
+aiter_lines_impl(lines)
+"#;
+            
+            let locals = pyo3::types::PyDict::new(py);
+            locals.set_item("lines", py_lines.clone())?;
+            py.run(&code, None, Some(locals))?;
+            Ok(locals.get_item("aiter_lines_impl")?.unwrap().call1((py_lines,))?.to_object(py))
+        })
     }
 
-    pub fn aiter_raw(&self, chunk_size: Option<usize>) -> PyResult<Vec<Py<PyBytes>>> {
-        self.iter_raw(chunk_size)
+    pub fn aiter_raw(&self, chunk_size: Option<usize>) -> PyResult<PyObject> {
+        // aiter_raw is same as aiter_bytes for raw data
+        self.aiter_bytes(chunk_size)
     }
 
     // ==================== Python 特殊方法 ====================

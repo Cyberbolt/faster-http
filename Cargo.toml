@@ -8,12 +8,21 @@ name = "_core"
 # "cdylib" is necessary to produce a shared library for Python to import from.
 crate-type = ["cdylib"]
 
+[[bin]]
+name = "test_localhost"
+path = "test_reqwest_localhost.rs"
+
+[[bin]]
+name = "test_ureq"
+path = "test_ureq_localhost.rs"
+
 [dependencies]
 # "extension-module" tells pyo3 we want to build an extension module (skips linking against libpython.so)
 # "abi3-py39" tells pyo3 (and maturin) to build using the stable ABI with minimum Python version 3.9
 pyo3 = { version = "0.20.0", features = ["extension-module", "abi3-py39"] }
 pyo3-asyncio = { version = "0.20.0", features = ["tokio-runtime"] }
 reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli", "deflate", "cookies", "multipart", "http2", "native-tls-alpn"] }
+ureq = { version = "2.9", features = ["json"] }
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -24,6 +33,7 @@ anyhow = "1.0"
 urlencoding = "2.1"
 pythonize = "0.20.0"
 http = "1.0"
+base64 = "0.22"
 
 # 修复 PyO3 + Tokio 在程序退出时的清理问题，特别是在 ARM64 架构上
 [profile.release]

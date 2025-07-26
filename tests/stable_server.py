@@ -130,6 +130,57 @@ class StableHTTPRequestHandler(BaseHTTPRequestHandler):
                         key, value = cookie.strip().split('=', 1)
                         cookies[key] = value
             self._safe_send_response(200, {'cookies': cookies})
+        elif path.startswith('/stream/'):
+            # Handle streaming endpoints like /stream/3
+            try:
+                count = int(path.split('/')[-1])
+                # Generate streaming response with multiple chunks + request info
+                request_data = self._get_request_info()
+                stream_data = {
+                    'stream_id': count,
+                    'chunks': [f'chunk_{i}' for i in range(count)],
+                    'total_chunks': count,
+                    'content': '\n'.join([f'Line {i} of streaming data' for i in range(1, count + 1)]),
+                    # Include request information like other endpoints
+                    'method': request_data['method'],
+                    'url': request_data['url'],
+                    'path': request_data['path'],
+                    'query': request_data['query'],
+                    'query_params': request_data['query_params'],
+                    'headers': request_data['headers'],
+                }
+                self._safe_send_response(200, stream_data)
+            except ValueError:
+                self._safe_send_response(400, {'error': 'Invalid stream count'})
+        elif path == '/basic-auth':
+            # Handle basic auth endpoint
+            auth_header = self.headers.get('Authorization', '')
+            if auth_header.startswith('Basic '):
+                import base64
+                try:
+                    decoded = base64.b64decode(auth_header[6:]).decode('utf-8')
+                    username, password = decoded.split(':', 1)
+                    self._safe_send_response(200, {
+                        'authenticated': True,
+                        'user': username,
+                        'message': 'Successfully authenticated'
+                    })
+                except Exception:
+                    self._safe_send_response(401, {'error': 'Invalid authentication'})
+            else:
+                self._safe_send_response(401, {'error': 'Authentication required'})
+        elif path.startswith('/delay/'):
+            # Handle delay endpoints like /delay/1
+            try:
+                delay_seconds = int(path.split('/')[-1])
+                import time
+                time.sleep(min(delay_seconds, 5))  # Max 5 seconds delay
+                self._safe_send_response(200, {
+                    'delayed_by': delay_seconds,
+                    'message': f'Response delayed by {delay_seconds} seconds'
+                })
+            except ValueError:
+                self._safe_send_response(400, {'error': 'Invalid delay value'})
         else:
             self._safe_send_response(404, {'error': 'Not Found', 'path': path})
     
@@ -162,6 +213,54 @@ class StableHTTPRequestHandler(BaseHTTPRequestHandler):
                     'echoed': request_data,
                     'received_data': request_data.get('json') or request_data.get('data')
                 })
+            elif path.startswith('/stream/'):
+                # Handle streaming endpoints with POST
+                try:
+                    count = int(path.split('/')[-1])
+                    stream_data = {
+                        'method': 'POST',
+                        'stream_id': count,
+                        'chunks': [f'chunk_{i}' for i in range(count)],
+                        'total_chunks': count,
+                        'content': '\n'.join([f'POST Line {i} of streaming data' for i in range(1, count + 1)]),
+                        'post_data': request_data
+                    }
+                    self._safe_send_response(200, stream_data)
+                except ValueError:
+                    self._safe_send_response(400, {'error': 'Invalid stream count'})
+            elif path == '/basic-auth':
+                # Handle basic auth endpoint with POST
+                auth_header = self.headers.get('Authorization', '')
+                if auth_header.startswith('Basic '):
+                    import base64
+                    try:
+                        decoded = base64.b64decode(auth_header[6:]).decode('utf-8')
+                        username, password = decoded.split(':', 1)
+                        self._safe_send_response(200, {
+                            'authenticated': True,
+                            'user': username,
+                            'method': 'POST',
+                            'message': 'Successfully authenticated with POST',
+                            'data': request_data
+                        })
+                    except Exception:
+                        self._safe_send_response(401, {'error': 'Invalid authentication'})
+                else:
+                    self._safe_send_response(401, {'error': 'Authentication required'})
+            elif path.startswith('/delay/'):
+                # Handle delay endpoints with POST
+                try:
+                    delay_seconds = int(path.split('/')[-1])
+                    import time
+                    time.sleep(min(delay_seconds, 5))
+                    self._safe_send_response(200, {
+                        'method': 'POST',
+                        'delayed_by': delay_seconds,
+                        'message': f'POST response delayed by {delay_seconds} seconds',
+                        'data': request_data
+                    })
+                except ValueError:
+                    self._safe_send_response(400, {'error': 'Invalid delay value'})
             else:
                 self._safe_send_response(404, {'error': 'Not Found', 'path': path})
         

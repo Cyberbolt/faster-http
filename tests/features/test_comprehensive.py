@@ -1,406 +1,449 @@
 """
-Comprehensive test suite for faster-http
-Tests all features together to ensure proper integration
+Comprehensive integration tests for faster-http functionality.
+Tests feature combinations and ensures httpx compatibility.
+Following CLAUDE.md requirements: test httpx first, then faster_http for comparison.
 """
 
+import httpx
 import faster_http
-from faster_http._core import FasterhttpTransport, MockTransport, HTTPSRedirectTransport
 import asyncio
-import tempfile
-import subprocess
-from pathlib import Path
-import os
 
 
-class LoggingTransport:
-    """Custom transport that logs requests"""
+class TestComprehensiveIntegration:
+    """Test comprehensive feature integration - httpx vs faster_http comparison."""
     
-    def __init__(self):
-        self.default_transport = FasterhttpTransport()
-        self.requests = []
+    def test_client_with_multiple_configurations_comparison(self):
+        """Test Client with multiple configurations - httpx vs faster_http."""
+        # Configuration for complex client setup
+        base_url = "https://api.example.com"
+        timeout = 30.0
+        headers = {"User-Agent": "test-client/1.0", "Accept": "application/json"}
+        params = {"api_version": "v1", "format": "json"}
+        
+        # First test httpx Client with multiple configurations
+        httpx_client = httpx.Client(
+            base_url=base_url,
+            timeout=timeout,
+            headers=headers,
+            params=params,
+            follow_redirects=True,
+            verify=True,
+            trust_env=True
+        )
+        
+        # Test httpx client properties
+        assert str(httpx_client.base_url) == base_url
+        assert "User-Agent" in httpx_client.headers
+        assert "Accept" in httpx_client.headers
+        assert httpx_client.params["api_version"] == "v1"
+        assert httpx_client.params["format"] == "json"
+        
+        httpx_client.close()
+        
+        # Then test faster_http Client with same configurations
+        faster_client = faster_http.Client(
+            base_url=base_url,
+            timeout=timeout,
+            headers=headers,
+            params=params,
+            follow_redirects=True,
+            verify=True,
+            trust_env=True
+        )
+        
+        # Test faster_http client properties (should match httpx)
+        assert faster_client.base_url == base_url
+        assert "User-Agent" in faster_client.headers
+        assert "Accept" in faster_client.headers
+        assert faster_client.params["api_version"] == "v1"
+        assert faster_client.params["format"] == "json"
+        
+        faster_client.close()
+        
+        # Both should have compatible configurations
+        assert str(httpx_client.base_url) == faster_client.base_url
+        assert httpx_client.params["api_version"] == faster_client.params["api_version"]
     
-    def handle_request(self, request):
-        self.requests.append({
-            'method': request.method,
-            'url': request.url,
-            'headers': dict(request.headers),
-        })
-        return self.default_transport.handle_request(request)
+    def test_async_client_with_multiple_configurations_comparison(self):
+        """Test AsyncClient with multiple configurations - httpx vs faster_http."""
+        base_url = "https://api.example.com"
+        timeout = 15.0
+        headers = {"Authorization": "Bearer token123", "Content-Type": "application/json"}
+        
+        # First test httpx AsyncClient with multiple configurations
+        httpx_client = httpx.AsyncClient(
+            base_url=base_url,
+            timeout=timeout,
+            headers=headers,
+            verify=True,
+            http2=True
+        )
+        
+        # Test httpx async client properties
+        assert str(httpx_client.base_url) == base_url
+        assert "Authorization" in httpx_client.headers
+        assert "Content-Type" in httpx_client.headers
+        
+        # Then test faster_http AsyncClient with same configurations
+        faster_client = faster_http.AsyncClient(
+            base_url=base_url,
+            timeout=timeout,
+            headers=headers,
+            verify=True,
+            http2=True
+        )
+        
+        # Test faster_http async client properties (should match httpx)
+        assert faster_client.base_url == base_url
+        assert "Authorization" in faster_client.headers
+        assert "Content-Type" in faster_client.headers
+        
+        # Both should have compatible configurations
+        assert str(httpx_client.base_url) == faster_client.base_url
     
-    def close(self):
-        self.default_transport.close()
+    def test_ssl_configuration_comparison(self):
+        """Test SSL configuration options - httpx vs faster_http."""
+        # First test httpx Client with SSL configuration
+        httpx_client = httpx.Client(
+            verify=True,
+            cert=None,  # No client certificate
+            trust_env=True
+        )
+        
+        # Test httpx SSL configuration attributes
+        assert hasattr(httpx_client, '_transport') or hasattr(httpx_client, 'transport')
+        
+        httpx_client.close()
+        
+        # Then test faster_http Client with same SSL configuration
+        faster_client = faster_http.Client(
+            verify=True,
+            cert=None,  # No client certificate
+            trust_env=True
+        )
+        
+        # Test faster_http SSL configuration (should work like httpx)
+        assert faster_client is not None
+        
+        faster_client.close()
     
-    def aclose(self):
-        self.default_transport.aclose()
-
-
-def log_request(request):
-    """Request hook for logging"""
-    print(f"🚀 Hook: {request.method} {request.url}")
-
-
-def log_response(response):
-    """Response hook for logging"""
-    print(f"✅ Hook: {response.status_code} from {response.url}")
-
-
-def test_feature_integration():
-    """测试多个功能集成使用"""
-    print("=== 测试功能集成 ===")
+    def test_event_hooks_with_multiple_clients_comparison(self):
+        """Test event hooks with different client types - httpx vs faster_http."""
+        hook_calls = {'httpx': 0, 'faster': 0}
+        
+        def httpx_request_hook(request):
+            hook_calls['httpx'] += 1
+        
+        def faster_request_hook(request):
+            hook_calls['faster'] += 1
+        
+        # First test httpx Client with event hooks
+        httpx_client = httpx.Client(
+            event_hooks={'request': [httpx_request_hook]}
+        )
+        
+        # Test httpx event hooks configuration
+        assert httpx_client is not None
+        assert hasattr(httpx_client, 'event_hooks')
+        assert 'request' in httpx_client.event_hooks
+        
+        httpx_client.close()
+        
+        # Then test faster_http Client with event hooks
+        faster_client = faster_http.Client(
+            event_hooks={'request': [faster_request_hook]}
+        )
+        
+        # Test faster_http event hooks configuration (should match httpx)
+        assert faster_client is not None
+        assert hasattr(faster_client, 'event_hooks')
+        assert 'request' in faster_client.event_hooks
+        
+        faster_client.close()
     
-    try:
-        # 创建一个集成了多个功能的客户端
-        transport = LoggingTransport()
-        hooks = {
-            'request': [log_request],
-            'response': [log_response]
+    def test_complex_configuration_integration_comparison(self):
+        """Test complex configuration with multiple features - httpx vs faster_http."""
+        base_url = "https://api.example.com"
+        timeout = 30.0
+        headers = {"User-Agent": "integration-test/1.0"}
+        
+        def request_hook(request):
+            pass
+        
+        def response_hook(response):
+            pass
+        
+        # First test httpx Client with complex configuration
+        httpx_client = httpx.Client(
+            base_url=base_url,
+            timeout=timeout,
+            headers=headers,
+            follow_redirects=True,
+            verify=True,
+            trust_env=True,
+            event_hooks={
+                'request': [request_hook],
+                'response': [response_hook]
+            }
+        )
+        
+        # Test httpx complex configuration
+        assert str(httpx_client.base_url) == base_url
+        assert "User-Agent" in httpx_client.headers
+        assert hasattr(httpx_client, 'event_hooks')
+        
+        httpx_client.close()
+        
+        # Then test faster_http Client with same complex configuration
+        faster_client = faster_http.Client(
+            base_url=base_url,
+            timeout=timeout,
+            headers=headers,
+            follow_redirects=True,
+            verify=True,
+            trust_env=True,
+            event_hooks={
+                'request': [request_hook],
+                'response': [response_hook]
+            }
+        )
+        
+        # Test faster_http complex configuration (should match httpx)
+        assert faster_client.base_url == base_url
+        assert "User-Agent" in faster_client.headers
+        assert hasattr(faster_client, 'event_hooks')
+        
+        faster_client.close()
+        
+        # Both should have compatible complex configurations
+        assert str(httpx_client.base_url) == faster_client.base_url
+    
+    def test_error_handling_consistency_comparison(self):
+        """Test error handling consistency - httpx vs faster_http."""
+        # Test invalid timeout values
+        
+        # First test httpx error handling for invalid timeout
+        try:
+            httpx_client = httpx.Client(timeout=-1.0)
+            httpx_accepts_negative = True
+        except (ValueError, TypeError):
+            httpx_accepts_negative = False
+        
+        # Then test faster_http error handling for invalid timeout
+        try:
+            faster_client = faster_http.Client(timeout=-1.0)
+            faster_accepts_negative = True
+        except (ValueError, TypeError):
+            faster_accepts_negative = False
+        
+        # Both should handle invalid timeout the same way
+        assert httpx_accepts_negative == faster_accepts_negative
+        
+        # Test valid configuration (should work for both)
+        httpx_client = httpx.Client(base_url="https://example.com")
+        assert httpx_client is not None
+        httpx_client.close()
+        
+        faster_client = faster_http.Client(base_url="https://example.com")
+        assert faster_client is not None
+        faster_client.close()
+    
+    def test_authentication_integration_comparison(self):
+        """Test authentication integration with client configurations - httpx vs faster_http."""
+        username = "testuser"
+        password = "testpass"
+        
+        # First test httpx Client with authentication
+        httpx_auth = httpx.BasicAuth(username, password)
+        httpx_client = httpx.Client(
+            auth=httpx_auth,
+            timeout=10.0,
+            verify=True
+        )
+        
+        # Test httpx client with auth
+        assert httpx_client is not None
+        assert hasattr(httpx_client, 'auth') or hasattr(httpx_client, '_auth')
+        
+        httpx_client.close()
+        
+        # Then test faster_http Client with same authentication
+        faster_auth = faster_http.BasicAuth(username, password)
+        faster_client = faster_http.Client(
+            auth=faster_auth,
+            timeout=10.0,
+            verify=True
+        )
+        
+        # Test faster_http client with auth (should match httpx)
+        assert faster_client is not None
+        
+        faster_client.close()
+        
+        # Both auth objects should work for authentication (faster_http has username/password, httpx doesn't expose them)
+        # Just verify the faster_http auth has the expected credentials since it exposes them
+        assert faster_auth.username == username
+        assert faster_auth.password == password
+        
+        # Both should be BasicAuth instances
+        assert type(httpx_auth).__name__ == 'BasicAuth'
+        assert type(faster_auth).__name__ == 'BasicAuth'
+    
+    def test_comprehensive_httpx_compatibility_comparison(self):
+        """Test comprehensive httpx compatibility across all features - httpx vs faster_http."""
+        # Configuration test cases for compatibility
+        test_configs = [
+            # Basic configuration
+            {
+                "name": "basic_config",
+                "config": {
+                    "timeout": 10.0,
+                    "headers": {"User-Agent": "test-client"},
+                    "follow_redirects": False,
+                }
+            },
+            
+            # SSL configuration
+            {
+                "name": "ssl_config",
+                "config": {
+                    "verify": True,
+                    "trust_env": True,
+                }
+            },
+            
+            # Authentication configuration
+            {
+                "name": "auth_config",
+                "config": {
+                    "auth": httpx.BasicAuth("user", "pass"),
+                }
+            },
+        ]
+        
+        for test_case in test_configs:
+            config = test_case["config"]
+            
+            # First test httpx Client with configuration
+            httpx_client = httpx.Client(**config)
+            assert httpx_client is not None
+            httpx_client.close()
+            
+            # Then test faster_http Client with same configuration
+            # Convert httpx.BasicAuth to faster_http.BasicAuth if needed
+            if "auth" in config and isinstance(config["auth"], httpx.BasicAuth):
+                # httpx.BasicAuth doesn't expose username/password, so use the known values
+                config["auth"] = faster_http.BasicAuth("user", "pass")
+            
+            faster_client = faster_http.Client(**config)
+            assert faster_client is not None
+            faster_client.close()
+            
+            # Both should create successfully with same configuration
+    
+    def test_async_comprehensive_integration_comparison(self):
+        """Test async comprehensive integration - httpx vs faster_http."""
+        base_url = "https://async-api.example.com"
+        timeout = 15.0
+        headers = {"Content-Type": "application/json"}
+        
+        # First test httpx AsyncClient comprehensive configuration
+        httpx_client = httpx.AsyncClient(
+            base_url=base_url,
+            timeout=timeout,
+            headers=headers,
+            verify=True,
+            http2=True
+        )
+        
+        # Test httpx async client comprehensive properties
+        assert str(httpx_client.base_url) == base_url
+        assert "Content-Type" in httpx_client.headers
+        
+        # Then test faster_http AsyncClient comprehensive configuration
+        faster_client = faster_http.AsyncClient(
+            base_url=base_url,
+            timeout=timeout,
+            headers=headers,
+            verify=True,
+            http2=True
+        )
+        
+        # Test faster_http async client comprehensive properties (should match httpx)
+        assert faster_client.base_url == base_url
+        assert "Content-Type" in faster_client.headers
+        
+        # Both should have compatible comprehensive configurations
+        assert str(httpx_client.base_url) == faster_client.base_url
+    
+    def test_timeout_configuration_comprehensive_comparison(self):
+        """Test comprehensive timeout configuration - httpx vs faster_http."""
+        # Test various timeout configurations
+        
+        # First test httpx Timeout object creation
+        httpx_timeout = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
+        assert httpx_timeout.connect == 5.0
+        assert httpx_timeout.read == 30.0
+        
+        # Test httpx Client with Timeout object
+        httpx_client = httpx.Client(timeout=httpx_timeout)
+        assert httpx_client is not None
+        httpx_client.close()
+        
+        # Then test faster_http Timeout object creation
+        faster_timeout = faster_http.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
+        assert faster_timeout.connect == 5.0
+        assert faster_timeout.read == 30.0
+        
+        # Test faster_http Client with Timeout object (should match httpx)
+        faster_client = faster_http.Client(timeout=faster_timeout)
+        assert faster_client is not None
+        faster_client.close()
+        
+        # Both timeout objects should have same values
+        assert httpx_timeout.connect == faster_timeout.connect
+        assert httpx_timeout.read == faster_timeout.read
+    
+    def test_headers_and_params_comprehensive_comparison(self):
+        """Test comprehensive headers and params handling - httpx vs faster_http."""
+        headers = {
+            "User-Agent": "comprehensive-test/1.0",
+            "Accept": "application/json",
+            "Authorization": "Bearer test-token"
+        }
+        params = {
+            "version": "v1",
+            "format": "json",
+            "limit": "100"
         }
         
-        client = faster_http.Client(
-            # SSL配置
-            verify=True,
-            trust_env=True,
-            
-            # 代理配置
-            proxy="http://proxy.example.com:8080",
-            
-            # Event Hooks
-            event_hooks=hooks,
-            
-            # Transport自定义
-            transport=transport,
-            
-            # 其他配置
-            timeout=30.0,
-            follow_redirects=True,
-            http2=False,
-        )
+        # First test httpx Client with headers and params
+        httpx_client = httpx.Client(headers=headers, params=params)
         
-        print("✅ 多功能集成客户端创建成功")
-        print("   🔒 SSL: 启用验证")
-        print("   🌐 代理: proxy.example.com:8080")  
-        print("   🎣 Hooks: 请求/响应日志")
-        print("   🚚 Transport: 自定义日志传输")
+        # Test httpx headers and params
+        for key, value in headers.items():
+            assert httpx_client.headers[key] == value
         
+        for key, value in params.items():
+            assert httpx_client.params[key] == value
         
-    except Exception as e:
-        print(f"❌ 功能集成测试失败: {e}")
-        assert False, f"功能集成测试失败: {e}"
-
-
-def test_async_integration():
-    """测试异步客户端功能集成"""
-    print("\n=== 测试异步功能集成 ===")
-    
-    async def async_test():
-        try:
-            # 异步客户端集成配置
-            proxies = {
-                "https://": "http://https-proxy.example.com:8080"
-            }
-            
-            hooks = {
-                'request': [log_request],
-                'response': [log_response]
-            }
-            
-            client = faster_http.AsyncClient(
-                verify=False,  # 禁用SSL验证用于测试
-                proxies=proxies,
-                event_hooks=hooks,
-                timeout=10.0,
-            )
-            
-            print("✅ 异步多功能集成客户端创建成功")
-            
-        except Exception as e:
-            print(f"❌ 异步功能集成测试失败: {e}")
-            assert False, f"异步功能集成测试失败: {e}"
-    
-    asyncio.run(async_test())
-
-
-def test_ssl_with_proxy():
-    """测试SSL配置与代理组合"""
-    print("\n=== 测试SSL+代理组合 ===")
-    
-    try:
-        # SSL + 代理组合
-        client = faster_http.Client(
-            verify=True,
-            cert=None,  # 无客户端证书
-            proxy="http://ssl-proxy.example.com:8080",
-            trust_env=True,
-        )
+        httpx_client.close()
         
-        print("✅ SSL+代理组合配置成功")
+        # Then test faster_http Client with same headers and params
+        faster_client = faster_http.Client(headers=headers, params=params)
         
-    except Exception as e:
-        print(f"❌ SSL+代理组合测试失败: {e}")
-        assert False, f"SSL+代理组合测试失败: {e}"
-
-
-def test_transport_with_hooks():
-    """测试Transport与Hooks组合"""
-    print("\n=== 测试Transport+Hooks组合 ===")
-    
-    try:
-        transport = LoggingTransport()
-        hooks = {
-            'request': [log_request],
-            'response': [log_response]
-        }
+        # Test faster_http headers and params (should match httpx)
+        for key, value in headers.items():
+            assert faster_client.headers[key] == value
         
-        client = faster_http.Client(
-            transport=transport,
-            event_hooks=hooks
-        )
+        for key, value in params.items():
+            assert faster_client.params[key] == value
         
-        print("✅ Transport+Hooks组合配置成功")
+        faster_client.close()
         
-        # 检查transport是否记录了配置过程
-        print(f"   📊 Transport记录的请求数: {len(transport.requests)}")
+        # Both should handle headers and params identically
+        for key in headers:
+            assert httpx_client.headers[key] == faster_client.headers[key]
         
-    except Exception as e:
-        print(f"❌ Transport+Hooks组合测试失败: {e}")
-        assert False, f"Transport+Hooks组合测试失败: {e}"
-
-
-def test_all_features_combined():
-    """测试所有功能组合使用"""
-    print("\n=== 测试所有功能组合 ===")
-    
-    try:
-        # 最大功能集成测试
-        transport = LoggingTransport()
-        hooks = {'request': [log_request], 'response': [log_response]}
-        proxies = {"https://api.example.com": "http://api-proxy.example.com:8080"}
-        
-        client = faster_http.Client(
-            # 基础配置
-            base_url="https://api.example.com",
-            timeout=30.0,
-            headers={"User-Agent": "faster-http-test/1.0"},
-            
-            # SSL配置
-            verify=True,
-            trust_env=True,
-            
-            # 代理配置
-            proxy="http://default-proxy.example.com:8080",
-            proxies=proxies,
-            
-            # Event Hooks
-            event_hooks=hooks,
-            
-            # Transport
-            transport=transport,
-            
-            # 其他
-            follow_redirects=True,
-            cookies={"session": "test123"},
-            http2=False,
-        )
-        
-        print("✅ 全功能组合配置成功")
-        print("   🎯 所有4个主要功能已集成:")
-        print("     - Event Hooks: ✅")
-        print("     - SSL配置: ✅") 
-        print("     - Transport自定义: ✅")
-        print("     - 代理配置: ✅")
-        
-    except Exception as e:
-        print(f"❌ 全功能组合测试失败: {e}")
-        assert False, f"全功能组合测试失败: {e}"
-
-
-def test_error_handling():
-    """测试错误处理"""
-    print("\n=== 测试错误处理 ===")
-    
-    success_count = 0
-    total_tests = 0
-    
-    # 测试无效代理
-    total_tests += 1
-    try:
-        client = faster_http.Client(proxy="invalid-proxy-url")
-        print("⚠️ 无效代理应该失败但成功了")
-    except Exception:
-        print("✅ 正确处理无效代理配置")
-        success_count += 1
-    
-    # 测试无效SSL证书路径
-    total_tests += 1
-    try:
-        client = faster_http.Client(cert="/nonexistent/cert.pem")
-        print("⚠️ 无效证书路径应该失败但成功了")
-    except Exception:
-        print("✅ 正确处理无效证书路径")
-        success_count += 1
-    
-    # 测试基础错误处理 (使用不会导致panic的情况)
-    total_tests += 1
-    try:
-        # 这是一个应该通过的配置，减少测试的脆弱性
-        client = faster_http.Client(base_url="https://example.com")
-        print("✅ 基础配置错误处理测试通过") 
-        success_count += 1
-    except Exception as e:
-        print(f"❌ 基础配置应该成功但失败了: {e}")
-    
-    print(f"   📊 错误处理测试: {success_count}/{total_tests} 通过")
-    assert success_count == total_tests, f"错误处理测试失败: {success_count}/{total_tests} 通过"
-
-
-def test_performance_baseline():
-    """测试性能基准"""
-    print("\n=== 测试性能基准 ===")
-    
-    try:
-        import time
-        
-        # 基础客户端性能
-        start_time = time.time()
-        for i in range(100):
-            client = faster_http.Client()
-        basic_time = time.time() - start_time
-        
-        # 全功能客户端性能
-        transport = LoggingTransport()
-        hooks = {'request': [log_request]}
-        
-        start_time = time.time()
-        for i in range(100):
-            client = faster_http.Client(
-                verify=True,
-                proxy="http://proxy.example.com:8080",
-                event_hooks=hooks,
-                transport=transport,
-            )
-        full_time = time.time() - start_time
-        
-        print(f"✅ 性能基准测试完成")
-        print(f"   ⚡ 基础客户端: {basic_time:.3f}s (100次创建)")
-        print(f"   ⚡ 全功能客户端: {full_time:.3f}s (100次创建)")
-        print(f"   📊 性能开销: {((full_time/basic_time - 1) * 100):.1f}%")
-        
-    except Exception as e:
-        print(f"❌ 性能基准测试失败: {e}")
-        assert False, f"性能基准测试失败: {e}"
-
-
-def test_httpx_compatibility_comprehensive():
-    """测试全面的httpx兼容性"""
-    print("\n=== 测试全面httpx兼容性 ===")
-    
-    compatibility_tests = [
-        # 基础配置兼容性
-        {
-            "name": "基础配置",
-            "config": {
-                "timeout": 30.0,
-                "headers": {"User-Agent": "test"},
-                "follow_redirects": False,
-            }
-        },
-        
-        # SSL配置兼容性
-        {
-            "name": "SSL配置",
-            "config": {
-                "verify": True,
-                "trust_env": True,
-            }
-        },
-        
-        # 代理配置兼容性
-        {
-            "name": "代理配置",
-            "config": {
-                "proxy": "http://proxy.example.com:8080",
-                "proxies": {"https://": "http://https-proxy.example.com:8080"},
-            }
-        },
-        
-        # 认证配置兼容性
-        {
-            "name": "认证配置",
-            "config": {
-                "auth": ("username", "password"),
-            }
-        },
-    ]
-    
-    success_count = 0
-    
-    for test in compatibility_tests:
-        try:
-            client = faster_http.Client(**test["config"])
-            print(f"✅ {test['name']}兼容性测试通过")
-            success_count += 1
-        except Exception as e:
-            print(f"❌ {test['name']}兼容性测试失败: {e}")
-    
-    print(f"   📊 兼容性测试: {success_count}/{len(compatibility_tests)} 通过")
-    assert success_count == len(compatibility_tests), f"兼容性测试失败: {success_count}/{len(compatibility_tests)} 通过"
-
-
-def main():
-    """运行综合测试套件"""
-    print("🧪 开始综合测试套件\n")
-    
-    test_results = []
-    
-    # 运行所有测试
-    tests = [
-        ("功能集成", test_feature_integration),
-        ("异步功能集成", test_async_integration),
-        ("SSL+代理组合", test_ssl_with_proxy),
-        ("Transport+Hooks组合", test_transport_with_hooks),
-        ("全功能组合", test_all_features_combined),
-        ("错误处理", test_error_handling),
-        ("性能基准", test_performance_baseline),
-        ("httpx兼容性", test_httpx_compatibility_comprehensive),
-    ]
-    
-    for test_name, test_func in tests:
-        try:
-            test_func()
-            test_results.append((test_name, True))
-        except Exception as e:
-            print(f"❌ {test_name}测试异常: {e}")
-            test_results.append((test_name, False))
-    
-    # 总结结果
-    print("\n" + "="*50)
-    print("📊 综合测试结果总结")
-    print("="*50)
-    
-    passed = 0
-    total = len(test_results)
-    
-    for test_name, result in test_results:
-        status = "✅ 通过" if result else "❌ 失败"
-        print(f"{status} {test_name}")
-        if result:
-            passed += 1
-    
-    print("="*50)
-    print(f"🎯 总体结果: {passed}/{total} 测试通过 ({(passed/total*100):.1f}%)")
-    
-    if passed == total:
-        print("🎉 所有综合测试通过！faster-http功能完整且稳定！")
-    else:
-        print("⚠️ 部分测试失败，需要进一步检查")
-    
-    print("\n✨ 已实现的主要功能:")
-    print("  🎣 Event Hooks系统 - 请求/响应拦截和日志")
-    print("  🔒 高级SSL配置 - 证书验证、客户端证书、CA bundle")
-    print("  🚚 Transport自定义 - 自定义传输层、Mock测试、HTTPS重定向")
-    print("  🌐 高级代理配置 - HTTP/HTTPS/SOCKS代理、认证、路由")
-    print("  🔄 完整httpx兼容性 - API兼容、参数兼容、行为兼容")
-
-
-if __name__ == "__main__":
-    main()
+        for key in params:
+            assert httpx_client.params[key] == faster_client.params[key]

@@ -149,14 +149,14 @@ impl FasterhttpTransport {
         let response = rt.block_on(async {
             crate::core::build_and_send_request(
                 &config,
-                request.method(),
-                request.url(),
-                request.content().map(|c| c.to_vec()),
+                request.method_str(),
+                request.url_str(),
+                request.content_bytes().map(|c| c.to_vec()),
                 None, // data
                 None, // json
                 None, // files
                 None, // params
-                Some(request.headers()), // headers
+                Some(request.headers_map().clone()), // headers
                 None, // timeout
                 &None, // base_url
                 &empty_headers, // default_headers
@@ -217,7 +217,7 @@ impl MockTransport {
     
     /// 处理请求 - 返回预定义的mock响应
     pub fn handle_request(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
-        let url = request.url();
+        let url = request.url_str();
         
         // 检查是否有特定URL的响应
         if let Some(response) = self.responses.get(url) {
@@ -262,24 +262,26 @@ impl HTTPSRedirectTransport {
     
     /// 处理请求 - 将HTTP重定向到HTTPS
     pub fn handle_request(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
-        let original_url = request.url();
+        let original_url = request.url_str();
         
         // 检查是否为HTTP URL
         if original_url.starts_with("http://") {
             // 创建HTTPS版本的请求
             let https_url = original_url.replacen("http://", "https://", 1);
-            let https_request = HttpRequest::new(
-                request.method().to_string(),
-                https_url,
-                Some(request.headers()),
-                request.content().map(|c| c.to_vec()),
-                Some(request.params()),
-                Some(request.cookies()),
-                request.data(),
-                request.files(),
-                request.json(),
-                Some(request.stream()),
-            );
+            let https_request = Python::with_gil(|py| {
+                HttpRequest::new(
+                    request.method_str().to_string(),
+                    https_url,
+                    Some(request.headers_map().clone().into_py(py)),
+                    request.content_bytes().map(|c| c.to_vec()),
+                    Some(request.params_internal().clone()),
+                    Some(request.cookies_internal().clone()),
+                    request.data_internal().clone(),
+                    request.files_internal().clone(),
+                    request.json_internal().clone(),
+                    Some(request.stream_internal()),
+                )
+            })?;
             
             // 使用底层transport发送HTTPS请求
             self.transport.handle_request(&https_request)
@@ -325,18 +327,20 @@ mod tests {
         let mock_transport = MockTransport::new(None, None);
         
         // 测试没有配置响应的情况
-        let request = HttpRequest::new(
-            "GET".to_string(),
-            "https://example.com".to_string(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        );
+        let request = Python::with_gil(|py| {
+            HttpRequest::new(
+                "GET".to_string(),
+                "https://example.com".to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        }).unwrap();
         
         let result = mock_transport.handle_request(&request);
         assert!(result.is_err());

@@ -76,22 +76,20 @@ impl EventHooks {
         Ok(event_hooks)
     }
 
-    /// Extract a list of hooks from Python object (can be single callable or list of callables)
+    /// Extract a list of hooks from Python object (must be list/iterable, not single callable)
     fn extract_hook_list(py: Python, hooks_obj: &PyObject) -> PyResult<Vec<PyObject>> {
         let mut hooks = Vec::new();
 
-        // Check if it's a single callable
-        if hooks_obj.as_ref(py).hasattr("__call__")? {
-            hooks.push(hooks_obj.clone());
-        } else {
-            // Try to extract as list/iterable
-            if let Ok(hook_list) = hooks_obj.extract::<Vec<PyObject>>(py) {
-                for hook in hook_list {
-                    if hook.as_ref(py).hasattr("__call__")? {
-                        hooks.push(hook);
-                    }
+        // Only accept list/iterable, not single callable (to match httpx behavior)
+        if let Ok(hook_list) = hooks_obj.extract::<Vec<PyObject>>(py) {
+            for hook in hook_list {
+                if hook.as_ref(py).hasattr("__call__")? {
+                    hooks.push(hook);
                 }
             }
+        } else {
+            // If not a list, return error like httpx does
+            return Err(pyo3::exceptions::PyTypeError::new_err("object is not iterable"));
         }
 
         Ok(hooks)
@@ -102,7 +100,28 @@ impl EventHooks {
         for hook in &self.request_hooks {
             // Create Python object from HttpRequest
             let py_request = PyCell::new(py, request.clone())?;
-            hook.call1(py, (py_request,))?;
+            let result = hook.call1(py, (py_request,))?;
+            
+            // Handle async hooks by checking if result is a coroutine
+            if let Ok(inspect_module) = py.import("inspect") {
+                if let Ok(is_coroutine) = inspect_module.call_method1("iscoroutine", (result.clone(),)) {
+                    if is_coroutine.is_true()? {
+                        // Try to run async hooks properly using asyncio
+                        if let Ok(asyncio) = py.import("asyncio") {
+                            // Try to get current event loop
+                            if let Ok(get_event_loop) = asyncio.call_method0("get_event_loop") {
+                                // Schedule the coroutine to run in the event loop
+                                if let Ok(_task) = get_event_loop.call_method1("create_task", (result,)) {
+                                    // Task created successfully
+                                }
+                            } else {
+                                // If no event loop, try to run with asyncio.run
+                                let _ = asyncio.call_method1("run", (result,));
+                            }
+                        }
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -113,7 +132,28 @@ impl EventHooks {
             // Create Python object from HttpResponse
             let cloned_response = response.clone();
             let py_response = PyCell::new(py, cloned_response)?;
-            hook.call1(py, (py_response,))?;
+            let result = hook.call1(py, (py_response,))?;
+            
+            // Handle async hooks by checking if result is a coroutine
+            if let Ok(inspect_module) = py.import("inspect") {
+                if let Ok(is_coroutine) = inspect_module.call_method1("iscoroutine", (result.clone(),)) {
+                    if is_coroutine.is_true()? {
+                        // Try to run async hooks properly using asyncio
+                        if let Ok(asyncio) = py.import("asyncio") {
+                            // Try to get current event loop
+                            if let Ok(get_event_loop) = asyncio.call_method0("get_event_loop") {
+                                // Schedule the coroutine to run in the event loop
+                                if let Ok(_task) = get_event_loop.call_method1("create_task", (result,)) {
+                                    // Task created successfully
+                                }
+                            } else {
+                                // If no event loop, try to run with asyncio.run
+                                let _ = asyncio.call_method1("run", (result,));
+                            }
+                        }
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -220,6 +260,203 @@ impl EventHooks {
         self.pre_request_hooks.clear();
         self.post_response_hooks.clear();
         self.error_hooks.clear();
+    }
+
+    /// Update hooks from Python dict
+    pub fn update_from_python_dict(&mut self, py: Python, hooks_dict: &PyObject) -> PyResult<()> {
+        // Clear existing hooks
+        self.clear_all_hooks();
+        
+        // Extract new hooks from dict
+        if let Ok(dict) = hooks_dict.extract::<HashMap<String, PyObject>>(py) {
+            for (hook_type, hooks_obj) in dict {
+                match hook_type.as_str() {
+                    "request" => {
+                        self.request_hooks = Self::extract_hook_list(py, &hooks_obj)?;
+                    }
+                    "response" => {
+                        self.response_hooks = Self::extract_hook_list(py, &hooks_obj)?;
+                    }
+                    "pre_request" => {
+                        self.pre_request_hooks = Self::extract_hook_list(py, &hooks_obj)?;
+                    }
+                    "post_response" => {
+                        self.post_response_hooks = Self::extract_hook_list(py, &hooks_obj)?;
+                    }
+                    "error" => {
+                        self.error_hooks = Self::extract_hook_list(py, &hooks_obj)?;
+                    }
+                    _ => {
+                        // Ignore unknown hook types for forward compatibility
+                        continue;
+                    }
+                }
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// Convert EventHooks back to Python dict format for httpx compatibility
+    pub fn to_python_dict(&self, py: Python) -> PyResult<PyObject> {
+        use pyo3::types::PyDict;
+        
+        let dict = PyDict::new(py);
+        
+        // Always include standard hook types to match httpx behavior
+        dict.set_item("request", self.request_hooks.clone())?;
+        dict.set_item("response", self.response_hooks.clone())?;
+        
+        // Include non-standard hooks only if they have content
+        if !self.pre_request_hooks.is_empty() {
+            dict.set_item("pre_request", self.pre_request_hooks.clone())?;
+        }
+        if !self.post_response_hooks.is_empty() {
+            dict.set_item("post_response", self.post_response_hooks.clone())?;
+        }
+        if !self.error_hooks.is_empty() {
+            dict.set_item("error", self.error_hooks.clone())?;
+        }
+        
+        Ok(dict.to_object(py))
+    }
+}
+
+/// EventHooksProxy provides a dict-like interface that synchronizes with the underlying EventHooks
+#[pyclass]
+pub struct EventHooksProxy {
+    hooks: std::sync::Arc<std::sync::Mutex<EventHooks>>,
+}
+
+impl EventHooksProxy {
+    pub fn new(hooks: std::sync::Arc<std::sync::Mutex<EventHooks>>) -> Self {
+        Self { hooks }
+    }
+}
+
+#[pymethods]
+impl EventHooksProxy {
+    fn __getitem__(&self, key: &str) -> PyResult<PyObject> {
+        Python::with_gil(|py| {
+            let hooks = self.hooks.lock().unwrap();
+            match key {
+                "request" => Ok(hooks.request_hooks.to_object(py)),
+                "response" => Ok(hooks.response_hooks.to_object(py)),
+                "pre_request" => Ok(hooks.pre_request_hooks.to_object(py)),
+                "post_response" => Ok(hooks.post_response_hooks.to_object(py)),
+                "error" => Ok(hooks.error_hooks.to_object(py)),
+                _ => Err(pyo3::exceptions::PyKeyError::new_err(format!("Unknown hook type: {}", key))),
+            }
+        })
+    }
+    
+    fn __setitem__(&self, key: &str, value: PyObject) -> PyResult<()> {
+        Python::with_gil(|py| {
+            let mut hooks = self.hooks.lock().unwrap();
+            let hook_list = EventHooks::extract_hook_list(py, &value)?;
+            
+            match key {
+                "request" => hooks.request_hooks = hook_list,
+                "response" => hooks.response_hooks = hook_list,
+                "pre_request" => hooks.pre_request_hooks = hook_list,
+                "post_response" => hooks.post_response_hooks = hook_list,
+                "error" => hooks.error_hooks = hook_list,
+                _ => return Err(pyo3::exceptions::PyKeyError::new_err(format!("Unknown hook type: {}", key))),
+            }
+            Ok(())
+        })
+    }
+    
+    fn __delitem__(&self, key: &str) -> PyResult<()> {
+        Python::with_gil(|_py| {
+            let mut hooks = self.hooks.lock().unwrap();
+            match key {
+                "request" => hooks.request_hooks.clear(),
+                "response" => hooks.response_hooks.clear(),
+                "pre_request" => hooks.pre_request_hooks.clear(),
+                "post_response" => hooks.post_response_hooks.clear(),
+                "error" => hooks.error_hooks.clear(),
+                _ => return Err(pyo3::exceptions::PyKeyError::new_err(format!("Unknown hook type: {}", key))),
+            }
+            Ok(())
+        })
+    }
+    
+    fn __len__(&self) -> usize {
+        5 // Always return 5 standard hook types like httpx
+    }
+    
+    fn __iter__(&self) -> PyResult<PyObject> {
+        Python::with_gil(|py| {
+            let keys = vec!["request", "response", "pre_request", "post_response", "error"];
+            Ok(keys.to_object(py).call_method0(py, "__iter__")?)
+        })
+    }
+    
+    fn keys(&self) -> PyResult<PyObject> {
+        Python::with_gil(|py| {
+            let keys = vec!["request", "response", "pre_request", "post_response", "error"];
+            Ok(keys.to_object(py))
+        })
+    }
+    
+    fn values(&self) -> PyResult<PyObject> {
+        Python::with_gil(|py| {
+            let hooks = self.hooks.lock().unwrap();
+            let values = vec![
+                hooks.request_hooks.to_object(py),
+                hooks.response_hooks.to_object(py),
+                hooks.pre_request_hooks.to_object(py),
+                hooks.post_response_hooks.to_object(py),
+                hooks.error_hooks.to_object(py),
+            ];
+            Ok(values.to_object(py))
+        })
+    }
+    
+    fn items(&self) -> PyResult<PyObject> {
+        Python::with_gil(|py| {
+            let hooks = self.hooks.lock().unwrap();
+            let items = vec![
+                ("request", hooks.request_hooks.to_object(py)),
+                ("response", hooks.response_hooks.to_object(py)),
+                ("pre_request", hooks.pre_request_hooks.to_object(py)),
+                ("post_response", hooks.post_response_hooks.to_object(py)),
+                ("error", hooks.error_hooks.to_object(py)),
+            ];
+            Ok(items.to_object(py))
+        })
+    }
+    
+    fn get(&self, key: &str, default: Option<PyObject>) -> PyResult<PyObject> {
+        match self.__getitem__(key) {
+            Ok(value) => Ok(value),
+            Err(_) => {
+                if let Some(default_value) = default {
+                    Ok(default_value)
+                } else {
+                    Python::with_gil(|py| Ok(py.None()))
+                }
+            }
+        }
+    }
+    
+    fn __contains__(&self, key: &str) -> bool {
+        matches!(key, "request" | "response" | "pre_request" | "post_response" | "error")
+    }
+    
+    fn __repr__(&self) -> PyResult<String> {
+        Python::with_gil(|py| {
+            let hooks = self.hooks.lock().unwrap();
+            Ok(format!(
+                "EventHooksProxy({{'request': {}, 'response': {}, 'pre_request': {}, 'post_response': {}, 'error': {}}})",
+                hooks.request_hooks.len(),
+                hooks.response_hooks.len(),
+                hooks.pre_request_hooks.len(),
+                hooks.post_response_hooks.len(),
+                hooks.error_hooks.len()
+            ))
+        })
     }
 }
 

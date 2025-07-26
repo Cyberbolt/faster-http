@@ -62,6 +62,13 @@ class Proxy:
         return self._auth
     
     @property
+    def raw_auth(self) -> Optional[Tuple[bytes, bytes]]:
+        """Authentication credentials for the proxy as bytes"""
+        if self._auth is None:
+            return None
+        return (self._auth[0].encode('utf-8'), self._auth[1].encode('utf-8'))
+    
+    @property
     def headers(self) -> "Headers":
         """Headers to send with proxy requests"""
         return self._headers
@@ -78,114 +85,4 @@ class Proxy:
     def __str__(self) -> str:
         return str(self._url)
     
-    def __eq__(self, other) -> bool:
-        if not isinstance(other, Proxy):
-            return False
-        return (
-            str(self._url) == str(other._url) and
-            self._auth == other._auth and
-            self._ssl_context == other._ssl_context and
-            list(self._headers.items()) == list(other._headers.items())
-        )
     
-    def __hash__(self) -> int:
-        return hash((
-            str(self._url),
-            self._auth,
-            id(self._ssl_context) if self._ssl_context else None,
-            tuple(sorted(self._headers.items()))
-        ))
-    
-    def copy_with(
-        self,
-        *,
-        url: Optional[Union[str, "URL"]] = None,
-        ssl_context: Optional[ssl.SSLContext] = None,
-        auth: Optional[Tuple[str, str]] = None,
-        headers: Optional[Dict[str, str]] = None
-    ) -> "Proxy":
-        """
-        Create a copy of this proxy with modified parameters.
-        
-        Args:
-            url: New proxy URL (optional)
-            ssl_context: New SSL context (optional)
-            auth: New authentication credentials (optional)
-            headers: New headers (optional)
-            
-        Returns:
-            A new Proxy instance with the specified modifications
-        """
-        return Proxy(
-            url=url if url is not None else self._url,
-            ssl_context=ssl_context if ssl_context is not None else self._ssl_context,
-            auth=auth if auth is not None else self._auth,
-            headers=headers if headers is not None else dict(self._headers.items())
-        )
-    
-    def get_proxy_url_for_scheme(self, scheme: str) -> str:
-        """
-        Get the appropriate proxy URL for a given scheme.
-        
-        Args:
-            scheme: The URL scheme (http, https, etc.)
-            
-        Returns:
-            The proxy URL as a string
-        """
-        return str(self._url)
-    
-    def supports_scheme(self, scheme: str) -> bool:
-        """
-        Check if this proxy supports the given scheme.
-        
-        Args:
-            scheme: The URL scheme to check
-            
-        Returns:
-            True if the proxy supports the scheme, False otherwise
-        """
-        # Extract scheme from URL string since URL object may not have scheme attribute
-        url_str = str(self._url)
-        if "://" in url_str:
-            proxy_scheme = url_str.split("://")[0].lower()
-        else:
-            proxy_scheme = "http"  # default
-            
-        scheme = scheme.lower()
-        
-        # HTTP proxies can handle both HTTP and HTTPS traffic
-        if proxy_scheme == "http":
-            return scheme in ("http", "https")
-        
-        # HTTPS proxies can handle both HTTP and HTTPS traffic  
-        elif proxy_scheme == "https":
-            return scheme in ("http", "https")
-        
-        # SOCKS proxies can handle various protocols
-        elif proxy_scheme.startswith("socks"):
-            return scheme in ("http", "https", "ftp")
-        
-        # For other proxy types, require exact scheme match
-        else:
-            return proxy_scheme == scheme
-    
-    def to_dict(self) -> Dict[str, str]:
-        """
-        Convert the proxy configuration to a dictionary format.
-        
-        Returns:
-            Dictionary with proxy configuration
-        """
-        result = {"url": str(self._url)}
-        
-        if self._auth:
-            result["auth"] = f"{self._auth[0]}:{self._auth[1]}"
-        
-        if self._headers:
-            result["headers"] = dict(self._headers.items())
-        
-        if self._ssl_context:
-            result["ssl_context"] = str(self._ssl_context)
-        
-        return result

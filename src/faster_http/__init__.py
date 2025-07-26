@@ -13,9 +13,7 @@ from ._core import (
     AsyncHttpClient as AsyncClient, 
     HttpRequest as Request,
     HttpResponse as Response,
-    StreamingHttpResponse as StreamingResponse,
-    StreamingClient,
-    # Complete exception hierarchy
+    # Exception hierarchy (only httpx-compatible ones)
     HTTPError,
     ConnectError,
     ConnectTimeout,
@@ -24,22 +22,13 @@ from ._core import (
     WriteTimeout,
     PoolTimeout,
     RequestError,
-    ResponseError,
     HTTPStatusError,
-    ClientError,
-    ServerError,
     StreamError,
-    StreamConsumed,
-    StreamClosed,
     ProtocolError,
-    DecodingError,
     TooManyRedirects,
     TransportError,
-    ProxyError,
-    SSLError,
-    CertificateError,
-    NetworkError,
-    DNSError,
+    # Transport classes (import available ones from Rust)
+    MockTransport,
     # HTTP methods
     get,
     post,
@@ -65,68 +54,72 @@ from ._core import (
 # Import additional modules
 from .codes import codes
 from .proxy import Proxy
+from .event_hooks_proxy import EventHooksProxy
 
 import asyncio
-from typing import List, Union
+
+# Create httpx-compatible exception classes that don't exist in Rust code
+class InvalidURL(RequestError):
+    """Raised when a URL is malformed."""
+    pass
+
+class LocalProtocolError(ProtocolError):
+    """Raised for local protocol violations."""
+    pass
+
+class RemoteProtocolError(ProtocolError):
+    """Raised for remote protocol violations."""
+    pass
+
+class ReadError(RequestError):
+    """Raised when a read error occurs."""
+    pass
+
+class WriteError(RequestError):
+    """Raised when a write error occurs."""
+    pass
+
+class UnsupportedProtocol(RequestError):
+    """Raised when an unsupported protocol is used."""
+    pass
+
+# Create httpx-compatible transport and other classes that don't exist in Rust code
+class HTTPTransport:
+    """HTTP transport implementation (placeholder)."""
+    def __init__(self, **kwargs):
+        pass
+
+class AsyncHTTPTransport:
+    """Async HTTP transport implementation (placeholder)."""
+    def __init__(self, **kwargs):
+        pass
+
+class AsyncMockTransport:
+    """Async mock transport implementation (placeholder).""" 
+    def __init__(self, handler=None, **kwargs):
+        self.handler = handler
+
+class Auth:
+    """Base authentication class (placeholder)."""
+    def auth_flow(self, request):
+        yield request
+    
+    async def async_auth_flow(self, request):
+        yield request
+
+class Stream:
+    """Stream implementation (placeholder)."""
+    pass
+
+class AsyncStream:
+    """Async stream implementation (placeholder)."""
+    pass
+
+# httpx constants (placeholders)
+DEFAULT_CIPHERS = "ALL:!aNULL:!eNULL:!SSLv2:!RC4:!DH:!3DES:!MD5:!PSK:!SRP:!CAMELLIA"
+DEFAULT_TIMEOUT_CONFIG = {"connect": 5.0, "read": 5.0, "write": 5.0, "pool": 5.0}
 
 
-# Simple async iterator to wrap sync data for async iteration
-class SimpleAsyncIterator:
-    """Simple async iterator that wraps a list for async iteration."""
-    
-    def __init__(self, items: List):
-        self._items = items
-        self._index = 0
-    
-    def __aiter__(self):
-        return self
-    
-    async def __anext__(self):
-        if self._index >= len(self._items):
-            raise StopAsyncIteration
-        
-        item = self._items[self._index]
-        self._index += 1
-        
-        # Yield control to allow other tasks to run
-        await asyncio.sleep(0)
-        return item
-
-
-# Monkey patch Response class to provide true async iteration
-def _patch_response_async_methods():
-    """Patch Response class to provide httpx-compatible async iteration."""
-    
-    # Store original methods
-    Response._orig_aiter_lines = Response.aiter_lines
-    Response._orig_aiter_bytes = Response.aiter_bytes  
-    Response._orig_aiter_text = Response.aiter_text
-    Response._orig_aiter_raw = Response.aiter_raw
-    
-    # Replace with async wrapper versions
-    def aiter_lines(self):
-        lines = self._orig_aiter_lines()
-        return SimpleAsyncIterator(lines)
-    
-    def aiter_bytes(self, chunk_size=None):
-        chunks = self._orig_aiter_bytes(chunk_size)
-        return SimpleAsyncIterator(chunks)
-        
-    def aiter_text(self, chunk_size=None):
-        chunks = self._orig_aiter_text(chunk_size)
-        return SimpleAsyncIterator(chunks)
-        
-    def aiter_raw(self, chunk_size=None):
-        chunks = self._orig_aiter_raw(chunk_size)
-        return SimpleAsyncIterator(chunks)
-    
-    Response.aiter_lines = aiter_lines
-    Response.aiter_bytes = aiter_bytes
-    Response.aiter_text = aiter_text
-    Response.aiter_raw = aiter_raw
-
-# Apply the patch
-_patch_response_async_methods()
 
 
 # Define public API
@@ -136,39 +129,27 @@ __all__ = [
     "AsyncClient",
     "Request", 
     "Response",
-    "StreamingResponse",
-    "StreamingClient",
-    # Original names (for advanced users)
-    "HttpClient",
-    "AsyncHttpClient",
-    "HttpRequest",
-    "HttpResponse", 
-    "StreamingHttpResponse",
-    # Exception hierarchy
+    # Exception hierarchy (httpx-compatible ones)
     "HTTPError",
-    "ConnectError",
+    "ConnectError", 
     "ConnectTimeout",
     "TimeoutException",
     "ReadTimeout",
     "WriteTimeout",
     "PoolTimeout",
     "RequestError",
-    "ResponseError",
     "HTTPStatusError",
-    "ClientError",
-    "ServerError",
     "StreamError",
-    "StreamConsumed",
-    "StreamClosed",
     "ProtocolError",
-    "DecodingError",
     "TooManyRedirects",
     "TransportError",
-    "ProxyError",
-    "SSLError",
-    "CertificateError",
-    "NetworkError",
-    "DNSError", 
+    # Additional httpx-compatible exceptions
+    "InvalidURL",
+    "LocalProtocolError",
+    "RemoteProtocolError", 
+    "ReadError",
+    "WriteError",
+    "UnsupportedProtocol",
     # Convenience functions
     "get",
     "post",
@@ -179,7 +160,7 @@ __all__ = [
     "options",
     "request",
     "stream",
-    # Model classes (already httpx-compatible names)
+    # Model classes (httpx-compatible names)
     "Headers",
     "QueryParams",
     "Cookies", 
@@ -189,17 +170,28 @@ __all__ = [
     "BasicAuth",
     "DigestAuth", 
     "NetRCAuth",
+    # Transport classes  
+    "HTTPTransport",
+    "AsyncHTTPTransport",
+    "AsyncMockTransport",
+    "MockTransport",
+    # Authentication
+    "Auth",
+    # Stream classes
+    "Stream", 
+    "AsyncStream",
+    # Constants
+    "DEFAULT_CIPHERS",
+    "DEFAULT_TIMEOUT_CONFIG",
     # Status codes and proxy configuration
     "codes",
     "Proxy",
+    # Event hooks proxy for dynamic hook modification
+    "EventHooksProxy",
 ]
 
-def main():
-    """CLI entry point."""
+if __name__ == "__main__":
     import sys
     print("faster-http: High-performance HTTP client")
     print("Usage: python -m faster_http")
     sys.exit(0)
-
-if __name__ == "__main__":
-    main()

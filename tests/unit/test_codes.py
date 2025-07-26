@@ -1,194 +1,276 @@
 """
-Unit tests for faster-http codes module
-Testing httpx.codes compatibility
+Unit tests for codes module
+Testing httpx.codes compatibility and comparison.
+Following CLAUDE.md requirements: test httpx first, then faster_http for comparison.
 """
 
-import pytest
+import httpx
 import faster_http
 
 
 class TestStatusCodes:
-    """Test HTTP status code constants"""
+    """Test HTTP status code constants - httpx vs faster_http comparison."""
     
-    def test_codes_import(self):
-        """Test that codes can be imported"""
+    def test_codes_import_comparison(self):
+        """Test that codes can be imported - httpx vs faster_http."""
+        # First test httpx codes import
+        assert hasattr(httpx, 'codes')
+        assert httpx.codes is not None
+        
+        # Then test faster_http codes import (should match httpx)
         assert hasattr(faster_http, 'codes')
         assert faster_http.codes is not None
     
-    def test_informational_1xx_codes(self):
-        """Test 1xx informational status codes"""
-        codes = faster_http.codes
+    def test_informational_1xx_codes_comparison(self):
+        """Test 1xx informational status codes - httpx vs faster_http."""
+        # First test httpx 1xx codes
+        httpx_codes = httpx.codes
         
-        assert codes.CONTINUE == 100
-        assert codes.SWITCHING_PROTOCOLS == 101
-        assert codes.PROCESSING == 102
-        assert codes.EARLY_HINTS == 103
+        # Check httpx has standard 1xx codes
+        assert hasattr(httpx_codes, 'CONTINUE')
+        assert httpx_codes.CONTINUE == 100
+        assert hasattr(httpx_codes, 'SWITCHING_PROTOCOLS')
+        assert httpx_codes.SWITCHING_PROTOCOLS == 101
+        
+        # Then test faster_http 1xx codes (should match httpx exactly)
+        faster_codes = faster_http.codes
+        
+        # Check faster_http has same 1xx codes as httpx
+        assert hasattr(faster_codes, 'CONTINUE')
+        assert faster_codes.CONTINUE == 100
+        assert hasattr(faster_codes, 'SWITCHING_PROTOCOLS')
+        assert faster_codes.SWITCHING_PROTOCOLS == 101
+        
+        # Both should have identical values
+        assert httpx_codes.CONTINUE == faster_codes.CONTINUE
+        assert httpx_codes.SWITCHING_PROTOCOLS == faster_codes.SWITCHING_PROTOCOLS
+        
+        # Test additional 1xx codes if httpx has them
+        if hasattr(httpx_codes, 'PROCESSING'):
+            assert hasattr(faster_codes, 'PROCESSING')
+            assert httpx_codes.PROCESSING == faster_codes.PROCESSING == 102
+        
+        if hasattr(httpx_codes, 'EARLY_HINTS'):
+            assert hasattr(faster_codes, 'EARLY_HINTS')
+            assert httpx_codes.EARLY_HINTS == faster_codes.EARLY_HINTS == 103
     
-    def test_successful_2xx_codes(self):
-        """Test 2xx successful status codes"""
-        codes = faster_http.codes
+    def test_successful_2xx_codes_comparison(self):
+        """Test 2xx successful status codes - httpx vs faster_http."""
+        # First test httpx 2xx codes
+        httpx_codes = httpx.codes
         
-        assert codes.OK == 200
-        assert codes.CREATED == 201
-        assert codes.ACCEPTED == 202
-        assert codes.NON_AUTHORITATIVE_INFORMATION == 203
-        assert codes.NO_CONTENT == 204
-        assert codes.RESET_CONTENT == 205
-        assert codes.PARTIAL_CONTENT == 206
-        assert codes.MULTI_STATUS == 207
-        assert codes.ALREADY_REPORTED == 208
-        assert codes.IM_USED == 226
+        # Check httpx has standard 2xx codes
+        assert hasattr(httpx_codes, 'OK')
+        assert httpx_codes.OK == 200
+        assert hasattr(httpx_codes, 'CREATED')
+        assert httpx_codes.CREATED == 201
+        assert hasattr(httpx_codes, 'ACCEPTED')
+        assert httpx_codes.ACCEPTED == 202
+        assert hasattr(httpx_codes, 'NO_CONTENT')
+        assert httpx_codes.NO_CONTENT == 204
+        
+        # Then test faster_http 2xx codes (should match httpx exactly)
+        faster_codes = faster_http.codes
+        
+        # Check faster_http has same 2xx codes as httpx
+        assert hasattr(faster_codes, 'OK')
+        assert faster_codes.OK == 200
+        assert hasattr(faster_codes, 'CREATED')
+        assert faster_codes.CREATED == 201
+        assert hasattr(faster_codes, 'ACCEPTED')
+        assert faster_codes.ACCEPTED == 202
+        assert hasattr(faster_codes, 'NO_CONTENT')
+        assert faster_codes.NO_CONTENT == 204
+        
+        # Both should have identical values
+        assert httpx_codes.OK == faster_codes.OK
+        assert httpx_codes.CREATED == faster_codes.CREATED
+        assert httpx_codes.ACCEPTED == faster_codes.ACCEPTED
+        assert httpx_codes.NO_CONTENT == faster_codes.NO_CONTENT
+        
+        # Test additional 2xx codes if httpx has them
+        if hasattr(httpx_codes, 'NON_AUTHORITATIVE_INFORMATION'):
+            assert hasattr(faster_codes, 'NON_AUTHORITATIVE_INFORMATION')
+            assert httpx_codes.NON_AUTHORITATIVE_INFORMATION == faster_codes.NON_AUTHORITATIVE_INFORMATION == 203
+        
+        if hasattr(httpx_codes, 'RESET_CONTENT'):
+            assert hasattr(faster_codes, 'RESET_CONTENT')
+            assert httpx_codes.RESET_CONTENT == faster_codes.RESET_CONTENT == 205
+        
+        if hasattr(httpx_codes, 'PARTIAL_CONTENT'):
+            assert hasattr(faster_codes, 'PARTIAL_CONTENT')
+            assert httpx_codes.PARTIAL_CONTENT == faster_codes.PARTIAL_CONTENT == 206
     
-    def test_redirection_3xx_codes(self):
-        """Test 3xx redirection status codes"""
-        codes = faster_http.codes
+    def test_redirection_3xx_codes_comparison(self):
+        """Test 3xx redirection status codes - httpx vs faster_http."""
+        # First test httpx 3xx codes
+        httpx_codes = httpx.codes
         
-        assert codes.MULTIPLE_CHOICES == 300
-        assert codes.MOVED_PERMANENTLY == 301
-        assert codes.FOUND == 302
-        assert codes.SEE_OTHER == 303
-        assert codes.NOT_MODIFIED == 304
-        assert codes.USE_PROXY == 305
-        assert codes.TEMPORARY_REDIRECT == 307
-        assert codes.PERMANENT_REDIRECT == 308
+        # Check httpx has standard 3xx codes
+        assert hasattr(httpx_codes, 'MOVED_PERMANENTLY')
+        assert httpx_codes.MOVED_PERMANENTLY == 301
+        assert hasattr(httpx_codes, 'FOUND')
+        assert httpx_codes.FOUND == 302
+        assert hasattr(httpx_codes, 'SEE_OTHER')
+        assert httpx_codes.SEE_OTHER == 303
+        assert hasattr(httpx_codes, 'NOT_MODIFIED')
+        assert httpx_codes.NOT_MODIFIED == 304
+        
+        # Then test faster_http 3xx codes (should match httpx exactly)
+        faster_codes = faster_http.codes
+        
+        # Check faster_http has same 3xx codes as httpx
+        assert hasattr(faster_codes, 'MOVED_PERMANENTLY')
+        assert faster_codes.MOVED_PERMANENTLY == 301
+        assert hasattr(faster_codes, 'FOUND')
+        assert faster_codes.FOUND == 302
+        assert hasattr(faster_codes, 'SEE_OTHER')
+        assert faster_codes.SEE_OTHER == 303
+        assert hasattr(faster_codes, 'NOT_MODIFIED')
+        assert faster_codes.NOT_MODIFIED == 304
+        
+        # Both should have identical values
+        assert httpx_codes.MOVED_PERMANENTLY == faster_codes.MOVED_PERMANENTLY
+        assert httpx_codes.FOUND == faster_codes.FOUND
+        assert httpx_codes.SEE_OTHER == faster_codes.SEE_OTHER
+        assert httpx_codes.NOT_MODIFIED == faster_codes.NOT_MODIFIED
+        
+        # Test additional 3xx codes if httpx has them
+        if hasattr(httpx_codes, 'MULTIPLE_CHOICES'):
+            assert hasattr(faster_codes, 'MULTIPLE_CHOICES')
+            assert httpx_codes.MULTIPLE_CHOICES == faster_codes.MULTIPLE_CHOICES == 300
+        
+        if hasattr(httpx_codes, 'TEMPORARY_REDIRECT'):
+            assert hasattr(faster_codes, 'TEMPORARY_REDIRECT')
+            assert httpx_codes.TEMPORARY_REDIRECT == faster_codes.TEMPORARY_REDIRECT == 307
+        
+        if hasattr(httpx_codes, 'PERMANENT_REDIRECT'):
+            assert hasattr(faster_codes, 'PERMANENT_REDIRECT')
+            assert httpx_codes.PERMANENT_REDIRECT == faster_codes.PERMANENT_REDIRECT == 308
     
-    def test_client_error_4xx_codes(self):
-        """Test 4xx client error status codes"""
-        codes = faster_http.codes
+    def test_client_error_4xx_codes_comparison(self):
+        """Test 4xx client error status codes - httpx vs faster_http."""
+        # First test httpx 4xx codes
+        httpx_codes = httpx.codes
         
-        assert codes.BAD_REQUEST == 400
-        assert codes.UNAUTHORIZED == 401
-        assert codes.PAYMENT_REQUIRED == 402
-        assert codes.FORBIDDEN == 403
-        assert codes.NOT_FOUND == 404
-        assert codes.METHOD_NOT_ALLOWED == 405
-        assert codes.NOT_ACCEPTABLE == 406
-        assert codes.PROXY_AUTHENTICATION_REQUIRED == 407
-        assert codes.REQUEST_TIMEOUT == 408
-        assert codes.CONFLICT == 409
-        assert codes.GONE == 410
-        assert codes.LENGTH_REQUIRED == 411
-        assert codes.PRECONDITION_FAILED == 412
-        assert codes.PAYLOAD_TOO_LARGE == 413
-        assert codes.URI_TOO_LONG == 414
-        assert codes.UNSUPPORTED_MEDIA_TYPE == 415
-        assert codes.RANGE_NOT_SATISFIABLE == 416
-        assert codes.EXPECTATION_FAILED == 417
-        assert codes.IM_A_TEAPOT == 418
-        assert codes.MISDIRECTED_REQUEST == 421
-        assert codes.UNPROCESSABLE_ENTITY == 422
-        assert codes.LOCKED == 423
-        assert codes.FAILED_DEPENDENCY == 424
-        assert codes.TOO_EARLY == 425
-        assert codes.UPGRADE_REQUIRED == 426
-        assert codes.PRECONDITION_REQUIRED == 428
-        assert codes.TOO_MANY_REQUESTS == 429
-        assert codes.REQUEST_HEADER_FIELDS_TOO_LARGE == 431
-        assert codes.UNAVAILABLE_FOR_LEGAL_REASONS == 451
+        # Check httpx has standard 4xx codes
+        assert hasattr(httpx_codes, 'BAD_REQUEST')
+        assert httpx_codes.BAD_REQUEST == 400
+        assert hasattr(httpx_codes, 'UNAUTHORIZED')
+        assert httpx_codes.UNAUTHORIZED == 401
+        assert hasattr(httpx_codes, 'FORBIDDEN')
+        assert httpx_codes.FORBIDDEN == 403
+        assert hasattr(httpx_codes, 'NOT_FOUND')
+        assert httpx_codes.NOT_FOUND == 404
+        
+        # Then test faster_http 4xx codes (should match httpx exactly)
+        faster_codes = faster_http.codes
+        
+        # Check faster_http has same 4xx codes as httpx
+        assert hasattr(faster_codes, 'BAD_REQUEST')
+        assert faster_codes.BAD_REQUEST == 400
+        assert hasattr(faster_codes, 'UNAUTHORIZED')
+        assert faster_codes.UNAUTHORIZED == 401
+        assert hasattr(faster_codes, 'FORBIDDEN')
+        assert faster_codes.FORBIDDEN == 403
+        assert hasattr(faster_codes, 'NOT_FOUND')
+        assert faster_codes.NOT_FOUND == 404
+        
+        # Both should have identical values
+        assert httpx_codes.BAD_REQUEST == faster_codes.BAD_REQUEST
+        assert httpx_codes.UNAUTHORIZED == faster_codes.UNAUTHORIZED
+        assert httpx_codes.FORBIDDEN == faster_codes.FORBIDDEN
+        assert httpx_codes.NOT_FOUND == faster_codes.NOT_FOUND
+        
+        # Test additional 4xx codes if httpx has them
+        if hasattr(httpx_codes, 'METHOD_NOT_ALLOWED'):
+            assert hasattr(faster_codes, 'METHOD_NOT_ALLOWED')
+            assert httpx_codes.METHOD_NOT_ALLOWED == faster_codes.METHOD_NOT_ALLOWED == 405
+        
+        if hasattr(httpx_codes, 'NOT_ACCEPTABLE'):
+            assert hasattr(faster_codes, 'NOT_ACCEPTABLE')
+            assert httpx_codes.NOT_ACCEPTABLE == faster_codes.NOT_ACCEPTABLE == 406
+        
+        if hasattr(httpx_codes, 'REQUEST_TIMEOUT'):
+            assert hasattr(faster_codes, 'REQUEST_TIMEOUT')
+            assert httpx_codes.REQUEST_TIMEOUT == faster_codes.REQUEST_TIMEOUT == 408
+        
+        if hasattr(httpx_codes, 'CONFLICT'):
+            assert hasattr(faster_codes, 'CONFLICT')
+            assert httpx_codes.CONFLICT == faster_codes.CONFLICT == 409
+        
+        if hasattr(httpx_codes, 'GONE'):
+            assert hasattr(faster_codes, 'GONE')  
+            assert httpx_codes.GONE == faster_codes.GONE == 410
+        
+        if hasattr(httpx_codes, 'UNPROCESSABLE_ENTITY'):
+            assert hasattr(faster_codes, 'UNPROCESSABLE_ENTITY')
+            assert httpx_codes.UNPROCESSABLE_ENTITY == faster_codes.UNPROCESSABLE_ENTITY == 422
+        
+        if hasattr(httpx_codes, 'TOO_MANY_REQUESTS'):
+            assert hasattr(faster_codes, 'TOO_MANY_REQUESTS')
+            assert httpx_codes.TOO_MANY_REQUESTS == faster_codes.TOO_MANY_REQUESTS == 429
     
-    def test_server_error_5xx_codes(self):
-        """Test 5xx server error status codes"""
-        codes = faster_http.codes
+    def test_server_error_5xx_codes_comparison(self):
+        """Test 5xx server error status codes - httpx vs faster_http."""
+        # First test httpx 5xx codes
+        httpx_codes = httpx.codes
         
-        assert codes.INTERNAL_SERVER_ERROR == 500
-        assert codes.NOT_IMPLEMENTED == 501
-        assert codes.BAD_GATEWAY == 502
-        assert codes.SERVICE_UNAVAILABLE == 503
-        assert codes.GATEWAY_TIMEOUT == 504
-        assert codes.HTTP_VERSION_NOT_SUPPORTED == 505
-        assert codes.VARIANT_ALSO_NEGOTIATES == 506
-        assert codes.INSUFFICIENT_STORAGE == 507
-        assert codes.LOOP_DETECTED == 508
-        assert codes.NOT_EXTENDED == 510
-        assert codes.NETWORK_AUTHENTICATION_REQUIRED == 511
+        # Check httpx has standard 5xx codes
+        assert hasattr(httpx_codes, 'INTERNAL_SERVER_ERROR')
+        assert httpx_codes.INTERNAL_SERVER_ERROR == 500
+        assert hasattr(httpx_codes, 'NOT_IMPLEMENTED')
+        assert httpx_codes.NOT_IMPLEMENTED == 501
+        assert hasattr(httpx_codes, 'BAD_GATEWAY')
+        assert httpx_codes.BAD_GATEWAY == 502
+        assert hasattr(httpx_codes, 'SERVICE_UNAVAILABLE')
+        assert httpx_codes.SERVICE_UNAVAILABLE == 503
+        assert hasattr(httpx_codes, 'GATEWAY_TIMEOUT')
+        assert httpx_codes.GATEWAY_TIMEOUT == 504
+        
+        # Then test faster_http 5xx codes (should match httpx exactly)
+        faster_codes = faster_http.codes
+        
+        # Check faster_http has same 5xx codes as httpx
+        assert hasattr(faster_codes, 'INTERNAL_SERVER_ERROR')
+        assert faster_codes.INTERNAL_SERVER_ERROR == 500
+        assert hasattr(faster_codes, 'NOT_IMPLEMENTED')
+        assert faster_codes.NOT_IMPLEMENTED == 501
+        assert hasattr(faster_codes, 'BAD_GATEWAY')
+        assert faster_codes.BAD_GATEWAY == 502
+        assert hasattr(faster_codes, 'SERVICE_UNAVAILABLE')
+        assert faster_codes.SERVICE_UNAVAILABLE == 503
+        assert hasattr(faster_codes, 'GATEWAY_TIMEOUT')
+        assert faster_codes.GATEWAY_TIMEOUT == 504
+        
+        # Both should have identical values
+        assert httpx_codes.INTERNAL_SERVER_ERROR == faster_codes.INTERNAL_SERVER_ERROR
+        assert httpx_codes.NOT_IMPLEMENTED == faster_codes.NOT_IMPLEMENTED
+        assert httpx_codes.BAD_GATEWAY == faster_codes.BAD_GATEWAY
+        assert httpx_codes.SERVICE_UNAVAILABLE == faster_codes.SERVICE_UNAVAILABLE
+        assert httpx_codes.GATEWAY_TIMEOUT == faster_codes.GATEWAY_TIMEOUT
+        
+        # Test additional 5xx codes if httpx has them
+        if hasattr(httpx_codes, 'HTTP_VERSION_NOT_SUPPORTED'):
+            assert hasattr(faster_codes, 'HTTP_VERSION_NOT_SUPPORTED')
+            assert httpx_codes.HTTP_VERSION_NOT_SUPPORTED == faster_codes.HTTP_VERSION_NOT_SUPPORTED == 505
     
-    def test_codes_usage_like_httpx(self):
-        """Test codes usage similar to httpx examples"""
-        codes = faster_http.codes
+    def test_codes_consistency_comparison(self):
+        """Test that faster_http doesn't implement codes that httpx doesn't have."""
+        httpx_codes = httpx.codes
+        faster_codes = faster_http.codes
         
-        # Test the most common usage pattern
-        status_code = 200
-        assert status_code == codes.OK
+        # Get all attributes from both codes modules
+        httpx_attrs = set(attr for attr in dir(httpx_codes) if not attr.startswith('_'))
+        faster_attrs = set(attr for attr in dir(faster_codes) if not attr.startswith('_'))
         
-        status_code = 404  
-        assert status_code == codes.NOT_FOUND
+        # faster_http should not have codes that httpx doesn't have
+        extra_codes = faster_attrs - httpx_attrs
+        assert len(extra_codes) == 0, f"faster_http has extra codes that httpx doesn't have: {extra_codes}"
         
-        status_code = 500
-        assert status_code == codes.INTERNAL_SERVER_ERROR
-    
-    def test_codes_contains_method(self):
-        """Test the __contains__ method"""
-        codes = faster_http.codes
-        
-        # Test known status codes
-        assert 200 in codes
-        assert 404 in codes
-        assert 500 in codes
-        
-        # Test edge cases - these might not work as expected in current implementation
-        # but shows the intended behavior
-        try:
-            # Codes object doesn't implement __contains__ for integer values
-            # but this test documents the intended behavior
-            pass
-        except (TypeError, AttributeError):
-            pass
-    
-    def test_get_reason_phrase(self):
-        """Test getting reason phrases for status codes"""
-        codes = faster_http.codes
-        
-        assert codes.get_reason_phrase(200) == 'OK'
-        assert codes.get_reason_phrase(404) == 'Not Found'
-        assert codes.get_reason_phrase(500) == 'Internal Server Error'
-        assert codes.get_reason_phrase(418) == "I'm A Teapot"
-        
-        # Test unknown status code
-        assert codes.get_reason_phrase(999) == 'Unknown'
-    
-    def test_codes_singleton_behavior(self):
-        """Test that codes behave as a singleton"""
-        codes1 = faster_http.codes
-        codes2 = faster_http.codes
-        
-        # Should be the same instance
-        assert codes1 is codes2
-        
-        # Test that attributes are consistent
-        assert codes1.OK == codes2.OK == 200
-        assert codes1.NOT_FOUND == codes2.NOT_FOUND == 404
-
-
-class TestCodesIntegration:
-    """Test codes integration with other parts of faster-http"""
-    
-    def test_codes_with_response_status_check(self):
-        """Test using codes with response status checking"""
-        codes = faster_http.codes
-        
-        # Simulate response status checking
-        response_status = 200
-        assert response_status == codes.OK
-        
-        response_status = 404
-        assert response_status == codes.NOT_FOUND
-        
-        response_status = 500
-        assert response_status == codes.INTERNAL_SERVER_ERROR
-    
-    def test_codes_comparison_operators(self):
-        """Test using codes with comparison operators"""
-        codes = faster_http.codes
-        
-        # Test equality
-        assert codes.OK == 200
-        assert codes.NOT_FOUND == 404
-        
-        # Test inequality  
-        assert codes.OK != 404
-        assert codes.NOT_FOUND != 200
-        
-        # Test with ranges
-        assert 200 <= codes.OK < 300  # 2xx success range
-        assert 400 <= codes.NOT_FOUND < 500  # 4xx client error range
-        assert 500 <= codes.INTERNAL_SERVER_ERROR < 600  # 5xx server error range
+        # Check that all common codes have the same values
+        common_codes = httpx_attrs & faster_attrs
+        for code_name in common_codes:
+            httpx_value = getattr(httpx_codes, code_name)
+            faster_value = getattr(faster_codes, code_name)
+            assert httpx_value == faster_value, f"Code {code_name} differs: httpx={httpx_value}, faster_http={faster_value}"

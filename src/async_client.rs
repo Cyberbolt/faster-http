@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+use pyo3::PyCell;
 use pyo3_asyncio::tokio::future_into_py;
 use reqwest::Client;
 use std::collections::HashMap;
@@ -26,7 +27,7 @@ impl AsyncHttpClient {
     #[new]
     pub fn new(
         base_url: Option<String>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,  // Accept either f64 or Timeout object
         headers: Option<HashMap<String, String>>,
         verify: Option<&PyAny>,
         follow_redirects: Option<bool>,
@@ -62,6 +63,7 @@ impl AsyncHttpClient {
 
     pub fn build_request(
         &self,
+        py: Python,
         method: &str,
         url: &str,
         params: Option<HashMap<String, String>>,
@@ -72,8 +74,14 @@ impl AsyncHttpClient {
         json: Option<PyObject>,
         stream: Option<bool>,
     ) -> PyResult<HttpRequest> {
-        // Use centralized URL building
-        let final_url = build_url(url, self.config.base_url.as_ref(), params.as_ref())
+        // Merge default params with request params (same pattern as headers)
+        let mut final_params = self.config.default_params.clone();
+        if let Some(request_params) = params {
+            final_params.extend(request_params);
+        }
+        
+        // Use centralized URL building with merged params
+        let final_url = build_url(url, self.config.base_url.as_ref(), Some(&final_params))
             .map_err(|e| RequestError::new_err(e))?;
         
         // Simple header merging
@@ -86,18 +94,19 @@ impl AsyncHttpClient {
         let final_cookies = self.config.default_cookies.clone();
         // Note: Individual request cookies would be handled at higher level
 
-        Ok(HttpRequest::new(
+        let headers_dict: HashMap<String, String> = final_headers;
+        HttpRequest::new(
             method.to_string(),
             final_url,
-            Some(final_headers),
+            Some(headers_dict.into_py(py)),
             content,
-            params,
+            Some(final_params),
             Some(final_cookies),
             data,
             files,
             json,
             stream,
-        ))
+        )
     }
 
     pub fn send<'py>(&self, py: Python<'py>, request: &HttpRequest) -> PyResult<&'py PyAny> {
@@ -106,10 +115,10 @@ impl AsyncHttpClient {
         let client = self.client.clone();
         let config = self.config.clone();
         // Extract minimal data needed, avoid unnecessary cloning
-        let method = request.method().to_string();
-        let url = request.url().to_string();
-        let headers = request.headers();
-        let content_bytes = request.content().map(|b| b.to_vec());
+        let method = request.method_str().to_string();
+        let url = request.url_str().to_string();
+        let headers = request.headers_map().clone();
+        let content_bytes = request.content_bytes().map(|b| b.to_vec());
         
         future_into_py(py, async move {
             send_request_direct(
@@ -143,25 +152,12 @@ impl AsyncHttpClient {
         })
     }
 
-    // Close client connection pool
-    pub fn close(&self) -> PyResult<()> {
-        self.is_closed.store(true, Ordering::Relaxed);
-        Ok(())
-    }
-
     // Async close client connection pool
     pub fn aclose<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
-        self.close()?;
+        self.is_closed.store(true, Ordering::Relaxed);
         future_into_py(py, async move { Ok(()) })
     }
 
-    // Check if client is closed
-    fn check_not_closed(&self) -> PyResult<()> {
-        if self.is_closed.load(Ordering::Relaxed) {
-            return Err(RequestError::new_err("AsyncClient has been closed"));
-        }
-        Ok(())
-    }
 
     // Public request method for httpx compatibility
     pub fn request<'py>(&self, py: Python<'py>, method: String, url: String, content: Option<Vec<u8>>, data: Option<HashMap<String, PyObject>>, json: Option<HashMap<String, PyObject>>, files: Option<HashMap<String, PyObject>>, params: Option<HashMap<String, String>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, auth: Option<(String, String)>, follow_redirects: Option<bool>, cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
@@ -196,8 +192,8 @@ impl AsyncHttpClient {
         self.async_request(py, "OPTIONS", url, None, None, None, None, params, headers, timeout, auth, follow_redirects, cookies)
     }
 
-    pub fn stream<'py>(&self, py: Python<'py>, method: String, url: String, content: Option<Vec<u8>>, data: Option<HashMap<String, PyObject>>, json: Option<HashMap<String, PyObject>>, files: Option<HashMap<String, PyObject>>, params: Option<HashMap<String, String>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, auth: Option<(String, String)>, follow_redirects: Option<bool>, cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
-        use crate::core::build_and_send_streaming_request;
+    pub fn stream(&self, method: String, url: String, content: Option<Vec<u8>>, data: Option<HashMap<String, PyObject>>, json: Option<HashMap<String, PyObject>>, files: Option<HashMap<String, PyObject>>, params: Option<HashMap<String, String>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, auth: Option<(String, String)>, follow_redirects: Option<bool>, cookies: Option<HashMap<String, String>>) -> PyResult<crate::streaming::StreamingClient> {
+        use crate::streaming::StreamingClient;
         
         self.check_not_closed()?;
         
@@ -213,72 +209,24 @@ impl AsyncHttpClient {
         let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
         let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
         
-        let config = self.config.clone();
-        
-        future_into_py(py, async move {
-            build_and_send_streaming_request(
-                &config,
-                &method, 
-                &url, 
-                content, 
-                data, 
-                json, 
-                files, 
-                params, 
-                headers, 
-                timeout, 
-                &config.base_url, 
-                &config.default_headers, 
-                config.default_timeout, 
-                auth_option, 
-                follow_redirects,
-                merged_cookies
-            ).await
-        })
+        // Create StreamingClient that can be used as async context manager
+        Ok(StreamingClient::new(
+            self.config.clone(),
+            method,
+            url,
+            content,
+            data,
+            json,
+            files,
+            params,
+            headers,
+            timeout,
+            auth_option,
+            follow_redirects,
+            merged_cookies,
+        ))
     }
 
-    fn async_request<'py>(
-        &self,
-        py: Python<'py>,
-        method: &str,
-        url: String,
-        content: Option<Vec<u8>>,
-        data: Option<HashMap<String, PyObject>>,
-        json: Option<HashMap<String, PyObject>>,
-        files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-        auth: Option<(String, String)>,
-        follow_redirects: Option<bool>,
-        cookies: Option<HashMap<String, String>>,
-    ) -> PyResult<&'py PyAny> {
-        self.check_not_closed()?;
-        
-        // Simple cookie merging - delegate actual cookie handling to reqwest
-        let merged_cookies = match cookies {
-            Some(request_cookies) => {
-                let mut merged = self.config.default_cookies.clone();
-                merged.extend(request_cookies);
-                Some(merged)
-            }
-            None if !self.config.default_cookies.is_empty() => Some(self.config.default_cookies.clone()),
-            _ => None,
-        };
-        let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
-        let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
-        
-        let config = self.config.clone();
-        let method = method.to_string();
-        
-        future_into_py(py, async move {
-            build_and_send_request(
-                &config, &method, &url, content, data, json, files, params, headers,
-                timeout, &config.base_url, &config.default_headers, config.default_timeout, auth_option,
-                follow_redirects, merged_cookies
-            ).await
-        })
-    }
 
     // httpx compatibility attributes
     #[getter]
@@ -304,5 +252,74 @@ impl AsyncHttpClient {
     #[getter]
     pub fn auth(&self) -> Option<PyObject> {
         self.config.auth_object.clone()
+    }
+
+    #[getter]
+    pub fn event_hooks(&self) -> PyResult<crate::hooks::EventHooksProxy> {
+        Ok(crate::hooks::EventHooksProxy::new(self.config.event_hooks.clone()))
+    }
+}
+
+impl AsyncHttpClient {
+    // Private internal methods not exposed to Python
+    fn check_not_closed(&self) -> PyResult<()> {
+        if self.is_closed.load(Ordering::Relaxed) {
+            return Err(RequestError::new_err("AsyncClient has been closed"));
+        }
+        Ok(())
+    }
+
+    fn async_request<'py>(
+        &self,
+        py: Python<'py>,
+        method: &str,
+        url: String,
+        content: Option<Vec<u8>>,
+        data: Option<HashMap<String, PyObject>>,
+        json: Option<HashMap<String, PyObject>>,
+        files: Option<HashMap<String, PyObject>>,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+        auth: Option<(String, String)>,
+        follow_redirects: Option<bool>,
+        cookies: Option<HashMap<String, String>>,
+    ) -> PyResult<&'py PyAny> {
+        self.check_not_closed()?;
+        
+        // Merge default params with request params (same pattern as cookies)
+        let merged_params = match params {
+            Some(request_params) => {
+                let mut merged = self.config.default_params.clone();
+                merged.extend(request_params);
+                Some(merged)
+            }
+            None if !self.config.default_params.is_empty() => Some(self.config.default_params.clone()),
+            _ => None,
+        };
+        
+        // Simple cookie merging - delegate actual cookie handling to reqwest
+        let merged_cookies = match cookies {
+            Some(request_cookies) => {
+                let mut merged = self.config.default_cookies.clone();
+                merged.extend(request_cookies);
+                Some(merged)
+            }
+            None if !self.config.default_cookies.is_empty() => Some(self.config.default_cookies.clone()),
+            _ => None,
+        };
+        let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
+        let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
+        
+        let config = self.config.clone();
+        let method = method.to_string();
+        
+        future_into_py(py, async move {
+            build_and_send_request(
+                &config, &method, &url, content, data, json, files, merged_params, headers,
+                timeout, &config.base_url, &config.default_headers, config.default_timeout, auth_option,
+                follow_redirects, merged_cookies
+            ).await
+        })
     }
 } 

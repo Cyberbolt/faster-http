@@ -27,25 +27,21 @@ pub use error::*;
 pub use auth::*;
 pub use request::HttpRequest;
 pub use response::HttpResponse;
-pub use streaming::{StreamingHttpResponse, StreamingBytesIterator, StreamingTextIterator, StreamingLinesIterator, StreamingClient};
+// StreamingHttpResponse and StreamingClient removed - httpx doesn't have these classes
 pub use config::ClientConfig;
 pub use client::HttpClient;
 pub use async_client::AsyncHttpClient;
 // Re-export API functions (request function is available via Python module, not Rust re-export)
 pub use api::{get, post, put, patch, delete, head, options, stream};
 pub use models::{HttpHeaders, HttpQueryParams, HttpCookies, HttpUrl, HttpTimeout, HttpLimits, HttpBasicAuth, HttpDigestAuth, HttpNetRCAuth};
+pub use hooks::EventHooksProxy;
 
 // Python module definition
 #[pymodule]
 fn _core(py: Python, m: &PyModule) -> PyResult<()> {
-    // Add classes
+    // Add classes (httpx-compatible only)
     m.add_class::<HttpRequest>()?;
     m.add_class::<HttpResponse>()?;
-    m.add_class::<StreamingHttpResponse>()?;
-    m.add_class::<StreamingClient>()?;
-    m.add_class::<StreamingBytesIterator>()?;
-    m.add_class::<StreamingTextIterator>()?;
-    m.add_class::<StreamingLinesIterator>()?;
     m.add_class::<HttpClient>()?;
     m.add_class::<AsyncHttpClient>()?;
     
@@ -59,6 +55,9 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<HttpBasicAuth>()?;
     m.add_class::<HttpDigestAuth>()?;
     m.add_class::<HttpNetRCAuth>()?;
+    
+    // Add hooks proxy class
+    m.add_class::<EventHooksProxy>()?;
     
     // Add transport classes  
     m.add_class::<transport::FasterhttpTransport>()?;
@@ -76,7 +75,7 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(api::request, m)?)?;
     m.add_function(wrap_pyfunction!(api::stream, m)?)?;
     
-    // Add exception types - complete hierarchy
+    // Add exception types (httpx-compatible only)
     m.add("HTTPError", py.get_type::<HTTPError>())?;
     
     // Connection exceptions
@@ -91,32 +90,19 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     
     // Request/Response exceptions
     m.add("RequestError", py.get_type::<RequestError>())?;
-    m.add("ResponseError", py.get_type::<ResponseError>())?;
     
     // HTTP Status exceptions
     m.add("HTTPStatusError", py.get_type::<HTTPStatusError>())?;
-    m.add("ClientError", py.get_type::<ClientError>())?;
-    m.add("ServerError", py.get_type::<ServerError>())?;
     
     // Stream exceptions
     m.add("StreamError", py.get_type::<StreamError>())?;
-    m.add("StreamConsumed", py.get_type::<StreamConsumed>())?;
-    m.add("StreamClosed", py.get_type::<StreamClosed>())?;
     
     // Protocol exceptions
     m.add("ProtocolError", py.get_type::<ProtocolError>())?;
-    m.add("DecodingError", py.get_type::<DecodingError>())?;
     m.add("TooManyRedirects", py.get_type::<TooManyRedirects>())?;
     
     // Transport exceptions
     m.add("TransportError", py.get_type::<TransportError>())?;
-    m.add("ProxyError", py.get_type::<ProxyError>())?;
-    m.add("SSLError", py.get_type::<SSLError>())?;
-    m.add("CertificateError", py.get_type::<CertificateError>())?;
-    
-    // Network exceptions
-    m.add("NetworkError", py.get_type::<NetworkError>())?;
-    m.add("DNSError", py.get_type::<DNSError>())?;
     
     Ok(())
 } 

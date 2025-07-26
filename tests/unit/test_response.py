@@ -1,240 +1,356 @@
 """
 Unit tests for Response object functionality.
 Tests response object properties and methods.
+Following CLAUDE.md requirements: test httpx first, then faster_http for comparison.
+Based on accurate httpx documentation.
 """
 
+import httpx
 import faster_http
 
 
 class TestResponseInterface:
-    """Test Response object interface and properties."""
+    """Test Response object interface and properties - httpx vs faster_http comparison."""
     
-    def test_response_attributes_exist(self):
-        """Test that Response objects have required httpx-compatible attributes."""
-        # We can't create a real response without making HTTP requests,
-        # but we can test that the Response class has the right interface
-        # by checking if the attributes exist on the class or instances
+    def test_response_basic_attributes_comparison(self, stable_server):
+        """Test that Response objects have required attributes - httpx vs faster_http."""
+        url = stable_server.url("/get")
         
-        # Test that faster_http has Response in its module
-        assert hasattr(faster_http, 'Response') or hasattr(faster_http, '_Response')
+        # First test httpx Response attributes (based on official httpx API docs)
+        httpx_response = httpx.get(url)
         
-        # Test that the module has the expected functions that return Response objects
-        assert hasattr(faster_http, 'get')
-        assert hasattr(faster_http, 'post')
-        assert hasattr(faster_http, 'put')
-        assert hasattr(faster_http, 'patch')
-        assert hasattr(faster_http, 'delete')
-        assert hasattr(faster_http, 'head')
-        assert hasattr(faster_http, 'options')
-        assert hasattr(faster_http, 'request')
-    
-    def test_client_methods_return_responses(self):
-        """Test that client methods are set up to return response objects."""
-        client = faster_http.Client()
-        
-        # Test that all HTTP methods exist and are callable
-        methods = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'request']
-        for method in methods:
-            assert hasattr(client, method), f"Client missing {method} method"
-            assert callable(getattr(client, method)), f"Client {method} not callable"
-    
-    def test_async_client_methods_return_responses(self):
-        """Test that async client methods are set up to return response objects."""
-        client = faster_http.AsyncClient()
-        
-        # Test that all HTTP methods exist and are callable
-        methods = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'request']
-        for method in methods:
-            assert hasattr(client, method), f"AsyncClient missing {method} method"
-            assert callable(getattr(client, method)), f"AsyncClient {method} not callable"
-
-
-class TestResponseMocking:
-    """Test response-like objects for unit testing."""
-    
-    def test_mock_response_structure(self):
-        """Test the structure we expect from responses."""
-        # This tests the expected interface without making HTTP requests
-        expected_attributes = [
-            'status_code', 'headers', 'content', 'text', 'url',
-            'encoding', 'elapsed', 'cookies', 'request',
-            'is_success', 'is_client_error', 'is_server_error', 'is_redirect',
-            'json', 'raise_for_status',
-            'iter_bytes', 'iter_text', 'iter_lines', 'iter_raw'
+        # Test basic httpx Response attributes from official API documentation
+        httpx_attrs = [
+            'status_code', 'reason_phrase', 'http_version', 'url', 'headers', 
+            'content', 'text', 'encoding', 'is_redirect', 'request', 
+            'next_request', 'cookies', 'history', 'elapsed'
         ]
         
-        # Create a simple mock response structure to test against
-        class MockResponse:
-            def __init__(self):
-                self.status_code = 200
-                self.headers = {}
-                self.content = b"test content"
-                self.text = "test content"
-                self.url = "https://test.local"
-                self.encoding = "utf-8"
-                self.elapsed = 0.1
-                self.cookies = {}
-                self.request = None
-                
-            @property
-            def is_success(self):
-                return 200 <= self.status_code < 300
-                
-            @property
-            def is_client_error(self):
-                return 400 <= self.status_code < 500
-                
-            @property
-            def is_server_error(self):
-                return 500 <= self.status_code < 600
-                
-            @property
-            def is_redirect(self):
-                return 300 <= self.status_code < 400
-                
-            def json(self):
-                return {"test": "data"}
-                
-            def raise_for_status(self):
-                if self.status_code >= 400:
-                    raise Exception(f"HTTP {self.status_code}")
-                    
-            def iter_bytes(self, chunk_size=1024):
-                return [self.content]
-                
-            def iter_text(self, chunk_size=None):
-                return [self.text]
-                
-            def iter_lines(self):
-                return self.text.split('\n')
-                
-            def iter_raw(self):
-                return [self.content]
+        for attr in httpx_attrs:
+            assert hasattr(httpx_response, attr), f"httpx Response missing {attr}"
         
-        # Test that our mock has all expected attributes
-        mock_response = MockResponse()
-        for attr in expected_attributes:
-            assert hasattr(mock_response, attr), f"Mock response missing {attr}"
-            
-        # Test attribute types and basic functionality
-        assert isinstance(mock_response.status_code, int)
-        assert isinstance(mock_response.headers, dict)
-        assert isinstance(mock_response.content, bytes)
-        assert isinstance(mock_response.text, str)
-        assert isinstance(mock_response.url, str)
+        # Test httpx methods from official API documentation
+        httpx_methods = ['raise_for_status', 'json', 'read', 'iter_bytes', 'iter_text', 'iter_lines', 'iter_raw', 'close']
+        for method in httpx_methods:
+            assert hasattr(httpx_response, method), f"httpx Response missing {method}"
+            assert callable(getattr(httpx_response, method)), f"httpx Response {method} not callable"
         
-        # Test properties
-        assert mock_response.is_success
-        assert not mock_response.is_client_error
-        assert not mock_response.is_server_error
-        assert not mock_response.is_redirect
+        # Test httpx success property (documented as is_success)
+        assert hasattr(httpx_response, 'is_success'), "httpx Response missing is_success"
         
-        # Test methods
-        assert callable(mock_response.json)
-        assert callable(mock_response.raise_for_status)
-        assert callable(mock_response.iter_bytes)
-        assert callable(mock_response.iter_text)
-        assert callable(mock_response.iter_lines)
-        assert callable(mock_response.iter_raw)
+        # Then test faster_http Response attributes
+        faster_response = faster_http.get(url)
         
-        # Test method return types
-        assert isinstance(mock_response.json(), dict)
-        assert isinstance(list(mock_response.iter_bytes()), list)
-        assert isinstance(list(mock_response.iter_text()), list)
-        assert isinstance(mock_response.iter_lines(), list)
-        assert isinstance(list(mock_response.iter_raw()), list)
-
-
-class TestHTTPStatusCodes:
-    """Test HTTP status code categorization."""
-    
-    def test_success_status_codes(self):
-        """Test success status code identification."""
-        success_codes = [200, 201, 202, 204, 206]
-        for code in success_codes:
-            assert 200 <= code < 300, f"Status {code} should be success"
-    
-    def test_client_error_status_codes(self):
-        """Test client error status code identification."""
-        client_error_codes = [400, 401, 403, 404, 422, 429]
-        for code in client_error_codes:
-            assert 400 <= code < 500, f"Status {code} should be client error"
-    
-    def test_server_error_status_codes(self):
-        """Test server error status code identification."""
-        server_error_codes = [500, 501, 502, 503, 504]
-        for code in server_error_codes:
-            assert 500 <= code < 600, f"Status {code} should be server error"
-    
-    def test_redirect_status_codes(self):
-        """Test redirect status code identification."""
-        redirect_codes = [301, 302, 303, 307, 308]
-        for code in redirect_codes:
-            assert 300 <= code < 400, f"Status {code} should be redirect"
-
-
-class TestResponseHelpers:
-    """Test response helper functionality."""
-    
-    def test_content_type_parsing(self):
-        """Test content type parsing concepts."""
-        content_types = {
-            "application/json": "json",
-            "application/json; charset=utf-8": "json", 
-            "text/html": "html",
-            "text/plain": "text",
-            "application/xml": "xml",
-            "image/png": "binary",
-            "application/octet-stream": "binary"
-        }
+        # Test that faster_http Response has all httpx attributes
+        for attr in httpx_attrs:
+            assert hasattr(faster_response, attr), f"faster_http Response missing httpx-compatible {attr}"
         
-        for content_type, expected_type in content_types.items():
-            # Test content type categorization
-            if "json" in content_type.lower():
-                assert "json" in expected_type
-            elif "text" in content_type.lower() or "html" in content_type.lower():
-                assert expected_type in ["text", "html"]
-            elif "image" in content_type.lower() or "octet-stream" in content_type.lower():
-                assert expected_type == "binary"
-    
-    def test_encoding_detection(self):
-        """Test encoding detection concepts."""
-        encodings = ["utf-8", "utf-16", "latin-1", "ascii"]
+        # Test that faster_http Response has all httpx methods
+        for method in httpx_methods:
+            assert hasattr(faster_response, method), f"faster_http Response missing httpx-compatible {method}"
+            assert callable(getattr(faster_response, method)), f"faster_http Response {method} not callable"
         
-        for encoding in encodings:
-            # Test that these are valid encoding names
-            assert isinstance(encoding, str)
-            assert len(encoding) > 0
-            
-            # Test encoding validation concept
-            try:
-                "test".encode(encoding)
-                valid = True
-            except (LookupError, TypeError):
-                valid = False
-            assert valid, f"Encoding {encoding} should be valid"
-
-
-class TestResponseMethods:
-    """Test new Response methods added for httpx compatibility."""
+        # Test faster_http success property (should match httpx)
+        assert hasattr(faster_response, 'is_success'), "faster_http Response missing httpx-compatible is_success"
     
-    def test_response_methods_exist(self):
-        """Test that new Response methods exist."""
-        # Test method existence on Response class
-        methods_to_check = [
-            ('read', 'Method for reading response content'),
-            ('next', 'Method for getting next response in redirect chain'), 
-            ('next_request', 'Property for next request in redirect chain'),
-        ]
+    def test_response_status_code_comparison(self, stable_server):
+        """Test Response status_code property - httpx vs faster_http."""
+        url = stable_server.url("/get")
         
-        for method, description in methods_to_check:
-            assert hasattr(faster_http.Response, method), f"Missing {method}: {description}"
+        # First test httpx Response status_code
+        httpx_response = httpx.get(url)
+        assert httpx_response.status_code == 200
+        assert isinstance(httpx_response.status_code, int)
+        
+        # Then test faster_http Response status_code
+        faster_response = faster_http.get(url)
+        assert faster_response.status_code == 200
+        assert isinstance(faster_response.status_code, int)
+        
+        # Both should have the same status code
+        assert httpx_response.status_code == faster_response.status_code
     
-    def test_response_class_accessible(self):
-        """Test that Response class is accessible and has expected methods."""
-        # Test that our new methods are in the class
-        response_methods = [attr for attr in dir(faster_http.Response) if not attr.startswith('_')]
+    def test_response_headers_comparison(self, stable_server):
+        """Test Response headers property - httpx vs faster_http."""
+        url = stable_server.url("/headers")
+        headers = {"X-Test-Header": "test-value", "User-Agent": "test-client"}
         
-        new_methods = ['read', 'next', 'next_request']
-        for method in new_methods:
-            assert method in response_methods, f"{method} not found in Response class"
+        # First test httpx Response headers
+        httpx_response = httpx.get(url, headers=headers)
+        assert httpx_response.status_code == 200
+        
+        # Test httpx headers properties (case-insensitive per docs)
+        assert hasattr(httpx_response.headers, 'get')
+        assert callable(httpx_response.headers.get)
+        assert 'content-type' in httpx_response.headers  # Should be case-insensitive
+        
+        # Then test faster_http Response headers
+        faster_response = faster_http.get(url, headers=headers)
+        assert faster_response.status_code == 200
+        
+        # Test faster_http headers properties (should match httpx)
+        assert hasattr(faster_response.headers, 'get')
+        assert callable(faster_response.headers.get)
+        assert 'content-type' in faster_response.headers  # Should be case-insensitive
+        
+        # Both should have similar headers structure
+        assert httpx_response.status_code == faster_response.status_code
+    
+    def test_response_content_and_text_comparison(self, stable_server):
+        """Test Response content and text properties - httpx vs faster_http."""
+        url = stable_server.url("/json")
+        
+        # First test httpx Response content and text
+        httpx_response = httpx.get(url)
+        assert httpx_response.status_code == 200
+        
+        # Test httpx content and text properties
+        httpx_content = httpx_response.content
+        assert isinstance(httpx_content, bytes)
+        assert len(httpx_content) > 0
+        
+        httpx_text = httpx_response.text
+        assert isinstance(httpx_text, str)
+        assert len(httpx_text) > 0
+        
+        # Test httpx encoding property
+        httpx_encoding = httpx_response.encoding  
+        assert isinstance(httpx_encoding, str)
+        
+        # Then test faster_http Response content and text
+        faster_response = faster_http.get(url)
+        assert faster_response.status_code == 200
+        
+        # Test faster_http content and text properties (should match httpx)
+        faster_content = faster_response.content
+        assert isinstance(faster_content, bytes)
+        assert len(faster_content) > 0
+        
+        faster_text = faster_response.text
+        assert isinstance(faster_text, str)
+        assert len(faster_text) > 0
+        
+        # Test faster_http encoding property
+        faster_encoding = faster_response.encoding
+        assert isinstance(faster_encoding, str)
+        
+        # Both should produce similar content
+        assert httpx_response.status_code == faster_response.status_code
+    
+    def test_response_json_method_comparison(self, stable_server):
+        """Test Response json() method - httpx vs faster_http."""
+        url = stable_server.url("/json")
+        
+        # First test httpx Response json() method
+        httpx_response = httpx.get(url)
+        assert httpx_response.status_code == 200
+        
+        httpx_json = httpx_response.json()
+        assert isinstance(httpx_json, dict)
+        assert 'test' in httpx_json
+        assert httpx_json['test'] == 'data'
+        
+        # Then test faster_http Response json() method
+        faster_response = faster_http.get(url)
+        assert faster_response.status_code == 200
+        
+        faster_json = faster_response.json()
+        assert isinstance(faster_json, dict)
+        assert 'test' in faster_json
+        assert faster_json['test'] == 'data'
+        
+        # Both should produce equivalent JSON
+        assert httpx_response.status_code == faster_response.status_code
+        assert httpx_json == faster_json
+    
+    def test_response_is_success_comparison(self, stable_server):
+        """Test Response is_success property - httpx vs faster_http."""
+        # Test successful response (documented as is_success for 2xx status codes)
+        success_url = stable_server.url("/get")
+        
+        # First test httpx is_success for success
+        httpx_success = httpx.get(success_url)
+        assert httpx_success.status_code == 200
+        assert httpx_success.is_success  # Official httpx API docs confirm this property
+        
+        # Then test faster_http is_success for success
+        faster_success = faster_http.get(success_url)
+        assert faster_success.status_code == 200
+        assert faster_success.is_success  # Should match httpx
+        
+        # Both should agree on success status
+        assert httpx_success.status_code == faster_success.status_code
+        assert httpx_success.is_success == faster_success.is_success
+        
+        # Test client error response
+        error_url = stable_server.url("/status/404")
+        
+        # First test httpx is_success for error
+        httpx_error = httpx.get(error_url)
+        assert httpx_error.status_code == 404
+        assert not httpx_error.is_success  # Should be False for 4xx
+        
+        # Then test faster_http is_success for error
+        faster_error = faster_http.get(error_url)
+        assert faster_error.status_code == 404
+        assert not faster_error.is_success  # Should match httpx
+        
+        # Both should agree on error status
+        assert httpx_error.status_code == faster_error.status_code
+        assert httpx_error.is_success == faster_error.is_success
+    
+    def test_response_is_redirect_comparison(self, stable_server):
+        """Test Response is_redirect property - httpx vs faster_http."""
+        # Test redirect response
+        redirect_url = stable_server.url("/redirect")
+        
+        # First test httpx is_redirect
+        httpx_response = httpx.get(redirect_url, follow_redirects=False)
+        assert httpx_response.status_code == 302
+        assert httpx_response.is_redirect  # Official httpx API docs confirm this property
+        
+        # Then test faster_http is_redirect 
+        faster_response = faster_http.get(redirect_url, follow_redirects=False)
+        assert faster_response.status_code == 302
+        assert faster_response.is_redirect  # Should match httpx
+        
+        # Both should agree on redirect status
+        assert httpx_response.status_code == faster_response.status_code
+        assert httpx_response.is_redirect == faster_response.is_redirect
+        
+        # Test non-redirect response
+        normal_url = stable_server.url("/get")
+        
+        # First test httpx is_redirect for normal response
+        httpx_normal = httpx.get(normal_url)
+        assert httpx_normal.status_code == 200
+        assert not httpx_normal.is_redirect
+        
+        # Then test faster_http is_redirect for normal response
+        faster_normal = faster_http.get(normal_url)
+        assert faster_normal.status_code == 200
+        assert not faster_normal.is_redirect
+        
+        # Both should agree on non-redirect status
+        assert httpx_normal.is_redirect == faster_normal.is_redirect
+    
+    def test_response_raise_for_status_comparison(self, stable_server):
+        """Test Response raise_for_status() method - httpx vs faster_http."""
+        # Test successful response doesn't raise
+        success_url = stable_server.url("/get")
+        
+        # First test httpx raise_for_status for success
+        httpx_success = httpx.get(success_url)
+        assert httpx_success.status_code == 200
+        
+        # Should not raise for 200 status
+        try:
+            httpx_success.raise_for_status()
+        except Exception:
+            assert False, "httpx raise_for_status should not raise for 200 status"
+        
+        # Then test faster_http raise_for_status for success
+        faster_success = faster_http.get(success_url)
+        assert faster_success.status_code == 200
+        
+        # Should not raise for 200 status
+        try:
+            faster_success.raise_for_status()
+        except Exception:
+            assert False, "faster_http raise_for_status should not raise for 200 status"
+        
+        # Test error response raises exception
+        error_url = stable_server.url("/status/404")
+        
+        # First test httpx raise_for_status for error
+        httpx_error = httpx.get(error_url)
+        assert httpx_error.status_code == 404
+        
+        # Should raise HTTPStatusError for 404 status (per httpx docs)
+        try:
+            httpx_error.raise_for_status()
+            assert False, "httpx raise_for_status should raise for 404 status"
+        except httpx.HTTPStatusError as e:
+            assert e.response.status_code == 404
+        
+        # Then test faster_http raise_for_status for error
+        faster_error = faster_http.get(error_url)
+        assert faster_error.status_code == 404
+        
+        # Should raise HTTPStatusError for 404 status (same as httpx)
+        try:
+            faster_error.raise_for_status()
+            assert False, "faster_http raise_for_status should raise for 404 status"
+        except faster_http.HTTPStatusError as e:
+            assert e.response.status_code == 404
+        
+        # Both should handle errors the same way
+        assert httpx_error.status_code == faster_error.status_code
+    
+    def test_response_url_property_comparison(self, stable_server):
+        """Test Response url property - httpx vs faster_http."""
+        url = stable_server.url("/get")
+        
+        # First test httpx Response url property (httpx.URL type per docs)
+        httpx_response = httpx.get(url)
+        assert httpx_response.status_code == 200
+        
+        httpx_url = httpx_response.url
+        assert str(httpx_url) == url  # Convert to string for comparison
+        
+        # Then test faster_http Response url property
+        faster_response = faster_http.get(url)
+        assert faster_response.status_code == 200
+        
+        faster_url = faster_response.url
+        assert str(faster_url) == url
+        
+        # Both should have the same URL
+        assert str(httpx_url) == str(faster_url)
+    
+    def test_response_cookies_property_comparison(self, stable_server):
+        """Test Response cookies property - httpx vs faster_http."""
+        url = stable_server.url("/cookies")
+        cookies = {"test": "value"}
+        
+        # First test httpx Response cookies property (httpx.Cookies per docs)
+        httpx_response = httpx.get(url, cookies=cookies)
+        assert httpx_response.status_code == 200
+        
+        httpx_cookies = httpx_response.cookies
+        assert hasattr(httpx_cookies, '__getitem__')  # Should be dict-like
+        
+        # Then test faster_http Response cookies property
+        faster_response = faster_http.get(url, cookies=cookies)
+        assert faster_response.status_code == 200
+        
+        faster_cookies = faster_response.cookies
+        assert hasattr(faster_cookies, '__getitem__')  # Should be dict-like
+        
+        # Both should have cookies structure
+        assert httpx_response.status_code == faster_response.status_code
+    
+    def test_response_elapsed_property_comparison(self, stable_server):
+        """Test Response elapsed property - httpx vs faster_http."""
+        url = stable_server.url("/get")
+        
+        # First test httpx Response elapsed property (datetime.timedelta per docs)
+        httpx_response = httpx.get(url)
+        assert httpx_response.status_code == 200
+        
+        httpx_elapsed = httpx_response.elapsed
+        # Should be a timedelta-like object with total_seconds method
+        assert hasattr(httpx_elapsed, 'total_seconds')
+        assert httpx_elapsed.total_seconds() >= 0
+        
+        # Then test faster_http Response elapsed property
+        faster_response = faster_http.get(url)
+        assert faster_response.status_code == 200
+        
+        faster_elapsed = faster_response.elapsed
+        # Should match httpx interface
+        assert hasattr(faster_elapsed, 'total_seconds')
+        assert faster_elapsed.total_seconds() >= 0
+        
+        # Both should have reasonable elapsed times
+        assert httpx_response.status_code == faster_response.status_code

@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+use pyo3::PyCell;
 use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,6 +11,50 @@ use crate::utils::build_url;
 use crate::auth::extract_auth;
 use crate::runtime::get_global_runtime;
 use crate::error::RequestError;
+
+// Helper function to extract headers from PyObject (dict or Headers object)
+fn extract_headers_from_object(headers_obj: Option<PyObject>) -> PyResult<Option<HashMap<String, String>>> {
+    if let Some(obj) = headers_obj {
+        Python::with_gil(|py| {
+            // Try to extract as HashMap first
+            if let Ok(dict) = obj.extract::<HashMap<String, String>>(py) {
+                return Ok(Some(dict));
+            }
+            
+            // Try to extract as Headers object
+            if let Ok(headers) = obj.extract::<crate::models::HttpHeaders>(py) {
+                return Ok(Some(headers.to_hashmap()));
+            }
+            
+            // If neither works, return error
+            Err(pyo3::exceptions::PyTypeError::new_err("headers must be a dict or Headers object"))
+        })
+    } else {
+        Ok(None)
+    }
+}
+
+// Helper function to extract cookies from PyObject (dict or Cookies object)
+fn extract_cookies_from_object(cookies_obj: Option<PyObject>) -> PyResult<Option<HashMap<String, String>>> {
+    if let Some(obj) = cookies_obj {
+        Python::with_gil(|py| {
+            // Try to extract as HashMap first
+            if let Ok(dict) = obj.extract::<HashMap<String, String>>(py) {
+                return Ok(Some(dict));
+            }
+            
+            // Try to extract as Cookies object
+            if let Ok(cookies) = obj.extract::<crate::models::HttpCookies>(py) {
+                return Ok(Some(cookies.to_hashmap()));
+            }
+            
+            // If neither works, return error
+            Err(pyo3::exceptions::PyTypeError::new_err("cookies must be a dict or Cookies object"))
+        })
+    } else {
+        Ok(None)
+    }
+}
 
 // Synchronous HTTP client
 #[pyclass]
@@ -24,14 +69,14 @@ impl HttpClient {
     #[new]
     pub fn new(
         base_url: Option<String>,
-        timeout: Option<f64>,
-        headers: Option<HashMap<String, String>>,
+        timeout: Option<PyObject>,  // Accept either f64 or Timeout object
+        headers: Option<PyObject>,  // Accept either HashMap or Headers object
         verify: Option<&PyAny>,
         follow_redirects: Option<bool>,
         auth: Option<PyObject>,
         proxy: Option<&PyAny>,
         proxies: Option<&pyo3::types::PyDict>,
-        cookies: Option<HashMap<String, String>>,
+        cookies: Option<PyObject>,  // Accept either HashMap or Cookies object
         http1: Option<bool>,
         http2: Option<bool>,
         event_hooks: Option<PyObject>,
@@ -44,9 +89,15 @@ impl HttpClient {
         default_encoding: Option<String>,
         params: Option<HashMap<String, String>>,
     ) -> PyResult<Self> {
+        // Extract headers from PyObject (dict or Headers object)
+        let extracted_headers = extract_headers_from_object(headers)?;
+        
+        // Extract cookies from PyObject (dict or Cookies object)
+        let extracted_cookies = extract_cookies_from_object(cookies)?;
+        
         let config = ClientConfig::new(
-            base_url, timeout, headers, verify, follow_redirects, 
-            auth, proxy, proxies, cookies, http1, http2, event_hooks, cert, trust_env,
+            base_url, timeout, extracted_headers, verify, follow_redirects, 
+            auth, proxy, proxies, extracted_cookies, http1, http2, event_hooks, cert, trust_env,
             transport, mounts, limits, max_redirects, default_encoding, params
         )?;
         let client = config.build_client(None)?;
@@ -71,8 +122,14 @@ impl HttpClient {
         json: Option<PyObject>,
         stream: Option<bool>,
     ) -> PyResult<HttpRequest> {
-        // Use centralized URL building
-        let final_url = build_url(url, self.config.base_url.as_ref(), params.as_ref())
+        // Merge default params with request params (same pattern as headers)
+        let mut final_params = self.config.default_params.clone();
+        if let Some(request_params) = params {
+            final_params.extend(request_params);
+        }
+        
+        // Use centralized URL building with merged params
+        let final_url = build_url(url, self.config.base_url.as_ref(), Some(&final_params))
             .map_err(|e| RequestError::new_err(e))?;
         
         // Simple header merging
@@ -85,18 +142,21 @@ impl HttpClient {
         let final_cookies = self.config.default_cookies.clone();
         // Note: Individual request cookies would be handled at higher level
 
-        Ok(HttpRequest::new(
-            method.to_string(),
-            final_url,
-            Some(final_headers),
-            content,
-            params,
-            Some(final_cookies),
-            data,
-            files,
-            json,
-            stream,
-        ))
+        Python::with_gil(|py| {
+            let headers_dict: HashMap<String, String> = final_headers;
+            HttpRequest::new(
+                method.to_string(),
+                final_url,
+                Some(headers_dict.into_py(py)),
+                content,
+                Some(final_params),
+                Some(final_cookies),
+                data,
+                files,
+                json,
+                stream,
+            )
+        })
     }
 
     // Send pre-built request
@@ -126,13 +186,12 @@ impl HttpClient {
         Ok(())
     }
 
-    // Check if client is closed
-    fn check_not_closed(&self) -> PyResult<()> {
-        if self.is_closed.load(Ordering::Relaxed) {
-            return Err(RequestError::new_err("Client has been closed"));
-        }
-        Ok(())
+    // Expose event_hooks for httpx compatibility
+    #[getter] 
+    pub fn event_hooks(&self) -> PyResult<crate::hooks::EventHooksProxy> {
+        Ok(crate::hooks::EventHooksProxy::new(self.config.event_hooks.clone()))
     }
+
 
     // Generic request method to reduce code duplication
     fn _request(
@@ -152,6 +211,17 @@ impl HttpClient {
     ) -> PyResult<HttpResponse> {
         self.check_not_closed()?;
         let rt = get_global_runtime();
+        
+        // Merge default params with request params (same pattern as cookies)
+        let merged_params = match params {
+            Some(request_params) => {
+                let mut merged = self.config.default_params.clone();
+                merged.extend(request_params);
+                Some(merged)
+            }
+            None if !self.config.default_params.is_empty() => Some(self.config.default_params.clone()),
+            _ => None,
+        };
         
         // Simple cookie merging - delegate actual cookie handling to reqwest
         let merged_cookies = match cookies {
@@ -174,7 +244,7 @@ impl HttpClient {
             data, 
             json, 
             files, 
-            params, 
+            merged_params, 
             headers, 
             timeout, 
             &self.config.base_url, 
@@ -384,5 +454,15 @@ impl HttpClient {
     #[getter]
     pub fn auth(&self) -> Option<PyObject> {
         self.config.auth_object.clone()
+    }
+}
+
+impl HttpClient {
+    // Private internal methods not exposed to Python
+    fn check_not_closed(&self) -> PyResult<()> {
+        if self.is_closed.load(Ordering::Relaxed) {
+            return Err(RequestError::new_err("Client has been closed"));
+        }
+        Ok(())
     }
 } 

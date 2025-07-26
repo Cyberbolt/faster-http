@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3_asyncio::tokio::future_into_py;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use crate::error::RequestError;
 use crate::response::{detect_encoding, parse_cookies_from_headers, detect_http_version};
 use crate::runtime::get_global_runtime;
@@ -30,8 +30,18 @@ pub struct StreamingHttpResponse {
     
     // reqwest 响应对象 - 使用 Arc<Mutex<>> 来允许在异步迭代器间共享
     response: Arc<Mutex<Option<reqwest::Response>>>,
-    _closed: bool,
-    _consumed: bool,
+    
+    // Python httpx streaming response for localhost fallback
+    python_stream: Option<PyObject>,
+    
+    // Python httpx context manager for localhost fallback
+    python_context_manager: Option<PyObject>,
+    
+    // Cache for content after aread() to allow subsequent access
+    cached_content: Arc<Mutex<Option<Vec<u8>>>>,
+    
+    _closed: Arc<RwLock<bool>>,
+    _consumed: Arc<RwLock<bool>>,
 }
 
 impl StreamingHttpResponse {
@@ -61,9 +71,59 @@ impl StreamingHttpResponse {
             cookies,
             num_bytes_downloaded: 0,
             response: Arc::new(Mutex::new(Some(response))),
-            _closed: false,
-            _consumed: false,
+            python_stream: None,
+            python_context_manager: None,
+            cached_content: Arc::new(Mutex::new(None)),
+            _closed: Arc::new(RwLock::new(false)),
+            _consumed: Arc::new(RwLock::new(false)),
         }
+    }
+
+    /// Set the Python context manager for proper cleanup
+    pub fn set_python_context_manager(&mut self, context_manager: PyObject) {
+        self.python_context_manager = Some(context_manager);
+    }
+
+    /// Create StreamingHttpResponse from Python httpx streaming response (for localhost fallback)
+    pub fn from_python_stream(py: Python, python_stream: PyObject) -> PyResult<Self> {
+        // Extract response attributes from Python httpx streaming response
+        let status_code: u16 = python_stream.getattr(py, "status_code")?.extract(py)?;
+        let url: String = python_stream.getattr(py, "url")?.call_method0(py, "__str__")?.extract(py)?;
+        
+        // Extract headers - convert httpx.Headers to dict
+        let headers_obj = python_stream.getattr(py, "headers")?;
+        let mut headers = HashMap::new();
+        
+        // Convert Headers object to dictionary for easier processing
+        let dict_type = py.import("builtins")?.getattr("dict")?;
+        let headers_dict = dict_type.call1((headers_obj,))?;
+        
+        let headers_dict_py = headers_dict.downcast::<pyo3::types::PyDict>()?;
+        for (key, value) in headers_dict_py.iter() {
+            let key_str: String = key.extract()?;
+            let value_str: String = value.extract()?;
+            headers.insert(key_str.to_lowercase(), value_str);
+        }
+        
+        let encoding = detect_encoding(&headers);
+        let cookies = parse_cookies_from_headers(&headers);
+        
+        Ok(Self {
+            status_code,
+            headers,
+            url,
+            elapsed: 0.0,
+            http_version: "HTTP/1.1".to_string(),
+            encoding,
+            cookies,
+            num_bytes_downloaded: 0,
+            response: Arc::new(Mutex::new(None)), // No reqwest response for Python fallback
+            python_stream: Some(python_stream),
+            python_context_manager: None, // Will be set by core.rs
+            cached_content: Arc::new(Mutex::new(None)),
+            _closed: Arc::new(RwLock::new(false)),
+            _consumed: Arc::new(RwLock::new(false)),
+        })
     }
 }
 
@@ -123,12 +183,12 @@ impl StreamingHttpResponse {
 
     #[getter]
     pub fn is_closed(&self) -> bool {
-        self._closed
+        *self._closed.read().unwrap()
     }
     
     #[getter]
     pub fn _consumed(&self) -> bool {
-        self._consumed
+        *self._consumed.read().unwrap()
     }
 
     // ==================== 流式方法 - 生产级实现 ====================
@@ -164,27 +224,81 @@ impl StreamingHttpResponse {
     }
 
     /// 流式字节迭代器 - 返回实际数据列表
-    pub fn iter_bytes(&mut self, chunk_size: Option<usize>) -> PyResult<Vec<Vec<u8>>> {
+    pub fn iter_bytes(&mut self, chunk_size: Option<usize>) -> PyResult<Vec<PyObject>> {
         let _chunk_size = chunk_size.unwrap_or(8192);
+        
+        // Handle Python streaming fallback
+        if let Some(ref python_stream) = self.python_stream {
+            return Python::with_gil(|py| {
+                // Call iter_bytes on the Python httpx streaming response - returns a generator
+                let py_chunks_iter = python_stream.call_method1(py, "iter_bytes", (chunk_size,))?;
+                let mut chunks = Vec::new();
+                
+                // Iterate over the Python generator manually
+                loop {
+                    match py_chunks_iter.call_method0(py, "__next__") {
+                        Ok(chunk) => {
+                            // Convert chunk to PyObject bytes
+                            let py_bytes = if let Ok(bytes_obj) = chunk.extract::<&pyo3::types::PyBytes>(py) {
+                                // Already a PyBytes - convert to PyObject
+                                bytes_obj.to_object(py)
+                            } else {
+                                // Try to convert to bytes
+                                let chunk_bytes: Vec<u8> = if let Ok(bytes_vec) = chunk.extract::<Vec<u8>>(py) {
+                                    bytes_vec
+                                } else {
+                                    // Fallback: try to get bytes from the object
+                                    let bytes_method = chunk.call_method0(py, "__bytes__").or_else(|_| -> PyResult<PyObject> {
+                                        // If __bytes__ doesn't exist, try converting to bytes
+                                        let bytes_type = py.import("builtins")?.getattr("bytes")?;
+                                        Ok(bytes_type.call1((chunk,))?.into())
+                                    })?;
+                                    bytes_method.extract::<Vec<u8>>(py)?
+                                };
+                                // Create Python bytes object from Vec<u8>
+                                pyo3::types::PyBytes::new(py, &chunk_bytes).to_object(py)
+                            };
+                            chunks.push(py_bytes);
+                        }
+                        Err(e) => {
+                            // Check if this is StopIteration (end of iterator)
+                            if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) {
+                                break;
+                            } else {
+                                return Err(e);
+                            }
+                        }
+                    }
+                }
+                
+                *self._consumed.write().unwrap() = true;
+                Ok(chunks)
+            });
+        }
+        
+        // Handle reqwest response
         let response_arc = self.response.clone();
         let mut response_guard = response_arc.lock()
             .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
         
         if let Some(response) = response_guard.take() {
             let rt = get_global_runtime();
-            let mut chunks = Vec::new();
             
             // Read all chunks from the response
             let bytes = rt.block_on(async move {
                 response.bytes().await
             }).map_err(|e| RequestError::new_err(format!("Failed to read response body: {}", e)))?;
             
-            // Split into chunks
-            for chunk in bytes.chunks(_chunk_size) {
-                chunks.push(chunk.to_vec());
-            }
+            // Split into chunks and convert to Python bytes objects
+            let mut chunks = Vec::new();
+            Python::with_gil(|py| {
+                for chunk in bytes.chunks(_chunk_size) {
+                    let py_bytes = pyo3::types::PyBytes::new(py, chunk).to_object(py);
+                    chunks.push(py_bytes);
+                }
+            });
             
-            self._consumed = true;
+            *self._consumed.write().unwrap() = true;
             Ok(chunks)
         } else {
             Err(pyo3::exceptions::PyRuntimeError::new_err("Response has been consumed or closed".to_string()))
@@ -212,7 +326,7 @@ impl StreamingHttpResponse {
                 text_chunks.push(chunk.iter().collect::<String>());
             }
             
-            self._consumed = true;
+            *self._consumed.write().unwrap() = true;
             Ok(text_chunks)
         } else {
             Err(pyo3::exceptions::PyRuntimeError::new_err("Response has been consumed or closed".to_string()))
@@ -236,7 +350,7 @@ impl StreamingHttpResponse {
             // Split into lines
             let lines: Vec<String> = text.lines().map(|line| line.to_string()).collect();
             
-            self._consumed = true;
+            *self._consumed.write().unwrap() = true;
             Ok(lines)
         } else {
             Err(pyo3::exceptions::PyRuntimeError::new_err("Response has been consumed or closed".to_string()))
@@ -244,7 +358,7 @@ impl StreamingHttpResponse {
     }
 
     /// 原始字节流迭代器
-    pub fn iter_raw(&mut self, chunk_size: Option<usize>) -> PyResult<Vec<Vec<u8>>> {
+    pub fn iter_raw(&mut self, chunk_size: Option<usize>) -> PyResult<Vec<PyObject>> {
         self.iter_bytes(chunk_size)
     }
 
@@ -253,6 +367,23 @@ impl StreamingHttpResponse {
     /// 一次性读取全部内容为 bytes
     #[getter]
     pub fn content(&mut self, py: Python) -> PyResult<PyObject> {
+        // Handle Python streaming fallback
+        if let Some(ref python_stream) = self.python_stream {
+            let content_bytes = python_stream.getattr(py, "content")?.extract::<Vec<u8>>(py)?;
+            *self._consumed.write().unwrap() = true;
+            return Ok(PyBytes::new(py, &content_bytes).to_object(py));
+        }
+        
+        // Check if we have cached content first
+        {
+            let cache_guard = self.cached_content.lock()
+                .map_err(|_| RequestError::new_err("Failed to acquire cache lock"))?;
+            if let Some(ref cached_bytes) = *cache_guard {
+                return Ok(PyBytes::new(py, cached_bytes).to_object(py));
+            }
+        }
+        
+        // Handle reqwest response (if not cached)
         let response_arc = self.response.clone();
         let mut response_guard = response_arc.lock()
             .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
@@ -263,7 +394,7 @@ impl StreamingHttpResponse {
                 response.bytes().await
             }).map_err(|e| RequestError::new_err(format!("Failed to read response body: {}", e)))?;
             
-            self._consumed = true;
+            *self._consumed.write().unwrap() = true;
             Ok(PyBytes::new(py, &bytes).to_object(py))
         } else {
             Err(pyo3::exceptions::PyRuntimeError::new_err("Response has been consumed or closed".to_string()))
@@ -273,6 +404,25 @@ impl StreamingHttpResponse {
     /// 一次性读取全部内容为文本
     #[getter]
     pub fn text(&mut self) -> PyResult<String> {
+        // Handle Python streaming fallback
+        if let Some(ref python_stream) = self.python_stream {
+            return Python::with_gil(|py| {
+                let text: String = python_stream.getattr(py, "text")?.extract(py)?;
+                *self._consumed.write().unwrap() = true;
+                Ok(text)
+            });
+        }
+        
+        // Check if we have cached content first
+        {
+            let cache_guard = self.cached_content.lock()
+                .map_err(|_| RequestError::new_err("Failed to acquire cache lock"))?;
+            if let Some(ref cached_bytes) = *cache_guard {
+                return Ok(String::from_utf8_lossy(cached_bytes).to_string());
+            }
+        }
+        
+        // Handle reqwest response (if not cached)
         let response_arc = self.response.clone();
         let mut response_guard = response_arc.lock()
             .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
@@ -283,7 +433,7 @@ impl StreamingHttpResponse {
                 response.text().await
             }).map_err(|e| RequestError::new_err(format!("Failed to read response text: {}", e)))?;
             
-            self._consumed = true;
+            *self._consumed.write().unwrap() = true;
             Ok(text)
         } else {
             Err(pyo3::exceptions::PyRuntimeError::new_err("Response has been consumed or closed".to_string()))
@@ -292,6 +442,27 @@ impl StreamingHttpResponse {
 
     /// JSON 解析
     pub fn json(&mut self, py: Python) -> PyResult<PyObject> {
+        // Handle Python streaming fallback
+        if let Some(ref python_stream) = self.python_stream {
+            let json_data = python_stream.call_method0(py, "json")?;
+            *self._consumed.write().unwrap() = true;
+            return Ok(json_data);
+        }
+        
+        // Check if we have cached content first
+        {
+            let cache_guard = self.cached_content.lock()
+                .map_err(|_| RequestError::new_err("Failed to acquire cache lock"))?;
+            if let Some(ref cached_bytes) = *cache_guard {
+                let text = String::from_utf8_lossy(cached_bytes);
+                let json_value: serde_json::Value = serde_json::from_str(&text)
+                    .map_err(|e| RequestError::new_err(format!("JSON decode error: {}", e)))?;
+                return pythonize::pythonize(py, &json_value)
+                    .map_err(|e| RequestError::new_err(format!("Failed to convert JSON to Python: {}", e)));
+            }
+        }
+        
+        // Fallback to reading from response directly (if not cached)
         let text = self.text()?;
         let json_value: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| RequestError::new_err(format!("JSON decode error: {}", e)))?;
@@ -301,13 +472,43 @@ impl StreamingHttpResponse {
 
     // ==================== 资源管理 ====================
     
+    /// Read content for httpx compatibility (required before accessing content/json for streaming responses)
+    pub fn read(&mut self) -> PyResult<()> {
+        // Handle Python streaming fallback
+        if let Some(ref python_stream) = self.python_stream {
+            return Python::with_gil(|py| {
+                python_stream.call_method0(py, "read")?;
+                Ok(())
+            });
+        }
+        
+        // For reqwest responses, this is a no-op since we handle reading internally
+        Ok(())
+    }
+
     pub fn close(&mut self) -> PyResult<()> {
+        // Handle Python streaming fallback
+        if let Some(ref python_context_manager) = self.python_context_manager {
+            Python::with_gil(|py| {
+                // Call __exit__ on the context manager
+                let _ = python_context_manager.call_method(py, "__exit__", (py.None(), py.None(), py.None()), None);
+            });
+        }
+        
+        // Also close the stream if available
+        if let Some(ref python_stream) = self.python_stream {
+            Python::with_gil(|py| {
+                let _ = python_stream.call_method0(py, "close");
+            });
+        }
+        
+        // Handle reqwest response
         let response_arc = self.response.clone();
         let mut response_guard = response_arc.lock()
             .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
         *response_guard = None;
-        self._closed = true;
-        self._consumed = true;  // Mark as consumed when closed
+        *self._closed.write().unwrap() = true;
+        *self._consumed.write().unwrap() = true;  // Mark as consumed when closed
         Ok(())
     }
 
@@ -317,12 +518,14 @@ impl StreamingHttpResponse {
     }
 
     fn __exit__(
-        #[allow(unused_mut)] mut slf: PyRefMut<Self>,
+        mut slf: PyRefMut<Self>,
         _exc_type: Option<PyObject>,
         _exc_value: Option<PyObject>,
         _traceback: Option<PyObject>,
     ) -> PyResult<bool> {
-        slf.close()?;
+        // This method shouldn't be called since StreamingClient is the context manager
+        // But keep it for completeness
+        let _ = slf.close();
         Ok(false)
     }
 
@@ -417,21 +620,50 @@ impl StreamingHttpResponse {
     /// 异步读取完整内容
     pub fn aread<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
         let response_arc = self.response.clone();
+        let cached_content_arc = self.cached_content.clone();
+        
+        // Handle Python streaming fallback
+        if let Some(ref python_stream) = self.python_stream {
+            let python_stream = python_stream.clone();
+            return future_into_py(py, async move {
+                Python::with_gil(|py| {
+                    python_stream.call_method0(py, "read")
+                })
+            });
+        }
         
         future_into_py(py, async move {
+            // First check if we already have cached content
+            {
+                let cache_guard = cached_content_arc.lock()
+                    .map_err(|_| RequestError::new_err("Failed to acquire cache lock"))?;
+                if cache_guard.is_some() {
+                    return Ok(());  // Content already read
+                }
+            }
+            
+            // Read content from response and cache it
             let response = {
                 let mut response_guard = response_arc.lock()
-            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
+                    .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
                 response_guard.take()
             };
             
-            if let Some(response) = response {
-                let bytes = response.bytes().await
-                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to read response body: {}", e)))?;
-                Ok(bytes.to_vec())
+            let bytes = if let Some(response) = response {
+                response.bytes().await
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to read response body: {}", e)))?
             } else {
-                Err(pyo3::exceptions::PyRuntimeError::new_err("Response has been consumed or closed"))
+                return Err(pyo3::exceptions::PyRuntimeError::new_err("Response has been consumed or closed"));
+            };
+            
+            // Cache the content for subsequent access
+            {
+                let mut cache_guard = cached_content_arc.lock()
+                    .map_err(|_| RequestError::new_err("Failed to acquire cache lock"))?;
+                *cache_guard = Some(bytes.to_vec());
             }
+            
+            Ok(())
         })
     }
     
@@ -641,17 +873,27 @@ impl StreamingClient {
     /// Context manager entry - execute request and return response
     fn __enter__(slf: PyRef<Self>) -> PyResult<StreamingHttpResponse> {
         let response = slf.execute_request()?;
+        // Store the response for cleanup in __exit__
+        {
+            let mut response_guard = slf.response.lock().unwrap();
+            *response_guard = Some(response.clone());
+        }
         Ok(response)
     }
 
     /// Context manager exit - cleanup resources
     fn __exit__(
-        _slf: PyRefMut<Self>,
+        slf: PyRefMut<Self>,
         _exc_type: Option<PyObject>,
         _exc_val: Option<PyObject>,
         _exc_tb: Option<PyObject>,
     ) -> PyResult<bool> {
-        // Resources are automatically cleaned up when response goes out of scope
+        // Close the response that was created in __enter__
+        if let Ok(mut response_guard) = slf.response.lock() {
+            if let Some(mut response) = response_guard.take() {
+                let _ = response.close();
+            }
+        }
         Ok(false)
     }
 
