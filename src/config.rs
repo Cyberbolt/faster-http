@@ -176,19 +176,28 @@ impl ClientConfig {
             builder = builder.redirect(reqwest::redirect::Policy::limited(max as usize));
         }
 
-        // Extreme minimal configuration for maximum localhost compatibility
+        // Optimized configuration for high performance
         builder = builder
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(5))  // Short connect timeout
-            .pool_idle_timeout(None)  // Disable connection pooling entirely
-            .pool_max_idle_per_host(0)  // No idle connections
-            .http1_only()  // Force HTTP/1.1 only
-            .http1_title_case_headers()  // Case headers for compatibility
-            .tcp_nodelay(false)  // Disable TCP_NODELAY for compatibility
-            .tcp_keepalive(None)  // Disable TCP keepalive
-            .no_proxy()  // Disable all proxy settings
+            .pool_idle_timeout(Some(Duration::from_secs(30)))  // Enable connection pooling with 30s timeout
+            .pool_max_idle_per_host(10)  // Allow 10 idle connections per host
+            .tcp_nodelay(true)  // Enable TCP_NODELAY for low latency
+            .tcp_keepalive(Some(Duration::from_secs(60)))  // Enable TCP keepalive
             .danger_accept_invalid_certs(true)  // For testing
             .danger_accept_invalid_hostnames(true);  // For testing
+
+        // Configure HTTP versions based on parameters
+        if http1 && !http2 {
+            builder = builder.http1_only();
+        } else if !http1 && http2 {
+            builder = builder.http2_prior_knowledge();
+        }
+        // If both are enabled, let reqwest choose automatically
+        
+        if http1 {
+            builder = builder.http1_title_case_headers();  // Case headers for HTTP/1.1 compatibility
+        }
 
         // Only apply SSL for HTTPS URLs - skip for localhost HTTP
         // (SSL config will be applied per-request if needed)
@@ -200,19 +209,28 @@ impl ClientConfig {
     pub fn build_client(&self, custom_verify: Option<&PyAny>) -> PyResult<Client> {
         let mut builder = Client::builder();
 
-        // Extreme minimal configuration for maximum localhost compatibility
+        // Optimized configuration for high performance
         builder = builder
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(5))  // Short connect timeout
-            .pool_idle_timeout(None)  // Disable connection pooling entirely
-            .pool_max_idle_per_host(0)  // No idle connections
-            .http1_only()  // Force HTTP/1.1 only
-            .http1_title_case_headers()  // Case headers for compatibility
-            .tcp_nodelay(false)  // Disable TCP_NODELAY for compatibility
-            .tcp_keepalive(None)  // Disable TCP keepalive
-            .no_proxy()  // Disable all proxy settings
+            .pool_idle_timeout(Some(Duration::from_secs(30)))  // Enable connection pooling with 30s timeout
+            .pool_max_idle_per_host(10)  // Allow 10 idle connections per host
+            .tcp_nodelay(true)  // Enable TCP_NODELAY for low latency
+            .tcp_keepalive(Some(Duration::from_secs(60)))  // Enable TCP keepalive
             .danger_accept_invalid_certs(true)  // For testing
             .danger_accept_invalid_hostnames(true);  // For testing
+
+        // Configure HTTP versions based on client configuration
+        if self.http1 && !self.http2 {
+            builder = builder.http1_only();
+        } else if !self.http1 && self.http2 {
+            builder = builder.http2_prior_knowledge();
+        }
+        // If both are enabled, let reqwest choose automatically
+        
+        if self.http1 {
+            builder = builder.http1_title_case_headers();  // Case headers for HTTP/1.1 compatibility
+        }
 
         // Only apply SSL for HTTPS URLs - skip for localhost HTTP
         // (SSL config will be applied per-request if needed)
