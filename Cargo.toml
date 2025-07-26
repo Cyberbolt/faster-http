@@ -8,13 +8,7 @@ name = "_core"
 # "cdylib" is necessary to produce a shared library for Python to import from.
 crate-type = ["cdylib"]
 
-[[bin]]
-name = "test_localhost"
-path = "test_reqwest_localhost.rs"
-
-[[bin]]
-name = "test_ureq"
-path = "test_ureq_localhost.rs"
+# Removed obsolete test binaries
 
 [dependencies]
 # "extension-module" tells pyo3 we want to build an extension module (skips linking against libpython.so)
