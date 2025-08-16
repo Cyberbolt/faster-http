@@ -1,14 +1,15 @@
+use crate::core::build_and_send_request;
+use crate::response::HttpResponse;
+use crate::runtime::get_global_runtime;
+use crate::streaming::StreamingClient;
 use pyo3::prelude::*;
 use std::collections::HashMap;
-use crate::response::HttpResponse;
-use crate::streaming::StreamingClient;
-use crate::core::build_and_send_request;
-use crate::runtime::get_global_runtime;
 
 // Helper function to handle localhost vs external requests with different runtime strategies
+#[allow(clippy::too_many_arguments)]
 fn execute_request_with_runtime(
     config: &ClientConfig,
-    method: &str, 
+    method: &str,
     url: &str,
     content: Option<Vec<u8>>,
     data: Option<HashMap<String, PyObject>>,
@@ -19,7 +20,7 @@ fn execute_request_with_runtime(
     timeout: Option<f64>,
     auth_tuple: Option<(String, String)>,
     follow_redirects: bool,
-    cookies: Option<HashMap<String, String>>
+    cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     // For localhost URLs, try with a dedicated runtime to avoid async context issues
     if url.contains("127.0.0.1") || url.contains("localhost") || url.contains("0.0.0.0") {
@@ -27,18 +28,44 @@ fn execute_request_with_runtime(
             .enable_all()
             .build()
         {
-            Ok(dedicated_rt) => {
-                dedicated_rt.block_on(build_and_send_request(
-                    config, method, url, content, data, json, files, params, headers, timeout,
-                    &None, &HashMap::new(), None, auth_tuple, follow_redirects, cookies
-                ))
-            },
+            Ok(dedicated_rt) => dedicated_rt.block_on(build_and_send_request(
+                config,
+                method,
+                url,
+                content,
+                data,
+                json,
+                files,
+                params,
+                headers,
+                timeout,
+                &None,
+                &HashMap::new(),
+                None,
+                auth_tuple,
+                follow_redirects,
+                cookies,
+            )),
             Err(_) => {
                 // Fallback to global runtime if dedicated runtime creation fails
                 let rt = get_global_runtime();
                 rt.block_on(build_and_send_request(
-                    config, method, url, content, data, json, files, params, headers, timeout,
-                    &None, &HashMap::new(), None, auth_tuple, follow_redirects, cookies
+                    config,
+                    method,
+                    url,
+                    content,
+                    data,
+                    json,
+                    files,
+                    params,
+                    headers,
+                    timeout,
+                    &None,
+                    &HashMap::new(),
+                    None,
+                    auth_tuple,
+                    follow_redirects,
+                    cookies,
                 ))
             }
         }
@@ -46,14 +73,28 @@ fn execute_request_with_runtime(
         // For external URLs, use the global runtime
         let rt = get_global_runtime();
         rt.block_on(build_and_send_request(
-            config, method, url, content, data, json, files, params, headers, timeout,
-            &None, &HashMap::new(), None, auth_tuple, follow_redirects, cookies
+            config,
+            method,
+            url,
+            content,
+            data,
+            json,
+            files,
+            params,
+            headers,
+            timeout,
+            &None,
+            &HashMap::new(),
+            None,
+            auth_tuple,
+            follow_redirects,
+            cookies,
         ))
     }
 }
+use crate::auth::{extract_auth, extract_auth_from_object};
 use crate::config::ClientConfig;
 use crate::models::HttpHeaders;
-use crate::auth::{extract_auth_from_object, extract_auth};
 
 // Helper function to extract headers from either HashMap or Headers object
 fn extract_headers(headers: Option<PyObject>) -> PyResult<Option<HashMap<String, String>>> {
@@ -63,14 +104,16 @@ fn extract_headers(headers: Option<PyObject>) -> PyResult<Option<HashMap<String,
             if let Ok(hashmap) = h.extract::<HashMap<String, String>>(py) {
                 return Ok(Some(hashmap));
             }
-            
+
             // Try to extract as Headers object
             if let Ok(headers_obj) = h.extract::<PyRef<HttpHeaders>>(py) {
                 return Ok(Some(headers_obj.to_hashmap()));
             }
-            
+
             // If neither works, return an error
-            Err(pyo3::exceptions::PyTypeError::new_err("headers must be a dict or Headers object"))
+            Err(pyo3::exceptions::PyTypeError::new_err(
+                "headers must be a dict or Headers object",
+            ))
         })
     } else {
         Ok(None)
@@ -90,16 +133,18 @@ fn extract_auth_parameter(auth: Option<PyObject>) -> PyResult<Option<(String, St
             if let Ok(tuple) = auth_obj.extract::<(String, String)>(py) {
                 return Ok(Some(tuple));
             }
-            
+
             // Try to extract as Auth object
             if let Ok(auth_type) = extract_auth_from_object(&auth_obj) {
                 if let Some(auth_data) = extract_auth(&auth_type) {
                     return Ok(Some(auth_data));
                 }
             }
-            
+
             // If neither works, return an error
-            Err(pyo3::exceptions::PyTypeError::new_err("auth must be a tuple (username, password) or Auth object"))
+            Err(pyo3::exceptions::PyTypeError::new_err(
+                "auth must be a tuple (username, password) or Auth object",
+            ))
         })
     } else {
         Ok(None)
@@ -113,26 +158,26 @@ fn create_ephemeral_config(
     follow_redirects: bool,
 ) -> PyResult<ClientConfig> {
     ClientConfig::new(
-        None,                       // base_url
+        None,                               // base_url
         extract_timeout_parameter(timeout), // timeout - convert f64 to PyObject
-        None,                       // headers
-        None,                       // verify
-        Some(follow_redirects),     // follow_redirects
-        None,                       // auth
-        None,                       // proxy
-        None,                       // proxies
-        cookies,                    // cookies
-        None,                       // http1
-        None,                       // http2
-        None,                       // event_hooks
-        None,                       // cert
-        None,                       // trust_env
-        None,                       // transport
-        None,                       // mounts
-        None,                       // limits
-        None,                       // max_redirects
-        None,                       // default_encoding
-        None,                       // params
+        None,                               // headers
+        None,                               // verify
+        Some(follow_redirects),             // follow_redirects
+        None,                               // auth
+        None,                               // proxy
+        None,                               // proxies
+        cookies,                            // cookies
+        None,                               // http1
+        None,                               // http2
+        None,                               // event_hooks
+        None,                               // cert
+        None,                               // trust_env
+        None,                               // transport
+        None,                               // mounts
+        None,                               // limits
+        None,                               // max_redirects
+        None,                               // default_encoding
+        None,                               // params
     )
 }
 
@@ -149,17 +194,30 @@ pub fn get(
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
-    
+
     // Create ephemeral config for this request only
-    let config = create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
-    
+    let config =
+        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+
     execute_request_with_runtime(
-        &config, "GET", url, None, None, None, None, params, headers, timeout,
-        auth_tuple, follow_redirects.unwrap_or(false), cookies
+        &config,
+        "GET",
+        url,
+        None,
+        None,
+        None,
+        None,
+        params,
+        headers,
+        timeout,
+        auth_tuple,
+        follow_redirects.unwrap_or(false),
+        cookies,
     )
 }
 
 #[pyfunction]
+#[allow(clippy::too_many_arguments)]
 pub fn post(
     url: &str,
     content: Option<Vec<u8>>,
@@ -175,18 +233,31 @@ pub fn post(
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
-    
+
     // Create ephemeral config for this request only
-    let config = create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
-    
+    let config =
+        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+
     let extracted_headers = extract_headers(headers)?;
     execute_request_with_runtime(
-        &config, "POST", url, content, data, json, files, params, extracted_headers, timeout,
-        auth_tuple, follow_redirects.unwrap_or(false), cookies
+        &config,
+        "POST",
+        url,
+        content,
+        data,
+        json,
+        files,
+        params,
+        extracted_headers,
+        timeout,
+        auth_tuple,
+        follow_redirects.unwrap_or(false),
+        cookies,
     )
 }
 
 #[pyfunction]
+#[allow(clippy::too_many_arguments)]
 pub fn put(
     url: &str,
     content: Option<Vec<u8>>,
@@ -202,17 +273,30 @@ pub fn put(
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
-    
+
     // Create ephemeral config for this request only
-    let config = create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
-    
+    let config =
+        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+
     execute_request_with_runtime(
-        &config, "PUT", url, content, data, json, files, params, headers, timeout,
-        auth_tuple, follow_redirects.unwrap_or(false), cookies
+        &config,
+        "PUT",
+        url,
+        content,
+        data,
+        json,
+        files,
+        params,
+        headers,
+        timeout,
+        auth_tuple,
+        follow_redirects.unwrap_or(false),
+        cookies,
     )
 }
 
 #[pyfunction]
+#[allow(clippy::too_many_arguments)]
 pub fn patch(
     url: &str,
     content: Option<Vec<u8>>,
@@ -228,13 +312,25 @@ pub fn patch(
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
-    
+
     // Create ephemeral config for this request only
-    let config = create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
-    
+    let config =
+        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+
     execute_request_with_runtime(
-        &config, "PATCH", url, content, data, json, files, params, headers, timeout,
-        auth_tuple, follow_redirects.unwrap_or(false), cookies
+        &config,
+        "PATCH",
+        url,
+        content,
+        data,
+        json,
+        files,
+        params,
+        headers,
+        timeout,
+        auth_tuple,
+        follow_redirects.unwrap_or(false),
+        cookies,
     )
 }
 
@@ -250,13 +346,25 @@ pub fn delete(
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
-    
+
     // Create ephemeral config for this request only
-    let config = create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
-    
+    let config =
+        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+
     execute_request_with_runtime(
-        &config, "DELETE", url, None, None, None, None, params, headers, timeout,
-        auth_tuple, follow_redirects.unwrap_or(false), cookies
+        &config,
+        "DELETE",
+        url,
+        None,
+        None,
+        None,
+        None,
+        params,
+        headers,
+        timeout,
+        auth_tuple,
+        follow_redirects.unwrap_or(false),
+        cookies,
     )
 }
 
@@ -272,13 +380,25 @@ pub fn head(
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
-    
+
     // Create ephemeral config for this request only
-    let config = create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
-    
+    let config =
+        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+
     execute_request_with_runtime(
-        &config, "HEAD", url, None, None, None, None, params, headers, timeout,
-        auth_tuple, follow_redirects.unwrap_or(false), cookies
+        &config,
+        "HEAD",
+        url,
+        None,
+        None,
+        None,
+        None,
+        params,
+        headers,
+        timeout,
+        auth_tuple,
+        follow_redirects.unwrap_or(false),
+        cookies,
     )
 }
 
@@ -294,18 +414,31 @@ pub fn options(
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
-    
+
     // Create ephemeral config for this request only
-    let config = create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
-    
+    let config =
+        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+
     execute_request_with_runtime(
-        &config, "OPTIONS", url, None, None, None, None, params, headers, timeout,
-        auth_tuple, follow_redirects.unwrap_or(false), cookies
+        &config,
+        "OPTIONS",
+        url,
+        None,
+        None,
+        None,
+        None,
+        params,
+        headers,
+        timeout,
+        auth_tuple,
+        follow_redirects.unwrap_or(false),
+        cookies,
     )
 }
 
 // Generic request function that creates ephemeral client
 #[pyfunction]
+#[allow(clippy::too_many_arguments)]
 pub fn request(
     method: &str,
     url: &str,
@@ -322,19 +455,32 @@ pub fn request(
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
-    
+
     // Create ephemeral config for this request only
-    let config = create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
-    
+    let config =
+        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+
     let extracted_headers = extract_headers(headers)?;
     execute_request_with_runtime(
-        &config, method, url, content, data, json, files, params, extracted_headers, timeout,
-        auth_tuple, follow_redirects.unwrap_or(false), cookies
+        &config,
+        method,
+        url,
+        content,
+        data,
+        json,
+        files,
+        params,
+        extracted_headers,
+        timeout,
+        auth_tuple,
+        follow_redirects.unwrap_or(false),
+        cookies,
     )
 }
 
 // Enhanced streaming request function with ephemeral config
 #[pyfunction]
+#[allow(clippy::too_many_arguments)]
 pub fn stream(
     method: &str,
     url: &str,
@@ -351,10 +497,11 @@ pub fn stream(
 ) -> PyResult<StreamingClient> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
-    
+
     // Create ephemeral config for this request only
-    let config = create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
-    
+    let config =
+        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+
     Ok(StreamingClient::new(
         config,
         method.to_string(),

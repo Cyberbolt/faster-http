@@ -38,9 +38,13 @@ Documentation = "https://github.com/cyberbolt/faster-http#readme"
 module-name = "faster_http._core"
 python-packages = ["faster_http"]
 python-source = "src"
+# 确保使用 ABI3 构建兼容多个 Python 版本的 wheel
+features = ["pyo3/abi3-py310"]
+# 针对不同平台构建优化的 wheel
+strip = true
 
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
+requires = ["maturin>=1.9.0,<1.10.0"]
 build-backend = "maturin"
 
 [dependency-groups]
@@ -50,7 +54,7 @@ dev = [
     "httpx[http2]>=0.27.0",
     "requests>=2.31.0",
     "pytest-benchmark>=4.0.0",
-    "maturin>=1.9.0",
+    "maturin[patchelf]>=1.9.0",
     "fastapi>=0.115.14",
     "uvicorn>=0.35.0",
     "ruff>=0.12.1",
@@ -58,4 +62,88 @@ dev = [
     "pytest-xdist>=3.8.0",
     "aiohttp>=3.12.14",
     "pytest-cov>=6.2.1",
+    "pytest-timeout>=2.3.1",
+]
+
+[tool.ruff]
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    "target",
+]
+
+line-length = 120
+indent-width = 4
+target-version = "py310"
+
+[tool.ruff.lint]
+# Enable pycodestyle (`E`) and Pyflakes (`F`) codes by default.
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "PIE", "RUF"]
+ignore = [
+    "E501",    # Line too long (handled by formatter)
+    "N818",    # Exception name should end with Error suffix (httpx compatibility)
+    "N802",    # Function name should be lowercase (HTTP method handlers)
+    "SIM105",  # Use contextlib.suppress (keep explicit for clarity)
+    "SIM117",  # Combine with statements (keep separate for clarity)
+    "B904",    # Use raise from (not applicable for assertion errors)
+    "RUF003",  # Ambiguous unicode character (Chinese comments)
+    "RUF002",  # Ambiguous unicode character in docstrings (Chinese comments)
+]
+
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+# Use single quotes for strings.
+quote-style = "double"
+# Indent with spaces, rather than tabs.
+indent-style = "space"
+# Respect magic trailing commas.
+skip-magic-trailing-comma = false
+# Automatically detect the appropriate line ending.
+line-ending = "auto"
+
+[tool.ruff.lint.isort]
+known-first-party = ["faster_http"]
+force-single-line = false
+force-sort-within-sections = true
+single-line-exclusions = ["typing"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",    # Use of assert in tests is fine
+    "PLR2004", # Magic values in tests are fine
+    "ANN",     # No need for type annotations in tests
+    "ARG",     # Unused arguments in tests are fine (fixtures)
+    "FBT",     # Boolean positional args in tests are fine
+]
+"benchmark/**/*.py" = [
+    "S101",    # Use of assert in benchmarks is fine
+    "PLR2004", # Magic values in benchmarks are fine
+    "ANN",     # No need for type annotations in benchmarks
+    "T20",     # Print statements in benchmarks are fine
 ]

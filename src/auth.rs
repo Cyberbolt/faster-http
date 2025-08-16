@@ -1,6 +1,6 @@
 // Authentication types enum - minimal interface for reqwest delegation
-use pyo3::prelude::*;
 use crate::models::{HttpBasicAuth, HttpDigestAuth, HttpNetRCAuth};
+use pyo3::prelude::*;
 
 #[derive(Clone)]
 pub enum AuthType {
@@ -20,7 +20,7 @@ pub fn extract_auth_from_object(auth_obj: &PyObject) -> PyResult<Option<AuthType
                 password: basic_auth.password(),
             }));
         }
-        
+
         // Try to extract as DigestAuth
         if let Ok(digest_auth) = auth_obj.extract::<HttpDigestAuth>(py) {
             return Ok(Some(AuthType::Digest {
@@ -28,14 +28,14 @@ pub fn extract_auth_from_object(auth_obj: &PyObject) -> PyResult<Option<AuthType
                 password: digest_auth.password(),
             }));
         }
-        
+
         // Try to extract as NetRCAuth
         if let Ok(netrc_auth) = auth_obj.extract::<HttpNetRCAuth>(py) {
             return Ok(Some(AuthType::NetRC {
                 file: Some(netrc_auth.file()),
             }));
         }
-        
+
         // If none of the above, return None
         Ok(None)
     })
@@ -47,4 +47,4 @@ pub fn extract_auth(auth: &Option<AuthType>) -> Option<(String, String)> {
         Some(AuthType::Digest { username, password }) => Some((username.clone(), password.clone())),
         _ => None,
     }
-} 
+}

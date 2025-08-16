@@ -1,10 +1,10 @@
-use pyo3::prelude::*;
-use pyo3::exceptions::PyValueError;
-use pyo3::types::{PyBytes, IntoPyDict};
+use crate::error::HTTPStatusError;
 use bytes::Bytes;
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
+use pyo3::types::{IntoPyDict, PyBytes};
 use serde_json::Value;
 use std::collections::HashMap;
-use crate::error::HTTPStatusError;
 
 // 响应对象 - 生产级版本，与 httpx 完全对齐
 #[pyclass]
@@ -30,6 +30,7 @@ pub struct HttpResponse {
 }
 
 impl HttpResponse {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         status_code: u16,
         headers: HashMap<String, String>,
@@ -91,7 +92,9 @@ impl HttpResponse {
             let datetime = py.import("datetime")?;
             let timedelta = datetime.getattr("timedelta")?;
             // 使用 seconds 参数而不是 days
-            timedelta.call((), Some([("seconds", self.elapsed)].into_py_dict(py))).map(|obj| obj.to_object(py))
+            timedelta
+                .call((), Some([("seconds", self.elapsed)].into_py_dict(py)))
+                .map(|obj| obj.to_object(py))
         })
     }
 
@@ -181,16 +184,12 @@ impl HttpResponse {
     #[getter]
     pub fn text(&self) -> PyResult<String> {
         let encoding = self.encoding.as_deref().unwrap_or("utf-8");
-        
+
         match encoding.to_lowercase().as_str() {
-            "utf-8" | "utf8" => {
-                Ok(String::from_utf8_lossy(&self.body).to_string())
-            }
+            "utf-8" | "utf8" => Ok(String::from_utf8_lossy(&self.body).to_string()),
             "latin-1" | "iso-8859-1" => {
                 // Latin-1 每个字节对应一个 Unicode 码点
-                let text = self.body.iter()
-                    .map(|&b| b as char)
-                    .collect::<String>();
+                let text = self.body.iter().map(|&b| b as char).collect::<String>();
                 Ok(text)
             }
             _ => {
@@ -198,9 +197,7 @@ impl HttpResponse {
                 match String::from_utf8(self.body.to_vec()) {
                     Ok(text) => Ok(text),
                     Err(_) => {
-                        let text = self.body.iter()
-                            .map(|&b| b as char)
-                            .collect::<String>();
+                        let text = self.body.iter().map(|&b| b as char).collect::<String>();
                         Ok(text)
                     }
                 }
@@ -220,7 +217,7 @@ impl HttpResponse {
     pub fn iter_bytes(&self, chunk_size: Option<usize>) -> PyResult<Vec<Py<PyBytes>>> {
         let chunk_size = chunk_size.unwrap_or(8192);
         let mut chunks = Vec::new();
-        
+
         Python::with_gil(|py| {
             for chunk in self.body.chunks(chunk_size) {
                 chunks.push(PyBytes::new(py, chunk).into());
@@ -234,7 +231,7 @@ impl HttpResponse {
         let text = self.text()?;
         let mut text_chunks = Vec::new();
         let chars: Vec<char> = text.chars().collect();
-        
+
         let mut pos = 0;
         while pos < chars.len() {
             let end = std::cmp::min(pos + chunk_size, chars.len());
@@ -242,7 +239,7 @@ impl HttpResponse {
             text_chunks.push(chunk);
             pos = end;
         }
-        
+
         Ok(text_chunks)
     }
 
@@ -260,20 +257,16 @@ impl HttpResponse {
     // ==================== Read methods - httpx compatible ====================
     pub fn read(&self) -> PyResult<Py<PyBytes>> {
         // Synchronous read - return the entire response body
-        Python::with_gil(|py| {
-            Ok(PyBytes::new(py, &self.body).into())
-        })
+        Python::with_gil(|py| Ok(PyBytes::new(py, &self.body).into()))
     }
 
     pub fn aread<'p>(&self, py: Python<'p>) -> PyResult<&'p PyAny> {
         // Asynchronous read - return the entire response body
         use pyo3_asyncio::tokio::future_into_py;
         let body = self.body.clone();
-        
+
         future_into_py(py, async move {
-            Python::with_gil(|py| -> PyResult<Py<PyBytes>> {
-                Ok(PyBytes::new(py, &body).into())
-            })
+            Python::with_gil(|py| -> PyResult<Py<PyBytes>> { Ok(PyBytes::new(py, &body).into()) })
         })
     }
 
@@ -292,10 +285,10 @@ impl HttpResponse {
                 // Convert self to PyObject
                 Py::new(py, self.clone()).map(|obj| obj.to_object(py))
             });
-            
+
             return Err(HTTPStatusError::new_err_with_response(
                 format!("HTTP {} error for url: {}", self.status_code, self.url),
-                response_obj.ok()
+                response_obj.ok(),
             ));
         }
         Ok(())
@@ -324,7 +317,7 @@ impl HttpResponse {
 
     #[getter]
     pub fn is_stream_consumed(&self) -> bool {
-        false  // 我们总是缓存整个响应
+        false // 我们总是缓存整个响应
     }
 
     // ==================== Extensions manipulation ====================
@@ -334,7 +327,7 @@ impl HttpResponse {
 
     // Removed request and history manipulation methods - httpx only provides read-only properties
 
-    #[getter] 
+    #[getter]
     pub fn has_redirect_location(&self) -> bool {
         self.headers.contains_key("location") || self.headers.contains_key("Location")
     }
@@ -349,7 +342,7 @@ impl HttpResponse {
             201 => "Created",
             202 => "Accepted",
             204 => "No Content",
-            301 => "Moved Permanently", 
+            301 => "Moved Permanently",
             302 => "Found",
             303 => "See Other",
             304 => "Not Modified",
@@ -370,15 +363,20 @@ impl HttpResponse {
             502 => "Bad Gateway",
             503 => "Service Unavailable",
             504 => "Gateway Timeout",
-            _ => "Unknown Status"
-        }.to_string()
+            _ => "Unknown Status",
+        }
+        .to_string()
     }
 
     #[getter]
     pub fn links(&self) -> HashMap<String, HashMap<String, String>> {
         let mut links = HashMap::new();
-        
-        if let Some(link_header) = self.headers.get("link").or_else(|| self.headers.get("Link")) {
+
+        if let Some(link_header) = self
+            .headers
+            .get("link")
+            .or_else(|| self.headers.get("Link"))
+        {
             // Parse Link header according to RFC 5988
             for link_part in link_header.split(',') {
                 let link_part = link_part.trim();
@@ -387,8 +385,13 @@ impl HttpResponse {
                         if let Some(url_start) = link_part.find('<') {
                             let url = link_part[url_start + 1..url_end].to_string();
                             let rel_part = &link_part[rel_start + 4..];
-                            let rel = rel_part.split(';').next().unwrap_or("").trim_matches('"').trim();
-                            
+                            let rel = rel_part
+                                .split(';')
+                                .next()
+                                .unwrap_or("")
+                                .trim_matches('"')
+                                .trim();
+
                             let mut link_info = HashMap::new();
                             link_info.insert("url".to_string(), url);
                             links.insert(rel.to_string(), link_info);
@@ -397,7 +400,7 @@ impl HttpResponse {
                 }
             }
         }
-        
+
         links
     }
 
@@ -407,43 +410,47 @@ impl HttpResponse {
         Ok(())
     }
 
-
     pub fn stream(&self) -> PyResult<()> {
         // 流式访问（在我们的实现中是 no-op）
         Ok(())
     }
 
     // ==================== 异步迭代器方法 ====================
+    #[allow(clippy::needless_borrow)]
     pub fn aiter_bytes(&self, chunk_size: Option<usize>) -> PyResult<PyObject> {
         let chunk_size = chunk_size.unwrap_or(8192);
         let body = self.body.clone();
-        
+
         Python::with_gil(|py| {
             // Create Python bytes object from the body data
             let py_bytes = pyo3::types::PyBytes::new(py, &body);
-            
-            let code = format!(
-                r#"
+
+            let code = r#"
 async def aiter_bytes_impl(data, chunk_size):
     for i in range(0, len(data), chunk_size):
         yield data[i:i+chunk_size]
 
 aiter_bytes_impl(data, chunk_size)
 "#
-            );
-            
+            .to_string();
+
             let locals = pyo3::types::PyDict::new(py);
             locals.set_item("data", py_bytes)?;
             locals.set_item("chunk_size", chunk_size)?;
             py.run(&code, None, Some(locals))?;
-            Ok(locals.get_item("aiter_bytes_impl")?.unwrap().call1((py_bytes, chunk_size))?.to_object(py))
+            Ok(locals
+                .get_item("aiter_bytes_impl")?
+                .unwrap()
+                .call1((py_bytes, chunk_size))?
+                .to_object(py))
         })
     }
 
+    #[allow(clippy::needless_borrow)]
     pub fn aiter_text(&self, chunk_size: Option<usize>) -> PyResult<PyObject> {
         let chunk_size = chunk_size.unwrap_or(8192);
         let text = self.text()?;
-        
+
         Python::with_gil(|py| {
             let code = r#"
 async def aiter_text_impl(text, chunk_size):
@@ -452,22 +459,27 @@ async def aiter_text_impl(text, chunk_size):
 
 aiter_text_impl(text, chunk_size)
 "#;
-            
+
             let locals = pyo3::types::PyDict::new(py);
             locals.set_item("text", text.clone())?;
             locals.set_item("chunk_size", chunk_size)?;
             py.run(&code, None, Some(locals))?;
-            Ok(locals.get_item("aiter_text_impl")?.unwrap().call1((text, chunk_size))?.to_object(py))
+            Ok(locals
+                .get_item("aiter_text_impl")?
+                .unwrap()
+                .call1((text, chunk_size))?
+                .to_object(py))
         })
     }
 
+    #[allow(clippy::needless_borrow)]
     pub fn aiter_lines(&self) -> PyResult<PyObject> {
         let text = self.text()?;
-        
+
         Python::with_gil(|py| {
             let lines: Vec<String> = text.lines().map(|line| line.to_string()).collect();
             let py_lines = lines.to_object(py);
-            
+
             let code = r#"
 async def aiter_lines_impl(lines):
     for line in lines:
@@ -475,11 +487,15 @@ async def aiter_lines_impl(lines):
 
 aiter_lines_impl(lines)
 "#;
-            
+
             let locals = pyo3::types::PyDict::new(py);
             locals.set_item("lines", py_lines.clone())?;
             py.run(&code, None, Some(locals))?;
-            Ok(locals.get_item("aiter_lines_impl")?.unwrap().call1((py_lines,))?.to_object(py))
+            Ok(locals
+                .get_item("aiter_lines_impl")?
+                .unwrap()
+                .call1((py_lines,))?
+                .to_object(py))
         })
     }
 
@@ -510,10 +526,10 @@ aiter_lines_impl(lines)
 
 // ==================== 工具函数 ====================
 
-// 从 headers 解析 cookies  
+// 从 headers 解析 cookies
 pub fn parse_cookies_from_headers(headers: &HashMap<String, String>) -> HashMap<String, String> {
     let mut cookies = HashMap::new();
-    
+
     for (key, value) in headers {
         if key.to_lowercase() == "set-cookie" {
             // 每个 Set-Cookie 头都是独立的，不应该用逗号分割
@@ -521,14 +537,14 @@ pub fn parse_cookies_from_headers(headers: &HashMap<String, String>) -> HashMap<
             if let Some(cookie_pair) = value.split(';').next() {
                 if let Some((name, val)) = cookie_pair.split_once('=') {
                     cookies.insert(
-                        name.trim().to_string(), 
-                        val.trim().trim_matches('"').to_string()
+                        name.trim().to_string(),
+                        val.trim().trim_matches('"').to_string(),
                     );
                 }
             }
         }
     }
-    
+
     cookies
 }
 
@@ -540,7 +556,7 @@ pub fn detect_encoding(headers: &HashMap<String, String>) -> Option<String> {
             let charset = &content_type[charset_start + 8..];
             let charset = charset.split(';').next().unwrap_or(charset);
             let charset = charset.trim().trim_matches('"').trim_matches('\'');
-            
+
             // 标准化编码名称
             let normalized = normalize_encoding_name(charset);
             if !normalized.is_empty() {
@@ -548,7 +564,7 @@ pub fn detect_encoding(headers: &HashMap<String, String>) -> Option<String> {
             }
         }
     }
-    
+
     // 2. 默认使用 UTF-8
     Some("utf-8".to_string())
 }
@@ -556,7 +572,7 @@ pub fn detect_encoding(headers: &HashMap<String, String>) -> Option<String> {
 // 标准化编码名称
 fn normalize_encoding_name(encoding: &str) -> String {
     let normalized = encoding.to_lowercase().replace(['_', '-'], "");
-    
+
     match normalized.as_str() {
         "utf8" | "utf-8" => "utf-8".to_string(),
         "latin1" | "iso88591" | "iso-8859-1" => "latin-1".to_string(),
@@ -576,4 +592,4 @@ pub fn detect_http_version(version: &reqwest::Version) -> String {
         reqwest::Version::HTTP_3 => "HTTP/3".to_string(),
         _ => "HTTP/1.1".to_string(), // 默认值
     }
-} 
+}

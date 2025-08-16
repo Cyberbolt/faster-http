@@ -1,8 +1,8 @@
+use crate::request::HttpRequest;
+use crate::response::HttpResponse;
 use pyo3::prelude::*;
 use pyo3::PyCell;
 use std::collections::HashMap;
-use crate::request::HttpRequest;
-use crate::response::HttpResponse;
 
 /// Event hook types supported by faster-http
 #[derive(Clone, Debug)]
@@ -89,7 +89,9 @@ impl EventHooks {
             }
         } else {
             // If not a list, return error like httpx does
-            return Err(pyo3::exceptions::PyTypeError::new_err("object is not iterable"));
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "object is not iterable",
+            ));
         }
 
         Ok(hooks)
@@ -101,17 +103,21 @@ impl EventHooks {
             // Create Python object from HttpRequest
             let py_request = PyCell::new(py, request.clone())?;
             let result = hook.call1(py, (py_request,))?;
-            
+
             // Handle async hooks by checking if result is a coroutine
             if let Ok(inspect_module) = py.import("inspect") {
-                if let Ok(is_coroutine) = inspect_module.call_method1("iscoroutine", (result.clone(),)) {
+                if let Ok(is_coroutine) =
+                    inspect_module.call_method1("iscoroutine", (result.clone(),))
+                {
                     if is_coroutine.is_true()? {
                         // Try to run async hooks properly using asyncio
                         if let Ok(asyncio) = py.import("asyncio") {
                             // Try to get current event loop
                             if let Ok(get_event_loop) = asyncio.call_method0("get_event_loop") {
                                 // Schedule the coroutine to run in the event loop
-                                if let Ok(_task) = get_event_loop.call_method1("create_task", (result,)) {
+                                if let Ok(_task) =
+                                    get_event_loop.call_method1("create_task", (result,))
+                                {
                                     // Task created successfully
                                 }
                             } else {
@@ -133,17 +139,21 @@ impl EventHooks {
             let cloned_response = response.clone();
             let py_response = PyCell::new(py, cloned_response)?;
             let result = hook.call1(py, (py_response,))?;
-            
+
             // Handle async hooks by checking if result is a coroutine
             if let Ok(inspect_module) = py.import("inspect") {
-                if let Ok(is_coroutine) = inspect_module.call_method1("iscoroutine", (result.clone(),)) {
+                if let Ok(is_coroutine) =
+                    inspect_module.call_method1("iscoroutine", (result.clone(),))
+                {
                     if is_coroutine.is_true()? {
                         // Try to run async hooks properly using asyncio
                         if let Ok(asyncio) = py.import("asyncio") {
                             // Try to get current event loop
                             if let Ok(get_event_loop) = asyncio.call_method0("get_event_loop") {
                                 // Schedule the coroutine to run in the event loop
-                                if let Ok(_task) = get_event_loop.call_method1("create_task", (result,)) {
+                                if let Ok(_task) =
+                                    get_event_loop.call_method1("create_task", (result,))
+                                {
                                     // Task created successfully
                                 }
                             } else {
@@ -174,15 +184,23 @@ impl EventHooks {
     }
 
     /// Execute pre-request hooks
-    pub fn execute_pre_request_hooks(&self, py: Python, url: &str, method: &str, headers: &HashMap<String, String>) -> PyResult<()> {
+    pub fn execute_pre_request_hooks(
+        &self,
+        py: Python,
+        url: &str,
+        method: &str,
+        headers: &HashMap<String, String>,
+    ) -> PyResult<()> {
         for hook in &self.pre_request_hooks {
             // Create a simple dict with basic request info
-            let request_info = py.eval(&format!(
-                "{{'method': '{}', 'url': '{}', 'headers': {}}}",
-                method,
-                url,
-                format!("{:?}", headers)
-            ), None, None)?;
+            let request_info = py.eval(
+                &format!(
+                    "{{'method': '{}', 'url': '{}', 'headers': {:?}}}",
+                    method, url, headers
+                ),
+                None,
+                None,
+            )?;
             hook.call1(py, (request_info,))?;
         }
         Ok(())
@@ -198,18 +216,20 @@ impl EventHooks {
     }
 
     /// Execute error hooks
-    pub fn execute_error_hooks(&self, py: Python, error: &str, context: Option<&str>) -> PyResult<()> {
+    pub fn execute_error_hooks(
+        &self,
+        py: Python,
+        error: &str,
+        context: Option<&str>,
+    ) -> PyResult<()> {
         for hook in &self.error_hooks {
             let error_info = match context {
-                Some(ctx) => py.eval(&format!(
-                    "{{'error': '{}', 'context': '{}'}}",
-                    error,
-                    ctx
-                ), None, None)?,
-                None => py.eval(&format!(
-                    "{{'error': '{}'}}",
-                    error
-                ), None, None)?,
+                Some(ctx) => py.eval(
+                    &format!("{{'error': '{}', 'context': '{}'}}", error, ctx),
+                    None,
+                    None,
+                )?,
+                None => py.eval(&format!("{{'error': '{}'}}", error), None, None)?,
             };
             hook.call1(py, (error_info,))?;
         }
@@ -266,7 +286,7 @@ impl EventHooks {
     pub fn update_from_python_dict(&mut self, py: Python, hooks_dict: &PyObject) -> PyResult<()> {
         // Clear existing hooks
         self.clear_all_hooks();
-        
+
         // Extract new hooks from dict
         if let Ok(dict) = hooks_dict.extract::<HashMap<String, PyObject>>(py) {
             for (hook_type, hooks_obj) in dict {
@@ -293,20 +313,20 @@ impl EventHooks {
                 }
             }
         }
-        
+
         Ok(())
     }
 
     /// Convert EventHooks back to Python dict format for httpx compatibility
     pub fn to_python_dict(&self, py: Python) -> PyResult<PyObject> {
         use pyo3::types::PyDict;
-        
+
         let dict = PyDict::new(py);
-        
+
         // Always include standard hook types to match httpx behavior
         dict.set_item("request", self.request_hooks.clone())?;
         dict.set_item("response", self.response_hooks.clone())?;
-        
+
         // Include non-standard hooks only if they have content
         if !self.pre_request_hooks.is_empty() {
             dict.set_item("pre_request", self.pre_request_hooks.clone())?;
@@ -317,7 +337,7 @@ impl EventHooks {
         if !self.error_hooks.is_empty() {
             dict.set_item("error", self.error_hooks.clone())?;
         }
-        
+
         Ok(dict.to_object(py))
     }
 }
@@ -345,28 +365,36 @@ impl EventHooksProxy {
                 "pre_request" => Ok(hooks.pre_request_hooks.to_object(py)),
                 "post_response" => Ok(hooks.post_response_hooks.to_object(py)),
                 "error" => Ok(hooks.error_hooks.to_object(py)),
-                _ => Err(pyo3::exceptions::PyKeyError::new_err(format!("Unknown hook type: {}", key))),
+                _ => Err(pyo3::exceptions::PyKeyError::new_err(format!(
+                    "Unknown hook type: {}",
+                    key
+                ))),
             }
         })
     }
-    
+
     fn __setitem__(&self, key: &str, value: PyObject) -> PyResult<()> {
         Python::with_gil(|py| {
             let mut hooks = self.hooks.lock().unwrap();
             let hook_list = EventHooks::extract_hook_list(py, &value)?;
-            
+
             match key {
                 "request" => hooks.request_hooks = hook_list,
                 "response" => hooks.response_hooks = hook_list,
                 "pre_request" => hooks.pre_request_hooks = hook_list,
                 "post_response" => hooks.post_response_hooks = hook_list,
                 "error" => hooks.error_hooks = hook_list,
-                _ => return Err(pyo3::exceptions::PyKeyError::new_err(format!("Unknown hook type: {}", key))),
+                _ => {
+                    return Err(pyo3::exceptions::PyKeyError::new_err(format!(
+                        "Unknown hook type: {}",
+                        key
+                    )))
+                }
             }
             Ok(())
         })
     }
-    
+
     fn __delitem__(&self, key: &str) -> PyResult<()> {
         Python::with_gil(|_py| {
             let mut hooks = self.hooks.lock().unwrap();
@@ -376,30 +404,47 @@ impl EventHooksProxy {
                 "pre_request" => hooks.pre_request_hooks.clear(),
                 "post_response" => hooks.post_response_hooks.clear(),
                 "error" => hooks.error_hooks.clear(),
-                _ => return Err(pyo3::exceptions::PyKeyError::new_err(format!("Unknown hook type: {}", key))),
+                _ => {
+                    return Err(pyo3::exceptions::PyKeyError::new_err(format!(
+                        "Unknown hook type: {}",
+                        key
+                    )))
+                }
             }
             Ok(())
         })
     }
-    
+
     fn __len__(&self) -> usize {
         5 // Always return 5 standard hook types like httpx
     }
-    
+
     fn __iter__(&self) -> PyResult<PyObject> {
         Python::with_gil(|py| {
-            let keys = vec!["request", "response", "pre_request", "post_response", "error"];
-            Ok(keys.to_object(py).call_method0(py, "__iter__")?)
+            let keys = vec![
+                "request",
+                "response",
+                "pre_request",
+                "post_response",
+                "error",
+            ];
+            keys.to_object(py).call_method0(py, "__iter__")
         })
     }
-    
+
     fn keys(&self) -> PyResult<PyObject> {
         Python::with_gil(|py| {
-            let keys = vec!["request", "response", "pre_request", "post_response", "error"];
+            let keys = vec![
+                "request",
+                "response",
+                "pre_request",
+                "post_response",
+                "error",
+            ];
             Ok(keys.to_object(py))
         })
     }
-    
+
     fn values(&self) -> PyResult<PyObject> {
         Python::with_gil(|py| {
             let hooks = self.hooks.lock().unwrap();
@@ -413,7 +458,7 @@ impl EventHooksProxy {
             Ok(values.to_object(py))
         })
     }
-    
+
     fn items(&self) -> PyResult<PyObject> {
         Python::with_gil(|py| {
             let hooks = self.hooks.lock().unwrap();
@@ -427,7 +472,7 @@ impl EventHooksProxy {
             Ok(items.to_object(py))
         })
     }
-    
+
     fn get(&self, key: &str, default: Option<PyObject>) -> PyResult<PyObject> {
         match self.__getitem__(key) {
             Ok(value) => Ok(value),
@@ -440,13 +485,16 @@ impl EventHooksProxy {
             }
         }
     }
-    
+
     fn __contains__(&self, key: &str) -> bool {
-        matches!(key, "request" | "response" | "pre_request" | "post_response" | "error")
+        matches!(
+            key,
+            "request" | "response" | "pre_request" | "post_response" | "error"
+        )
     }
-    
+
     fn __repr__(&self) -> PyResult<String> {
-        Python::with_gil(|py| {
+        Python::with_gil(|_py| {
             let hooks = self.hooks.lock().unwrap();
             Ok(format!(
                 "EventHooksProxy({{'request': {}, 'response': {}, 'pre_request': {}, 'post_response': {}, 'error': {}}})",

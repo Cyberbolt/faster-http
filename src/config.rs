@@ -1,14 +1,14 @@
+use crate::auth::{extract_auth_from_object, AuthType};
+use crate::error::RequestError;
+use crate::hooks::EventHooks;
+use crate::proxy_config::ProxySystem;
+use crate::ssl_config::SslConfig;
+use crate::transport::TransportConfig;
 use pyo3::prelude::*;
 use reqwest::Client;
 use std::collections::HashMap;
-use std::time::Duration;
 use std::sync::{Arc, Mutex};
-use crate::auth::{AuthType, extract_auth_from_object};
-use crate::error::RequestError;
-use crate::hooks::EventHooks;
-use crate::ssl_config::SslConfig;
-use crate::transport::TransportConfig;
-use crate::proxy_config::ProxySystem;
+use std::time::Duration;
 
 // Core client configuration
 #[derive(Clone)]
@@ -19,16 +19,16 @@ pub struct ClientConfig {
     pub follow_redirects: bool,
     pub auth: Option<AuthType>,
     pub auth_object: Option<PyObject>, // Store original auth object for httpx compatibility
-    pub proxy_system: ProxySystem, // Advanced proxy configuration
+    pub proxy_system: ProxySystem,     // Advanced proxy configuration
     pub default_cookies: HashMap<String, String>,
     pub http1: bool,
     pub http2: bool,
     pub event_hooks: Arc<Mutex<EventHooks>>, // Event hooks for request/response logging
-    pub ssl_config: SslConfig, // SSL/TLS configuration
-    pub transport_config: TransportConfig, // Custom transport configuration
+    pub ssl_config: SslConfig,               // SSL/TLS configuration
+    pub transport_config: TransportConfig,   // Custom transport configuration
     pub limits: Option<crate::models::HttpLimits>, // Connection pool limits
-    pub max_redirects: i32, // Maximum number of redirects to follow
-    pub default_encoding: String, // Default character encoding
+    pub max_redirects: i32,                  // Maximum number of redirects to follow
+    pub default_encoding: String,            // Default character encoding
     pub default_params: HashMap<String, String>, // Default query parameters
     // 预构建的客户端以支持高效的重定向控制
     pub redirect_client: Client,
@@ -36,26 +36,27 @@ pub struct ClientConfig {
 }
 
 impl ClientConfig {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         base_url: Option<String>,
-        timeout: Option<PyObject>,  // Accept either f64 or Timeout object
+        timeout: Option<PyObject>, // Accept either f64 or Timeout object
         headers: Option<HashMap<String, String>>,
         verify: Option<&PyAny>,
         follow_redirects: Option<bool>,
-        auth: Option<PyObject>,  // Accept either tuple or auth object
-        proxy: Option<&PyAny>, // Single proxy URL
+        auth: Option<PyObject>, // Accept either tuple or auth object
+        proxy: Option<&PyAny>,  // Single proxy URL
         proxies: Option<&pyo3::types::PyDict>, // Proxy mapping dict
         cookies: Option<HashMap<String, String>>,
         http1: Option<bool>,
         http2: Option<bool>,
-        event_hooks: Option<PyObject>, // Event hooks dict
-        cert: Option<&PyAny>, // Client certificate configuration
-        trust_env: Option<bool>, // Trust environment variables for SSL
-        transport: Option<PyObject>, // Custom transport
-        mounts: Option<&pyo3::types::PyDict>, // Transport mounts
-        limits: Option<PyObject>, // Connection pool limits
-        max_redirects: Option<i32>, // Maximum number of redirects
-        default_encoding: Option<String>, // Default character encoding
+        event_hooks: Option<PyObject>,           // Event hooks dict
+        cert: Option<&PyAny>,                    // Client certificate configuration
+        trust_env: Option<bool>,                 // Trust environment variables for SSL
+        transport: Option<PyObject>,             // Custom transport
+        mounts: Option<&pyo3::types::PyDict>,    // Transport mounts
+        limits: Option<PyObject>,                // Connection pool limits
+        max_redirects: Option<i32>,              // Maximum number of redirects
+        default_encoding: Option<String>,        // Default character encoding
         params: Option<HashMap<String, String>>, // Default query parameters
     ) -> PyResult<Self> {
         let (auth_type, auth_object) = if let Some(auth_obj) = auth {
@@ -64,12 +65,15 @@ impl ClientConfig {
                 if let Ok(Some(auth_type)) = extract_auth_from_object(&auth_obj) {
                     return Ok((Some(auth_type), Some(auth_obj.clone())));
                 }
-                
+
                 // Fallback to tuple format for backward compatibility
                 if let Ok((username, password)) = auth_obj.extract::<(String, String)>(py) {
-                    return Ok((Some(AuthType::Basic { username, password }), Some(auth_obj.clone())));
+                    return Ok((
+                        Some(AuthType::Basic { username, password }),
+                        Some(auth_obj.clone()),
+                    ));
                 }
-                
+
                 Ok((None, None))
             })?
         } else {
@@ -83,13 +87,14 @@ impl ClientConfig {
                 if let Ok(timeout_num) = timeout_obj.extract::<f64>(py) {
                     return Ok(Some(timeout_num));
                 }
-                
+
                 // Try to extract as HttpTimeout object
-                if let Ok(timeout_instance) = timeout_obj.extract::<crate::models::HttpTimeout>(py) {
+                if let Ok(timeout_instance) = timeout_obj.extract::<crate::models::HttpTimeout>(py)
+                {
                     // Use read timeout as default timeout for the client
                     return Ok(Some(timeout_instance.get_read_timeout()));
                 }
-                
+
                 Ok(None)
             })?
         } else {
@@ -105,7 +110,7 @@ impl ClientConfig {
 
         // Create SSL configuration
         let mut ssl_config = SslConfig::from_python_params(verify, cert, trust_env)?;
-        
+
         // Load CA bundle from environment if trust_env is enabled
         ssl_config.load_ca_bundle_from_env();
 
@@ -131,14 +136,36 @@ impl ClientConfig {
         // Process HTTP version parameters - default to HTTP/1.1 only for better localhost compatibility
         let http1_enabled = http1.unwrap_or(true);
         let http2_enabled = http2.unwrap_or(false);
-        
+
         // 预构建两个客户端以支持高效的重定向控制
-        let redirect_client = Self::build_client_with_ssl_proxy_and_redirect(true, &ssl_config, &proxy_system, http1_enabled, http2_enabled, max_redirects)?;
-        let no_redirect_client = Self::build_client_with_ssl_proxy_and_redirect(false, &ssl_config, &proxy_system, http1_enabled, http2_enabled, max_redirects)?;
+        let redirect_client = Self::build_client_with_ssl_proxy_and_redirect(
+            true,
+            &ssl_config,
+            &proxy_system,
+            http1_enabled,
+            http2_enabled,
+            max_redirects,
+        )?;
+        let no_redirect_client = Self::build_client_with_ssl_proxy_and_redirect(
+            false,
+            &ssl_config,
+            &proxy_system,
+            http1_enabled,
+            http2_enabled,
+            max_redirects,
+        )?;
 
         Ok(ClientConfig {
             base_url,
-            default_timeout: timeout_value.and_then(|t| if t >= 0.0 { Some(Duration::from_secs_f64(t)) } else { None }).or(Some(Duration::from_secs(30))), // 设置默认30秒超时，负数被忽略
+            default_timeout: timeout_value
+                .and_then(|t| {
+                    if t >= 0.0 {
+                        Some(Duration::from_secs_f64(t))
+                    } else {
+                        None
+                    }
+                })
+                .or(Some(Duration::from_secs(30))), // 设置默认30秒超时，负数被忽略
             default_headers: headers.unwrap_or_default(),
             follow_redirects: follow_redirects.unwrap_or(true),
             auth: auth_type,
@@ -160,12 +187,12 @@ impl ClientConfig {
     }
 
     fn build_client_with_ssl_proxy_and_redirect(
-        follow_redirects: bool, 
-        ssl_config: &SslConfig, 
-        proxy_system: &ProxySystem,
+        follow_redirects: bool,
+        _ssl_config: &SslConfig,
+        _proxy_system: &ProxySystem,
         http1: bool,
         http2: bool,
-        max_redirects: Option<i32>
+        max_redirects: Option<i32>,
     ) -> PyResult<Client> {
         let mut builder = Client::builder();
 
@@ -179,13 +206,13 @@ impl ClientConfig {
         // Optimized configuration for high performance
         builder = builder
             .timeout(Duration::from_secs(30))
-            .connect_timeout(Duration::from_secs(5))  // Short connect timeout
-            .pool_idle_timeout(Some(Duration::from_secs(30)))  // Enable connection pooling with 30s timeout
-            .pool_max_idle_per_host(10)  // Allow 10 idle connections per host
-            .tcp_nodelay(true)  // Enable TCP_NODELAY for low latency
-            .tcp_keepalive(Some(Duration::from_secs(60)))  // Enable TCP keepalive
-            .danger_accept_invalid_certs(true)  // For testing
-            .danger_accept_invalid_hostnames(true);  // For testing
+            .connect_timeout(Duration::from_secs(5)) // Short connect timeout
+            .pool_idle_timeout(Some(Duration::from_secs(30))) // Enable connection pooling with 30s timeout
+            .pool_max_idle_per_host(10) // Allow 10 idle connections per host
+            .tcp_nodelay(true) // Enable TCP_NODELAY for low latency
+            .tcp_keepalive(Some(Duration::from_secs(60))) // Enable TCP keepalive
+            .danger_accept_invalid_certs(true) // For testing
+            .danger_accept_invalid_hostnames(true); // For testing
 
         // Configure HTTP versions based on parameters
         if http1 && !http2 {
@@ -194,31 +221,32 @@ impl ClientConfig {
             builder = builder.http2_prior_knowledge();
         }
         // If both are enabled, let reqwest choose automatically
-        
+
         if http1 {
-            builder = builder.http1_title_case_headers();  // Case headers for HTTP/1.1 compatibility
+            builder = builder.http1_title_case_headers(); // Case headers for HTTP/1.1 compatibility
         }
 
         // Only apply SSL for HTTPS URLs - skip for localhost HTTP
         // (SSL config will be applied per-request if needed)
 
-        builder.build()
+        builder
+            .build()
             .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))
     }
 
-    pub fn build_client(&self, custom_verify: Option<&PyAny>) -> PyResult<Client> {
+    pub fn build_client(&self, _custom_verify: Option<&PyAny>) -> PyResult<Client> {
         let mut builder = Client::builder();
 
         // Optimized configuration for high performance
         builder = builder
             .timeout(Duration::from_secs(30))
-            .connect_timeout(Duration::from_secs(5))  // Short connect timeout
-            .pool_idle_timeout(Some(Duration::from_secs(30)))  // Enable connection pooling with 30s timeout
-            .pool_max_idle_per_host(10)  // Allow 10 idle connections per host
-            .tcp_nodelay(true)  // Enable TCP_NODELAY for low latency
-            .tcp_keepalive(Some(Duration::from_secs(60)))  // Enable TCP keepalive
-            .danger_accept_invalid_certs(true)  // For testing
-            .danger_accept_invalid_hostnames(true);  // For testing
+            .connect_timeout(Duration::from_secs(5)) // Short connect timeout
+            .pool_idle_timeout(Some(Duration::from_secs(30))) // Enable connection pooling with 30s timeout
+            .pool_max_idle_per_host(10) // Allow 10 idle connections per host
+            .tcp_nodelay(true) // Enable TCP_NODELAY for low latency
+            .tcp_keepalive(Some(Duration::from_secs(60))) // Enable TCP keepalive
+            .danger_accept_invalid_certs(true) // For testing
+            .danger_accept_invalid_hostnames(true); // For testing
 
         // Configure HTTP versions based on client configuration
         if self.http1 && !self.http2 {
@@ -227,18 +255,19 @@ impl ClientConfig {
             builder = builder.http2_prior_knowledge();
         }
         // If both are enabled, let reqwest choose automatically
-        
+
         if self.http1 {
-            builder = builder.http1_title_case_headers();  // Case headers for HTTP/1.1 compatibility
+            builder = builder.http1_title_case_headers(); // Case headers for HTTP/1.1 compatibility
         }
 
         // Only apply SSL for HTTPS URLs - skip for localhost HTTP
         // (SSL config will be applied per-request if needed)
 
-        builder.build()
+        builder
+            .build()
             .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))
     }
-    
+
     // 根据 follow_redirects 参数选择合适的客户端
     pub fn get_client_for_redirect(&self, follow_redirects: bool) -> &Client {
         if follow_redirects {
@@ -247,4 +276,4 @@ impl ClientConfig {
             &self.no_redirect_client
         }
     }
-} 
+}

@@ -1,5 +1,5 @@
-use pyo3::prelude::*;
 use pyo3::exceptions::PyException;
+use pyo3::prelude::*;
 
 // 创建自定义异常类型 - 完整的 httpx 兼容异常层次结构
 pyo3::create_exception!(faster_http, HTTPError, PyException);
@@ -17,21 +17,21 @@ pyo3::create_exception!(faster_http, PoolTimeout, TimeoutException);
 // Request/Response exceptions (httpx-compatible only)
 pyo3::create_exception!(faster_http, RequestError, HTTPError);
 
-// HTTP status related exceptions 
+// HTTP status related exceptions
 pyo3::create_exception!(faster_http, HTTPStatusError, HTTPError);
 
 impl HTTPStatusError {
     pub fn new_err_with_response(message: String, response: Option<PyObject>) -> PyErr {
         Python::with_gil(|py| {
             // Create the basic exception
-            let mut err = HTTPStatusError::new_err(message);
-            
+            let err = HTTPStatusError::new_err(message);
+
             // Add response attribute directly to the exception instance
             if let Some(resp) = response {
                 let exc_obj = err.value(py);
                 let _ = exc_obj.setattr("response", resp);
             }
-            
+
             err
         })
     }
@@ -50,7 +50,7 @@ pyo3::create_exception!(faster_http, TransportError, HTTPError);
 // 错误处理工具 - httpx 兼容的错误映射
 pub fn map_reqwest_error(error: reqwest::Error) -> PyErr {
     let error_msg = error.to_string();
-    
+
     if error.is_timeout() {
         ReadTimeout::new_err(format!("Request timeout: {}", error_msg))
     } else if error.is_connect() {
@@ -95,6 +95,6 @@ pub fn create_timeout_error(timeout_type: &str, message: &str) -> PyErr {
 }
 
 /// Create stream related error
-pub fn create_stream_error(error_type: &str, message: &str) -> PyErr {
+pub fn create_stream_error(_error_type: &str, message: &str) -> PyErr {
     StreamError::new_err(format!("Stream error: {}", message))
-} 
+}

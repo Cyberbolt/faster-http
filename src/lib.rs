@@ -4,37 +4,40 @@
 use pyo3::prelude::*;
 
 // Module declarations
-mod error;
+mod api;
+mod async_client;
 mod auth;
+mod client;
+mod config;
+mod core;
+mod error;
+mod hooks;
+mod models;
+mod proxy_config;
 mod request;
 mod response;
-mod streaming;
-mod config;
-mod utils;
-mod core;
-mod client;
-mod async_client;
-mod api;
 mod runtime;
-mod models;
-mod hooks;
 mod ssl_config;
+mod streaming;
 mod transport;
-mod proxy_config;
+mod utils;
 
 // Re-export main types and functions
-pub use error::*;
 pub use auth::*;
+pub use error::*;
 pub use request::HttpRequest;
 pub use response::HttpResponse;
 // StreamingHttpResponse and StreamingClient removed - httpx doesn't have these classes
-pub use config::ClientConfig;
-pub use client::HttpClient;
 pub use async_client::AsyncHttpClient;
+pub use client::HttpClient;
+pub use config::ClientConfig;
 // Re-export API functions (request function is available via Python module, not Rust re-export)
-pub use api::{get, post, put, patch, delete, head, options, stream};
-pub use models::{HttpHeaders, HttpQueryParams, HttpCookies, HttpUrl, HttpTimeout, HttpLimits, HttpBasicAuth, HttpDigestAuth, HttpNetRCAuth};
+pub use api::{delete, get, head, options, patch, post, put, stream};
 pub use hooks::EventHooksProxy;
+pub use models::{
+    HttpBasicAuth, HttpCookies, HttpDigestAuth, HttpHeaders, HttpLimits, HttpNetRCAuth,
+    HttpQueryParams, HttpTimeout, HttpUrl,
+};
 
 // Python module definition
 #[pymodule]
@@ -44,7 +47,7 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<HttpResponse>()?;
     m.add_class::<HttpClient>()?;
     m.add_class::<AsyncHttpClient>()?;
-    
+
     // Add data model classes
     m.add_class::<HttpHeaders>()?;
     m.add_class::<HttpQueryParams>()?;
@@ -55,15 +58,15 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<HttpBasicAuth>()?;
     m.add_class::<HttpDigestAuth>()?;
     m.add_class::<HttpNetRCAuth>()?;
-    
+
     // Add hooks proxy class
     m.add_class::<EventHooksProxy>()?;
-    
-    // Add transport classes  
+
+    // Add transport classes
     m.add_class::<transport::FasterhttpTransport>()?;
     m.add_class::<transport::MockTransport>()?;
     m.add_class::<transport::HTTPSRedirectTransport>()?;
-    
+
     // Add API functions
     m.add_function(wrap_pyfunction!(api::get, m)?)?;
     m.add_function(wrap_pyfunction!(api::post, m)?)?;
@@ -74,35 +77,35 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(api::options, m)?)?;
     m.add_function(wrap_pyfunction!(api::request, m)?)?;
     m.add_function(wrap_pyfunction!(api::stream, m)?)?;
-    
+
     // Add exception types (httpx-compatible only)
     m.add("HTTPError", py.get_type::<HTTPError>())?;
-    
+
     // Connection exceptions
     m.add("ConnectError", py.get_type::<ConnectError>())?;
     m.add("ConnectTimeout", py.get_type::<ConnectTimeout>())?;
-    
+
     // Timeout exceptions
     m.add("TimeoutException", py.get_type::<TimeoutException>())?;
     m.add("ReadTimeout", py.get_type::<ReadTimeout>())?;
     m.add("WriteTimeout", py.get_type::<WriteTimeout>())?;
     m.add("PoolTimeout", py.get_type::<PoolTimeout>())?;
-    
+
     // Request/Response exceptions
     m.add("RequestError", py.get_type::<RequestError>())?;
-    
+
     // HTTP Status exceptions
     m.add("HTTPStatusError", py.get_type::<HTTPStatusError>())?;
-    
+
     // Stream exceptions
     m.add("StreamError", py.get_type::<StreamError>())?;
-    
+
     // Protocol exceptions
     m.add("ProtocolError", py.get_type::<ProtocolError>())?;
     m.add("TooManyRedirects", py.get_type::<TooManyRedirects>())?;
-    
+
     // Transport exceptions
     m.add("TransportError", py.get_type::<TransportError>())?;
-    
+
     Ok(())
-} 
+}

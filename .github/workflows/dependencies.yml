@@ -1,0 +1,74 @@
+name: Dependencies
+
+on:
+  schedule:
+    # Run weekly on Mondays at 9 AM UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+jobs:
+  update-rust-dependencies:
+    name: Update Rust dependencies
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      
+    - name: Update Cargo dependencies
+      run: cargo update
+      
+    - name: Check if Cargo.lock changed
+      id: cargo-lock-changed
+      run: |
+        if git diff --quiet Cargo.lock; then
+          echo "changed=false" >> $GITHUB_OUTPUT
+        else
+          echo "changed=true" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Run tests
+      if: steps.cargo-lock-changed.outputs.changed == 'true'
+      run: |
+        cargo test --all-features
+        cargo clippy --all-targets --all-features -- -D warnings
+        
+    - name: Create Pull Request
+      if: steps.cargo-lock-changed.outputs.changed == 'true'
+      uses: peter-evans/create-pull-request@v6
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: 'deps: update Rust dependencies'
+        title: 'deps: update Rust dependencies'
+        body: |
+          This PR updates Rust dependencies to their latest versions.
+          
+          Changes:
+          - Updated Cargo.lock with latest compatible versions
+          
+          This is an automated pull request created by the dependencies workflow.
+        branch: update-rust-deps
+        delete-branch: true
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+      
+    - name: Run security audit
+      run: cargo audit
+      
+    - name: Run cargo deny
+      uses: EmbarkStudios/cargo-deny-action@v1

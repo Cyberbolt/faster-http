@@ -1,5 +1,5 @@
-use pyo3::prelude::*;
 use bytes::Bytes;
+use pyo3::prelude::*;
 use std::collections::HashMap;
 
 // Request 对象 - Enhanced version with full httpx compatibility
@@ -21,6 +21,7 @@ pub struct HttpRequest {
 #[pymethods]
 impl HttpRequest {
     #[new]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         method: String,
         url: String,
@@ -34,7 +35,7 @@ impl HttpRequest {
         stream: Option<bool>,
     ) -> PyResult<Self> {
         let mut final_headers = HashMap::new();
-        
+
         // Handle headers parameter - can be dict or Headers object
         if let Some(headers_obj) = headers {
             Python::with_gil(|py| -> PyResult<()> {
@@ -43,48 +44,62 @@ impl HttpRequest {
                 } else if let Ok(headers) = headers_obj.extract::<crate::models::HttpHeaders>(py) {
                     final_headers = headers.to_hashmap();
                 } else {
-                    return Err(pyo3::exceptions::PyTypeError::new_err("headers must be a dict or Headers object"));
+                    return Err(pyo3::exceptions::PyTypeError::new_err(
+                        "headers must be a dict or Headers object",
+                    ));
                 }
                 Ok(())
             })?;
         }
-        
+
         // Automatically add standard HTTP headers like httpx does
         if let Ok(parsed_url) = url::Url::parse(&url) {
             if let Some(host) = parsed_url.host_str() {
                 // Add host header if not already present
-                if !final_headers.iter().any(|(k, _)| k.to_lowercase() == "host") {
+                if !final_headers
+                    .iter()
+                    .any(|(k, _)| k.to_lowercase() == "host")
+                {
                     final_headers.insert("host".to_string(), host.to_string());
                 }
             }
         }
-        
+
         // Handle JSON serialization like httpx does
         let mut final_content = content.map(Bytes::from);
         let final_json = json.clone();
-        
+
         if let Some(json_obj) = &json {
             // Serialize JSON to content bytes
             Python::with_gil(|py| -> PyResult<()> {
                 let json_module = py.import("json")?;
-                let json_str = json_module.call_method1("dumps", (json_obj,))?.extract::<String>()?;
+                let json_str = json_module
+                    .call_method1("dumps", (json_obj,))?
+                    .extract::<String>()?;
                 final_content = Some(Bytes::from(json_str.into_bytes()));
-                
+
                 // Add JSON content-type header if not already present
-                if !final_headers.iter().any(|(k, _)| k.to_lowercase() == "content-type") {
-                    final_headers.insert("content-type".to_string(), "application/json".to_string());
+                if !final_headers
+                    .iter()
+                    .any(|(k, _)| k.to_lowercase() == "content-type")
+                {
+                    final_headers
+                        .insert("content-type".to_string(), "application/json".to_string());
                 }
-                
+
                 Ok(())
             })?;
         }
-        
+
         // Add or update content-length header if content is present
         if let Some(ref content_bytes) = final_content {
             // Always set content-length to match actual content (like httpx does)
-            final_headers.insert("content-length".to_string(), content_bytes.len().to_string());
+            final_headers.insert(
+                "content-length".to_string(),
+                content_bytes.len().to_string(),
+            );
         }
-        
+
         Ok(HttpRequest {
             method,
             url,
@@ -140,7 +155,6 @@ impl HttpRequest {
         Ok(PyDict::new(py).to_object(py))
     }
 
-
     pub fn read(&self, py: Python) -> PyResult<PyObject> {
         use pyo3::types::PyBytes;
         match &self.content {
@@ -152,7 +166,7 @@ impl HttpRequest {
     pub fn aread<'p>(&self, py: Python<'p>) -> PyResult<&'p pyo3::PyAny> {
         use pyo3_asyncio::tokio::future_into_py;
         let content = self.content.clone();
-        
+
         future_into_py(py, async move {
             use pyo3::types::PyBytes;
             Python::with_gil(|py| -> PyResult<pyo3::Py<PyBytes>> {
@@ -210,4 +224,4 @@ impl HttpRequest {
     pub fn stream_internal(&self) -> bool {
         self.stream
     }
-} 
+}

@@ -49,7 +49,7 @@ pub struct ClientCertConfig {
 #[derive(Clone, Debug)]
 pub enum SslVersion {
     TlsV10,
-    TlsV11, 
+    TlsV11,
     TlsV12,
     TlsV13,
 }
@@ -76,25 +76,25 @@ impl SslConfig {
         trust_env: Option<bool>,
     ) -> PyResult<Self> {
         let mut config = SslConfig::default();
-        
+
         // 处理verify参数
         if let Some(verify_obj) = verify {
             config.verify = Self::parse_verify_param(verify_obj)?;
         }
-        
+
         // 处理cert参数
         if let Some(cert_obj) = cert {
             config.client_cert = Some(Self::parse_cert_param(cert_obj)?);
         }
-        
+
         // 处理trust_env参数
         if let Some(trust) = trust_env {
             config.trust_env = trust;
         }
-        
+
         Ok(config)
     }
-    
+
     /// 解析verify参数
     fn parse_verify_param(verify_obj: &PyAny) -> PyResult<SslVerifyMode> {
         // 尝试解析为bool
@@ -105,12 +105,12 @@ impl SslConfig {
                 SslVerifyMode::Disabled
             });
         }
-        
+
         // 尝试解析为字符串路径
         if let Ok(verify_str) = verify_obj.downcast::<PyString>() {
             let path_str = verify_str.to_str()?;
             let path = PathBuf::from(path_str);
-            
+
             // 检查是文件还是目录
             if path.is_file() {
                 return Ok(SslVerifyMode::CustomCaFile(path));
@@ -121,12 +121,12 @@ impl SslConfig {
                 return Ok(SslVerifyMode::CustomCaFile(path));
             }
         }
-        
+
         // TODO: 处理ssl.SSLContext对象
         // 目前先返回启用验证
         Ok(SslVerifyMode::Enabled)
     }
-    
+
     /// 解析cert参数
     fn parse_cert_param(cert_obj: &PyAny) -> PyResult<ClientCertConfig> {
         // 尝试解析为字符串 (单个证书文件)
@@ -138,7 +138,7 @@ impl SslConfig {
                 password: None,
             });
         }
-        
+
         // 尝试解析为元组 (cert_file, key_file)
         if let Ok(cert_tuple) = cert_obj.extract::<(String, String)>() {
             return Ok(ClientCertConfig {
@@ -147,7 +147,7 @@ impl SslConfig {
                 password: None,
             });
         }
-        
+
         // 尝试解析为三元组 (cert_file, key_file, password)
         if let Ok(cert_triple) = cert_obj.extract::<(String, String, String)>() {
             return Ok(ClientCertConfig {
@@ -156,19 +156,19 @@ impl SslConfig {
                 password: Some(cert_triple.2),
             });
         }
-        
+
         Err(pyo3::exceptions::PyValueError::new_err(
             "cert parameter must be a string path, (cert_file, key_file) tuple, or (cert_file, key_file, password) tuple"
         ))
     }
-    
+
     /// 将SSL配置应用到reqwest客户端构建器
     pub fn apply_to_client_builder(
         &self,
         builder: reqwest::ClientBuilder,
     ) -> Result<reqwest::ClientBuilder, Box<dyn std::error::Error>> {
         let mut builder = builder;
-        
+
         // 配置SSL验证
         match &self.verify {
             SslVerifyMode::Enabled => {
@@ -190,13 +190,13 @@ impl SslConfig {
                 builder = builder.tls_built_in_root_certs(true);
             }
         }
-        
+
         // 配置客户端证书
         if let Some(client_cert) = &self.client_cert {
             let identity = self.load_client_identity(client_cert)?;
             builder = builder.identity(identity);
         }
-        
+
         // 配置TLS版本
         if let Some(min_version) = &self.min_version {
             builder = builder.min_tls_version(self.ssl_version_to_reqwest(min_version));
@@ -204,22 +204,25 @@ impl SslConfig {
         if let Some(max_version) = &self.max_version {
             builder = builder.max_tls_version(self.ssl_version_to_reqwest(max_version));
         }
-        
+
         // 配置主机名验证
         if !self.check_hostname {
             builder = builder.danger_accept_invalid_hostnames(true);
         }
-        
+
         Ok(builder)
     }
-    
+
     /// 加载客户端证书身份
-    fn load_client_identity(&self, cert_config: &ClientCertConfig) -> Result<Identity, Box<dyn std::error::Error>> {
+    fn load_client_identity(
+        &self,
+        cert_config: &ClientCertConfig,
+    ) -> Result<Identity, Box<dyn std::error::Error>> {
         if let Some(key_file) = &cert_config.key_file {
             // 分别读取证书和私钥文件
             let cert_pem = std::fs::read(&cert_config.cert_file)?;
             let key_pem = std::fs::read(key_file)?;
-            
+
             if let Some(password) = &cert_config.password {
                 // PKCS#12格式证书 (通常是.p12或.pfx文件)
                 Ok(Identity::from_pkcs12_der(&cert_pem, password)?)
@@ -230,7 +233,7 @@ impl SslConfig {
         } else {
             // 证书和私钥在同一个文件中
             let cert_pem = std::fs::read(&cert_config.cert_file)?;
-            
+
             if let Some(password) = &cert_config.password {
                 // PKCS#12格式证书
                 Ok(Identity::from_pkcs12_der(&cert_pem, password)?)
@@ -239,18 +242,24 @@ impl SslConfig {
                 // 这需要我们解析PEM文件分离证书和私钥
                 let pem_str = String::from_utf8_lossy(&cert_pem);
                 let (cert_part, key_part) = self.split_pem_cert_and_key(&pem_str)?;
-                Ok(Identity::from_pkcs8_pem(cert_part.as_bytes(), key_part.as_bytes())?)
+                Ok(Identity::from_pkcs8_pem(
+                    cert_part.as_bytes(),
+                    key_part.as_bytes(),
+                )?)
             }
         }
     }
-    
+
     /// 从PEM文件中分离证书和私钥
-    fn split_pem_cert_and_key(&self, pem_content: &str) -> Result<(String, String), Box<dyn std::error::Error>> {
+    fn split_pem_cert_and_key(
+        &self,
+        pem_content: &str,
+    ) -> Result<(String, String), Box<dyn std::error::Error>> {
         let mut cert_lines = Vec::new();
         let mut key_lines = Vec::new();
         let mut in_cert = false;
         let mut in_key = false;
-        
+
         for line in pem_content.lines() {
             if line.contains("-----BEGIN CERTIFICATE-----") {
                 in_cert = true;
@@ -258,10 +267,14 @@ impl SslConfig {
             } else if line.contains("-----END CERTIFICATE-----") {
                 cert_lines.push(line);
                 in_cert = false;
-            } else if line.contains("-----BEGIN PRIVATE KEY-----") || line.contains("-----BEGIN RSA PRIVATE KEY-----") {
+            } else if line.contains("-----BEGIN PRIVATE KEY-----")
+                || line.contains("-----BEGIN RSA PRIVATE KEY-----")
+            {
                 in_key = true;
                 key_lines.push(line);
-            } else if line.contains("-----END PRIVATE KEY-----") || line.contains("-----END RSA PRIVATE KEY-----") {
+            } else if line.contains("-----END PRIVATE KEY-----")
+                || line.contains("-----END RSA PRIVATE KEY-----")
+            {
                 key_lines.push(line);
                 in_key = false;
             } else if in_cert {
@@ -270,17 +283,17 @@ impl SslConfig {
                 key_lines.push(line);
             }
         }
-        
+
         if cert_lines.is_empty() {
             return Err("No certificate found in PEM file".into());
         }
         if key_lines.is_empty() {
             return Err("No private key found in PEM file".into());
         }
-        
+
         Ok((cert_lines.join("\n"), key_lines.join("\n")))
     }
-    
+
     /// 转换SSL版本到reqwest格式
     fn ssl_version_to_reqwest(&self, version: &SslVersion) -> reqwest::tls::Version {
         match version {
@@ -290,16 +303,16 @@ impl SslConfig {
             SslVersion::TlsV13 => reqwest::tls::Version::TLS_1_3,
         }
     }
-    
+
     /// 从环境变量加载CA bundle
     pub fn load_ca_bundle_from_env(&mut self) {
         if !self.trust_env {
             return;
         }
-        
+
         // 按优先级检查环境变量
         let env_vars = ["SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"];
-        
+
         for var in &env_vars {
             if let Ok(ca_file) = std::env::var(var) {
                 let path = PathBuf::from(ca_file);
@@ -310,7 +323,7 @@ impl SslConfig {
                 }
             }
         }
-        
+
         // 检查SSL_CERT_DIR
         if let Ok(ca_dir) = std::env::var("SSL_CERT_DIR") {
             let path = PathBuf::from(ca_dir);
@@ -324,7 +337,7 @@ impl SslConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_default_ssl_config() {
         let config = SslConfig::default();
@@ -333,12 +346,14 @@ mod tests {
         assert!(config.trust_env);
         assert!(config.check_hostname);
     }
-    
+
     #[test]
     fn test_ssl_config_with_disabled_verify() {
-        let mut config = SslConfig::default();
-        config.verify = SslVerifyMode::Disabled;
-        
+        let config = SslConfig {
+            verify: SslVerifyMode::Disabled,
+            ..Default::default()
+        };
+
         let builder = reqwest::ClientBuilder::new();
         let result = config.apply_to_client_builder(builder);
         assert!(result.is_ok());

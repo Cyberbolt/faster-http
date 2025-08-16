@@ -12,4 +12,4 @@ pub fn get_global_runtime() -> &'static tokio::runtime::Runtime {
             .build()
             .expect("Failed to create global tokio runtime")
     })
-} 
+}

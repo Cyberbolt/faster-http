@@ -1,0 +1,221 @@
+name: Dependencies Update
+
+on:
+  schedule:
+    # Run weekly on Mondays at 9 AM UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+jobs:
+  update-rust-deps:
+    name: Update Rust Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install cargo-edit
+        run: cargo install cargo-edit
+      
+      - name: Update Rust dependencies
+        run: |
+          cargo update
+          cargo upgrade --dry-run > upgrade_preview.txt
+          echo "Rust dependency updates available:"
+          cat upgrade_preview.txt
+      
+      - name: Check if Cargo.lock changed
+        id: check-cargo-lock
+        run: |
+          if git diff --quiet Cargo.lock; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Test with updated dependencies
+        if: steps.check-cargo-lock.outputs.changed == 'true'
+        run: |
+          cargo test --verbose
+          cargo clippy --all-targets --all-features -- -D warnings
+      
+      - name: Commit Rust dependency updates
+        if: steps.check-cargo-lock.outputs.changed == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add Cargo.lock
+          git commit -m "chore: update Rust dependencies
+
+          $(cat upgrade_preview.txt)
+          
+          🤖 Generated with GitHub Actions"
+          git push
+
+  update-python-deps:
+    name: Update Python Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      
+      - name: Set up Python
+        run: uv python install 3.12
+      
+      - name: Check for outdated packages
+        run: |
+          uv sync --dev
+          # Check for outdated packages (uv doesn't have pip list --outdated equivalent yet)
+          echo "Current Python dependencies:"
+          uv pip list
+      
+      - name: Update lock file
+        run: |
+          # Update the lock file with latest compatible versions
+          uv lock --upgrade
+      
+      - name: Check if uv.lock changed
+        id: check-uv-lock
+        run: |
+          if git diff --quiet uv.lock; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Install Rust toolchain
+        if: steps.check-uv-lock.outputs.changed == 'true'
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Test with updated dependencies
+        if: steps.check-uv-lock.outputs.changed == 'true'
+        run: |
+          uv sync --dev
+          uv run maturin develop --release
+          uv run ruff check .
+          uv run pytest -x tests/unit/ tests/integration/
+      
+      - name: Commit Python dependency updates
+        if: steps.check-uv-lock.outputs.changed == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add uv.lock
+          git commit -m "chore: update Python dependencies
+          
+          Updated uv.lock with latest compatible versions
+          
+          🤖 Generated with GitHub Actions"
+          git push
+
+  security-audit:
+    name: Weekly Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      
+      - name: Run Rust security audit
+        run: |
+          cargo audit --json > rust_audit.json || true
+          cargo audit
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      
+      - name: Set up Python
+        run: uv python install 3.12
+      
+      - name: Install dependencies
+        run: uv sync --dev
+      
+      - name: Run Python security audit
+        run: |
+          uv pip install safety
+          uv run safety check --json > python_audit.json || true
+          uv run safety check
+      
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-results
+          path: |
+            rust_audit.json
+            python_audit.json
+        if: always()
+
+  create-update-pr:
+    name: Create Update PR
+    runs-on: ubuntu-latest
+    needs: [update-rust-deps, update-python-deps]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Check for new commits
+        id: check-commits
+        run: |
+          # Check if there are new commits from the dependency update jobs
+          if git log --oneline --since="10 minutes ago" | grep -q "chore: update.*dependencies"; then
+            echo "updates=true" >> $GITHUB_OUTPUT
+            echo "New dependency updates found"
+          else
+            echo "updates=false" >> $GITHUB_OUTPUT
+            echo "No dependency updates"
+          fi
+      
+      - name: Create Pull Request
+        if: steps.check-commits.outputs.updates == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: |
+            chore: weekly dependency updates
+            
+            🤖 Generated with GitHub Actions
+          title: 'chore: weekly dependency updates'
+          body: |
+            ## Weekly Dependency Updates
+            
+            This PR contains automated dependency updates:
+            
+            - 🦀 Rust dependencies (Cargo.lock)
+            - 🐍 Python dependencies (uv.lock)
+            
+            ### What's changed
+            - Updated all compatible dependencies to latest versions
+            - All tests pass with new dependency versions
+            - Security audit completed
+            
+            ### Review checklist
+            - [ ] Check for any breaking changes in updated dependencies
+            - [ ] Verify all tests still pass
+            - [ ] Review security audit results
+            
+            🤖 This PR was created automatically by GitHub Actions.
+          branch: chore/weekly-deps-update
+          delete-branch: true
+          draft: false
+          labels: |
+            dependencies
+            automated
+            chore

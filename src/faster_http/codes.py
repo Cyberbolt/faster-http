@@ -6,13 +6,13 @@ Compatible with httpx.codes interface
 
 class _StatusCodes:
     """HTTP status code constants matching httpx.codes interface"""
-    
+
     # Informational 1xx
     CONTINUE = 100
     SWITCHING_PROTOCOLS = 101
     PROCESSING = 102
     EARLY_HINTS = 103
-    
+
     # Successful 2xx
     OK = 200
     CREATED = 201
@@ -24,7 +24,7 @@ class _StatusCodes:
     MULTI_STATUS = 207
     ALREADY_REPORTED = 208
     IM_USED = 226
-    
+
     # Redirection 3xx
     MULTIPLE_CHOICES = 300
     MOVED_PERMANENTLY = 301
@@ -34,7 +34,7 @@ class _StatusCodes:
     USE_PROXY = 305
     TEMPORARY_REDIRECT = 307
     PERMANENT_REDIRECT = 308
-    
+
     # Client Error 4xx
     BAD_REQUEST = 400
     UNAUTHORIZED = 401
@@ -65,7 +65,7 @@ class _StatusCodes:
     TOO_MANY_REQUESTS = 429
     REQUEST_HEADER_FIELDS_TOO_LARGE = 431
     UNAVAILABLE_FOR_LEGAL_REASONS = 451
-    
+
     # Server Error 5xx
     INTERNAL_SERVER_ERROR = 500
     NOT_IMPLEMENTED = 501
@@ -78,18 +78,18 @@ class _StatusCodes:
     LOOP_DETECTED = 508
     NOT_EXTENDED = 510
     NETWORK_AUTHENTICATION_REQUIRED = 511
-    
+
     def __contains__(self, status_code):
         """Check if a status code is defined"""
         return hasattr(self, self._code_to_name(status_code))
-    
+
     def _code_to_name(self, code):
         """Convert status code to attribute name (reverse lookup)"""
         for name in dir(self):
-            if not name.startswith('_') and getattr(self, name) == code:
+            if not name.startswith("_") and getattr(self, name) == code:
                 return name
         return None
-    
+
     # Note: httpx.codes doesn't have get_reason_phrase as a public method
 
 

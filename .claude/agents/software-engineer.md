@@ -9,6 +9,8 @@ description: 专业软件开发工程师。负责编写、修改或测试代码�
 
 - 你修改了代码后，不需要提交 commit
 
+- 你不应该写文档
+
 ### 开发要求
 
 - 如果你改了 Python 代码，应该用 ruff 来辅助判断有没有问题；如果你修改了 Rust 代码，应该及时运行 `uv run maturin develop --release` 重新编译

@@ -1,9 +1,10 @@
-import time
 import asyncio
 import collections
 import multiprocessing
+import time
 
 import uvloop
+
 import faster_http as http
 
 URL = "http://nginx:21000"
@@ -44,10 +45,7 @@ async def run_test(duration: int, concurrency: int):
     # A timeout is set on the client, so individual requests will time out if they take too long.
     async with http.AsyncClient(timeout=10) as client:
         # Create worker tasks. They will wait for the start_event.
-        tasks = [
-            asyncio.create_task(worker(client, counters, start_event))
-            for _ in range(concurrency)
-        ]
+        tasks = [asyncio.create_task(worker(client, counters, start_event)) for _ in range(concurrency)]
 
         # All tasks are created and waiting. Now, signal them to start and begin timing.
         start_event.set()
@@ -74,9 +72,7 @@ async def single_core_test(
 ) -> float:
     test_duration = duration  # seconds
     concurrency = concurrency
-    print(
-        f"Starting single-core test for {test_duration}s with a concurrency of {concurrency}..."
-    )
+    print(f"Starting single-core test for {test_duration}s with a concurrency of {concurrency}...")
 
     success, failed, duration = await run_test(test_duration, concurrency)
 
@@ -93,13 +89,9 @@ async def single_core_test(
     return rps
 
 
-def process_worker(
-    result_queue: multiprocessing.Queue, duration: int, concurrency: int
-):
+def process_worker(result_queue: multiprocessing.Queue, duration: int, concurrency: int):
     """The target function for each process in the multi-core test."""
-    success, failed, actual_duration = uvloop.run(
-        run_test(duration, concurrency)
-    )
+    success, failed, actual_duration = uvloop.run(run_test(duration, concurrency))
     result_queue.put((success, failed, actual_duration))
 
 
@@ -121,9 +113,7 @@ def multi_core_test(
     result_queue = ctx.Queue()
 
     processes = [
-        ctx.Process(
-            target=process_worker, args=(result_queue, test_duration, concurrency)
-        )
+        ctx.Process(target=process_worker, args=(result_queue, test_duration, concurrency))
         for _ in range(num_processes)
     ]
 
