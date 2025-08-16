@@ -518,6 +518,16 @@ impl AsyncHttpClient {
         Ok(())
     }
 
+    // Create AsyncClient from existing config (for internal use by sync client)
+    pub fn new_from_config(config: &ClientConfig) -> PyResult<Self> {
+        let client = config.build_client(None)?;
+        Ok(AsyncHttpClient {
+            client,
+            config: config.clone(),
+            is_closed: Arc::new(AtomicBool::new(false)),
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn async_request<'py>(
         &self,

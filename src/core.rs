@@ -4,13 +4,12 @@ use crate::request::HttpRequest;
 use crate::response::{detect_encoding, HttpResponse};
 use crate::streaming::StreamingHttpResponse;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyTuple};
+// Removed unused PyDict and PyTuple imports
 use reqwest::Client;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-// Type alias for complex return type
-type JsonParseResult = (Option<Vec<u8>>, Option<HashMap<String, PyObject>>);
+// Removed unused JsonParseResult type alias
 use crate::utils::{build_multipart_form, python_dict_to_form_string, python_dict_to_json_value};
 
 // 发送请求的核心函数（基于已构建的请求）
@@ -22,70 +21,9 @@ pub async fn send_request(
     let start_time = Instant::now();
     let url_str = request.url_str();
 
-    // Check if this is a localhost URL and use Python fallback if needed
-    if url_str.contains("127.0.0.1") || url_str.contains("localhost") || url_str.contains("0.0.0.0")
-    {
-        // Special handling for HttpRequest with JSON content
-        let (content_param, json_param) = if let Some(content_bytes) = request.content_bytes() {
-            // Check if this is JSON content by looking at Content-Type header
-            let is_json = request
-                .headers_map()
-                .iter()
-                .any(|(k, v)| k.to_lowercase() == "content-type" && v.contains("application/json"));
+    // Process request directly with reqwest - no localhost fallback needed
 
-            if is_json {
-                // Try to parse content as JSON for httpx compatibility
-                if let Ok(json_str) = std::str::from_utf8(content_bytes) {
-                    Python::with_gil(|py| -> PyResult<JsonParseResult> {
-                        let json_module = py.import("json")?;
-                        if let Ok(parsed_json) = json_module.call_method1("loads", (json_str,)) {
-                            // Convert parsed JSON to HashMap for httpx
-                            if let Ok(json_dict) =
-                                parsed_json.extract::<HashMap<String, PyObject>>()
-                            {
-                                return Ok((None, Some(json_dict)));
-                            }
-                        }
-                        // Fallback to content if JSON parsing fails
-                        Ok((Some(content_bytes.to_vec()), None))
-                    })
-                    .unwrap_or((Some(content_bytes.to_vec()), None))
-                } else {
-                    (Some(content_bytes.to_vec()), None)
-                }
-            } else {
-                (Some(content_bytes.to_vec()), None)
-            }
-        } else {
-            (None, None)
-        };
-
-        return fallback_to_python_client(
-            config,
-            request.method_str(),
-            url_str,
-            &Some(request.headers_map().clone()),
-            &content_param,
-            None,  // timeout - use default
-            &None, // auth - not available in HttpRequest
-            &Some(request.params_internal().clone()),
-            &Some(request.cookies_internal().clone()),
-            &None, // data - HttpRequest stores this as PyObject, fallback doesn't handle it
-            &None, // files - HttpRequest stores this as PyObject, fallback doesn't handle it
-            &json_param, // json - parsed from content if applicable
-        );
-    }
-
-    // Execute request hooks before sending - try EventHooksProxy first, fallback to config hooks
-    Python::with_gil(|py| {
-        // First try to execute hooks using the current approach for now
-        // TODO: In future, we could try to find the client and use its EventHooksProxy
-        let hooks = config.event_hooks.lock().unwrap();
-        if hooks.has_request_hooks() {
-            hooks.execute_request_hooks(py, request)?;
-        }
-        Ok::<(), pyo3::PyErr>(())
-    })?;
+    // Process request directly without hooks to avoid async context conflicts
 
     let method = request
         .method_str()
@@ -149,7 +87,7 @@ pub async fn send_request_direct(
 pub async fn process_response(
     response: reqwest::Response,
     start_time: Instant,
-    config: &ClientConfig,
+    _config: &ClientConfig,
 ) -> PyResult<HttpResponse> {
     let status_code = response.status().as_u16();
     let url = response.url().to_string();
@@ -202,197 +140,13 @@ pub async fn process_response(
         num_bytes_downloaded,
     );
 
-    // Execute response hooks if available
-    {
-        let hooks = config.event_hooks.lock().unwrap();
-        if hooks.has_response_hooks() {
-            Python::with_gil(|py| hooks.execute_response_hooks(py, &response))?;
-        }
-    }
+    // Process response directly without hooks to avoid async context conflicts
 
     Ok(response)
 }
 
 // 现在只有一个简化的响应处理函数
 
-// Helper function to use Python HTTP client as fallback for localhost
-#[allow(clippy::too_many_arguments)]
-fn fallback_to_python_client(
-    config: &ClientConfig,
-    method: &str,
-    url: &str,
-    headers: &Option<HashMap<String, String>>,
-    content: &Option<Vec<u8>>,
-    timeout: Option<f64>,
-    auth: &Option<(String, String)>,
-    params: &Option<HashMap<String, String>>,
-    cookies: &Option<HashMap<String, String>>,
-    data: &Option<HashMap<String, PyObject>>,
-    files: &Option<HashMap<String, PyObject>>,
-    json: &Option<HashMap<String, PyObject>>,
-) -> PyResult<HttpResponse> {
-    // Execute request hooks if available
-    {
-        let hooks = config.event_hooks.lock().unwrap();
-        if hooks.has_request_hooks() {
-            Python::with_gil(|py| {
-                // Prepare headers with auth for hooks
-                let mut final_headers = headers.clone().unwrap_or_default();
-
-                // Add Authorization header if auth is present
-                if let Some((username, password)) = auth.as_ref() {
-                    use base64::prelude::*;
-                    let credentials = format!("{}:{}", username, password);
-                    let encoded = BASE64_STANDARD.encode(credentials.as_bytes());
-                    final_headers.insert("authorization".to_string(), format!("Basic {}", encoded));
-                }
-
-                // Create a temporary HttpRequest for hooks
-                let temp_request = HttpRequest::new(
-                    method.to_string(),
-                    url.to_string(),
-                    Some(final_headers.into_py(py)),
-                    content.clone(),
-                    params.clone(),
-                    cookies.clone(),
-                    None,        // data - convert if needed
-                    None,        // files - convert if needed
-                    None,        // json - convert if needed
-                    Some(false), // stream
-                )?;
-                hooks.execute_request_hooks(py, &temp_request)
-            })?;
-        }
-    }
-    Python::with_gil(|py| {
-        // Import httpx
-        let httpx = py.import("httpx")?;
-
-        // Prepare request parameters
-        let mut kwargs = std::collections::HashMap::new();
-        kwargs.insert("timeout", timeout.unwrap_or(30.0).to_object(py));
-
-        if let Some(h) = headers {
-            let py_dict = PyDict::new(py);
-            for (k, v) in h {
-                // Skip Content-Length header when passing json, let httpx handle it
-                if json.is_some() && k.to_lowercase() == "content-length" {
-                    continue;
-                }
-                py_dict.set_item(k, v)?;
-            }
-            kwargs.insert("headers", py_dict.to_object(py));
-        }
-
-        if let Some(auth_tuple) = auth {
-            let py_tuple = PyTuple::new(py, [&auth_tuple.0, &auth_tuple.1]);
-            kwargs.insert("auth", py_tuple.to_object(py));
-        }
-
-        // Handle JSON data - prioritize json over content for JSON requests
-        if let Some(json_data) = json {
-            kwargs.insert("json", json_data.to_object(py));
-            // Don't pass content when json is present to avoid Content-Length conflicts
-        } else if let Some(body) = content {
-            // Only pass content if not JSON
-            kwargs.insert("content", body.to_object(py));
-        }
-
-        // Handle form data
-        if let Some(form_data) = data {
-            kwargs.insert("data", form_data.to_object(py));
-        }
-
-        // Handle file uploads
-        if let Some(files_data) = files {
-            kwargs.insert("files", files_data.to_object(py));
-        }
-
-        // Handle query parameters
-        if let Some(params_data) = params {
-            kwargs.insert("params", params_data.to_object(py));
-        }
-
-        // Handle cookies
-        if let Some(cookies_data) = cookies {
-            kwargs.insert("cookies", cookies_data.to_object(py));
-        }
-
-        // Convert kwargs to PyDict
-        let py_kwargs = PyDict::new(py);
-        for (k, v) in kwargs {
-            py_kwargs.set_item(k, v)?;
-        }
-
-        // Debug: print what we're passing to httpx
-        eprintln!(
-            "Debug fallback_to_python_client: method={}, url={}",
-            method, url
-        );
-        eprintln!("Debug kwargs keys: {:?}", py_kwargs.keys());
-        if let Ok(Some(content_val)) = py_kwargs.get_item("content") {
-            if let Ok(content_bytes) = content_val.extract::<Vec<u8>>() {
-                eprintln!("Debug content length: {}", content_bytes.len());
-            }
-        }
-        if let Ok(Some(_json_val)) = py_kwargs.get_item("json") {
-            eprintln!("Debug json present: true");
-        }
-
-        // Make the request using httpx
-        let response =
-            httpx.call_method(method.to_lowercase().as_str(), (url,), Some(py_kwargs))?;
-
-        // Extract response data
-        let status_code: u16 = response.getattr("status_code")?.extract()?;
-        let content_bytes: Vec<u8> = response.getattr("content")?.extract()?;
-        let content_len = content_bytes.len();
-        let url_str: String = response
-            .getattr("url")?
-            .call_method0("__str__")?
-            .extract()?;
-
-        // Extract headers
-        let headers_obj = response.getattr("headers")?;
-        let mut response_headers = HashMap::new();
-        let items = headers_obj.call_method0("items")?;
-        for item in items.iter()? {
-            let tuple = item?;
-            let key: String = tuple.get_item(0)?.extract()?;
-            let value: String = tuple.get_item(1)?.extract()?;
-            response_headers.insert(key, value);
-        }
-
-        // Create HttpResponse
-        let encoding = detect_encoding(&response_headers);
-        let cookies = std::collections::HashMap::new(); // Simplified for now
-
-        let response = HttpResponse::new(
-            status_code,
-            response_headers,
-            content_bytes.into(),
-            url_str,
-            0.0, // elapsed - simplified
-            matches!(status_code, 301 | 302 | 303 | 307 | 308),
-            "HTTP/1.1".to_string(), // http_version - simplified
-            cookies,
-            encoding,
-            Vec::new(), // history - simplified
-            None,       // request - simplified
-            content_len,
-        );
-
-        // Execute response hooks if available
-        {
-            let hooks = config.event_hooks.lock().unwrap();
-            if hooks.has_response_hooks() {
-                hooks.execute_response_hooks(py, &response)?;
-            }
-        }
-
-        Ok(response)
-    })
-}
 
 // 核心请求构建和发送函数
 #[allow(clippy::too_many_arguments)]
@@ -455,74 +209,16 @@ pub async fn build_and_send_request(
         }
     }
 
-    // Check if this is a localhost URL and use Python fallback if needed (after URL construction)
-    if full_url.contains("127.0.0.1")
-        || full_url.contains("localhost")
-        || full_url.contains("0.0.0.0")
-    {
-        // Merge default headers with request headers for fallback (same as main path)
-        let merged_headers = match headers {
-            Some(request_headers) => {
-                let mut merged = default_headers.clone();
-                merged.extend(request_headers);
-                Some(merged)
-            }
-            None if !default_headers.is_empty() => Some(default_headers.clone()),
-            _ => None,
-        };
+    // Process all URLs directly with reqwest - no localhost fallback needed
 
-        return fallback_to_python_client(
-            config,
-            method,
-            &full_url,
-            &merged_headers,
-            &content,
-            timeout,
-            &auth,
-            &params,
-            &cookies,
-            &data,
-            &files,
-            &json,
-        );
+    // 合并 headers 先，以便用于 hooks
+    let mut final_headers = default_headers.clone();
+    if let Some(ref headers) = headers {
+        final_headers.extend(headers.iter().map(|(k, v)| (k.clone(), v.clone())));
     }
 
-    // Store method as string early for hooks
-    let method_str = method.to_string();
-
-    // Execute request hooks if available
-    {
-        let hooks = config.event_hooks.lock().unwrap();
-        if hooks.has_request_hooks() {
-            Python::with_gil(|py| {
-                // Prepare headers with auth for hooks
-                let mut final_headers = headers.clone().unwrap_or_default();
-
-                // Add Authorization header if auth is present
-                if let Some((username, password)) = auth.as_ref() {
-                    use base64::prelude::*;
-                    let credentials = format!("{}:{}", username, password);
-                    let encoded = BASE64_STANDARD.encode(credentials.as_bytes());
-                    final_headers.insert("authorization".to_string(), format!("Basic {}", encoded));
-                }
-
-                // Create a temporary HttpRequest for hooks
-                let temp_request = HttpRequest::new(
-                    method_str.clone(),
-                    full_url.clone(),
-                    Some(final_headers.into_py(py)),
-                    content.clone(),
-                    params.clone(),
-                    cookies.clone(),
-                    None,        // data - convert if needed
-                    None,        // files - convert if needed
-                    None,        // json - convert if needed
-                    Some(false), // stream
-                )?;
-                hooks.execute_request_hooks(py, &temp_request)
-            })?;
-        }
-    }
+    // Request hooks will be executed in client.rs synchronous layer to avoid GIL conflicts
+    // This async function focuses only on the core HTTP request logic
 
     // 创建请求构建器
     let method = method
@@ -536,16 +232,9 @@ pub async fn build_and_send_request(
         request = request.query(&params);
     }
 
-    // 合并header - store final headers for hooks
-    let mut final_headers = default_headers.clone();
-    for (key, value) in default_headers {
+    // 添加 headers 到请求
+    for (key, value) in &final_headers {
         request = request.header(key, value);
-    }
-    if let Some(ref headers) = headers {
-        final_headers.extend(headers.iter().map(|(k, v)| (k.clone(), v.clone())));
-        for (key, value) in headers {
-            request = request.header(key, value);
-        }
     }
 
     // 添加 cookies 到请求头
@@ -612,120 +301,12 @@ pub async fn build_and_send_request(
     // 处理响应
     let http_response = process_response(response, start_time, config).await?;
 
+    // Response hooks will be executed in client.rs synchronous layer to avoid GIL conflicts
+    // This async function focuses only on the core HTTP request logic
+
     Ok(http_response)
 }
 
-// Helper function to create StreamingHttpResponse from Python httpx streaming response
-#[allow(clippy::too_many_arguments)]
-fn fallback_to_python_streaming_client(
-    config: &ClientConfig,
-    method: &str,
-    url: &str,
-    headers: &Option<HashMap<String, String>>,
-    content: &Option<Vec<u8>>,
-    timeout: Option<f64>,
-    auth: &Option<(String, String)>,
-    params: &Option<HashMap<String, String>>,
-    cookies: &Option<HashMap<String, String>>,
-    data: &Option<HashMap<String, PyObject>>,
-    files: &Option<HashMap<String, PyObject>>,
-    json: &Option<HashMap<String, PyObject>>,
-) -> PyResult<StreamingHttpResponse> {
-    // Execute request hooks if available
-    {
-        let hooks = config.event_hooks.lock().unwrap();
-        if hooks.has_request_hooks() {
-            Python::with_gil(|py| {
-                // Prepare headers with auth for hooks
-                let mut final_headers = headers.clone().unwrap_or_default();
-
-                // Add Authorization header if auth is present
-                if let Some((username, password)) = auth.as_ref() {
-                    use base64::prelude::*;
-                    let credentials = format!("{}:{}", username, password);
-                    let encoded = BASE64_STANDARD.encode(credentials.as_bytes());
-                    final_headers.insert("authorization".to_string(), format!("Basic {}", encoded));
-                }
-
-                // Create a temporary HttpRequest for hooks
-                let temp_request = HttpRequest::new(
-                    method.to_string(),
-                    url.to_string(),
-                    Some(final_headers.into_py(py)),
-                    content.clone(),
-                    params.clone(),
-                    cookies.clone(),
-                    None,       // data - convert if needed
-                    None,       // files - convert if needed
-                    None,       // json - convert if needed
-                    Some(true), // stream = true for streaming
-                )?;
-                hooks.execute_request_hooks(py, &temp_request)
-            })?;
-        }
-    }
-
-    Python::with_gil(|py| -> PyResult<StreamingHttpResponse> {
-        // Import httpx
-        let httpx = py.import("httpx")?;
-
-        // Prepare request parameters
-        let mut kwargs = std::collections::HashMap::new();
-        kwargs.insert("timeout", timeout.unwrap_or(30.0).to_object(py));
-
-        if let Some(h) = headers {
-            let py_dict = pyo3::types::PyDict::new(py);
-            for (k, v) in h {
-                py_dict.set_item(k, v)?;
-            }
-            kwargs.insert("headers", py_dict.to_object(py));
-        }
-
-        if let Some(auth_tuple) = auth {
-            let py_tuple = pyo3::types::PyTuple::new(py, [&auth_tuple.0, &auth_tuple.1]);
-            kwargs.insert("auth", py_tuple.to_object(py));
-        }
-
-        // Handle JSON data - prioritize json over content for JSON requests
-        if let Some(json_data) = json {
-            kwargs.insert("json", json_data.to_object(py));
-            // Don't pass content when json is present to avoid Content-Length conflicts
-        } else if let Some(body) = content {
-            // Only pass content if not JSON
-            kwargs.insert("content", body.to_object(py));
-        }
-
-        if let Some(form_data) = data {
-            kwargs.insert("data", form_data.to_object(py));
-        }
-
-        if let Some(files_data) = files {
-            kwargs.insert("files", files_data.to_object(py));
-        }
-
-        // Convert kwargs to PyDict
-        let py_kwargs = pyo3::types::PyDict::new(py);
-        for (k, v) in kwargs {
-            py_kwargs.set_item(k, v)?;
-        }
-
-        // Create httpx streaming response using stream method - returns a context manager
-        let stream_cm =
-            httpx.call_method("stream", (method.to_uppercase(), url), Some(py_kwargs))?;
-
-        // Enter the context manager to get the actual response
-        let stream_response = stream_cm.call_method0("__enter__")?;
-
-        // Create StreamingHttpResponse that wraps the Python httpx streaming response
-        let mut streaming_response =
-            StreamingHttpResponse::from_python_stream(py, stream_response.into())?;
-
-        // Save the context manager for proper cleanup
-        streaming_response.set_python_context_manager(stream_cm.into());
-
-        Ok(streaming_response)
-    })
-}
 
 // 核心流式请求构建和发送函数 - 返回 StreamingHttpResponse
 #[allow(clippy::too_many_arguments)]
@@ -769,16 +350,7 @@ pub async fn build_and_send_streaming_request(
         url.to_string()
     };
 
-    // Check if this is a localhost URL and use Python fallback for streaming (after URL construction)
-    if full_url.contains("127.0.0.1")
-        || full_url.contains("localhost")
-        || full_url.contains("0.0.0.0")
-    {
-        return fallback_to_python_streaming_client(
-            config, method, &full_url, &headers, &content, timeout, &auth, &params, &cookies,
-            &data, &files, &json,
-        );
-    }
+    // Process all URLs directly with reqwest streaming - no localhost fallback needed
 
     // 创建请求构建器
     let method = method

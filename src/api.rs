@@ -5,7 +5,7 @@ use crate::streaming::StreamingClient;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 
-// Helper function to handle localhost vs external requests with different runtime strategies
+// Unified request execution using global runtime for all URLs
 #[allow(clippy::too_many_arguments)]
 fn execute_request_with_runtime(
     config: &ClientConfig,
@@ -22,75 +22,26 @@ fn execute_request_with_runtime(
     follow_redirects: bool,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    // For localhost URLs, try with a dedicated runtime to avoid async context issues
-    if url.contains("127.0.0.1") || url.contains("localhost") || url.contains("0.0.0.0") {
-        match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(dedicated_rt) => dedicated_rt.block_on(build_and_send_request(
-                config,
-                method,
-                url,
-                content,
-                data,
-                json,
-                files,
-                params,
-                headers,
-                timeout,
-                &None,
-                &HashMap::new(),
-                None,
-                auth_tuple,
-                follow_redirects,
-                cookies,
-            )),
-            Err(_) => {
-                // Fallback to global runtime if dedicated runtime creation fails
-                let rt = get_global_runtime();
-                rt.block_on(build_and_send_request(
-                    config,
-                    method,
-                    url,
-                    content,
-                    data,
-                    json,
-                    files,
-                    params,
-                    headers,
-                    timeout,
-                    &None,
-                    &HashMap::new(),
-                    None,
-                    auth_tuple,
-                    follow_redirects,
-                    cookies,
-                ))
-            }
-        }
-    } else {
-        // For external URLs, use the global runtime
-        let rt = get_global_runtime();
-        rt.block_on(build_and_send_request(
-            config,
-            method,
-            url,
-            content,
-            data,
-            json,
-            files,
-            params,
-            headers,
-            timeout,
-            &None,
-            &HashMap::new(),
-            None,
-            auth_tuple,
-            follow_redirects,
-            cookies,
-        ))
-    }
+    // Use global runtime for all URLs to ensure consistent behavior
+    let rt = get_global_runtime();
+    rt.block_on(build_and_send_request(
+        config,
+        method,
+        url,
+        content,
+        data,
+        json,
+        files,
+        params,
+        headers,
+        timeout,
+        &None,
+        &HashMap::new(),
+        None,
+        auth_tuple,
+        follow_redirects,
+        cookies,
+    ))
 }
 use crate::auth::{extract_auth, extract_auth_from_object};
 use crate::config::ClientConfig;

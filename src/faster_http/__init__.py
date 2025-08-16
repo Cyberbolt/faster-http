@@ -49,9 +49,10 @@ from ._core import (
 from ._core import (
     AsyncHttpClient as AsyncClient,
 )
-from ._core import (
-    HttpClient as Client,
-)
+# Import the Python wrapper Client instead of direct Rust Client
+from ._wrapper_client import Client
+# Keep the Rust client available as RustClient for internal use
+from ._core import HttpClient as RustClient
 from ._core import (
     HttpRequest as Request,
 )

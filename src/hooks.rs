@@ -104,27 +104,15 @@ impl EventHooks {
             let py_request = PyCell::new(py, request.clone())?;
             let result = hook.call1(py, (py_request,))?;
 
-            // Handle async hooks by checking if result is a coroutine
+            // For now, only handle sync hooks to avoid spawn_blocking conflicts
+            // Async hooks would require a different architecture
             if let Ok(inspect_module) = py.import("inspect") {
                 if let Ok(is_coroutine) =
                     inspect_module.call_method1("iscoroutine", (result.clone(),))
                 {
                     if is_coroutine.is_true()? {
-                        // Try to run async hooks properly using asyncio
-                        if let Ok(asyncio) = py.import("asyncio") {
-                            // Try to get current event loop
-                            if let Ok(get_event_loop) = asyncio.call_method0("get_event_loop") {
-                                // Schedule the coroutine to run in the event loop
-                                if let Ok(_task) =
-                                    get_event_loop.call_method1("create_task", (result,))
-                                {
-                                    // Task created successfully
-                                }
-                            } else {
-                                // If no event loop, try to run with asyncio.run
-                                let _ = asyncio.call_method1("run", (result,));
-                            }
-                        }
+                        // Log a warning instead of trying to run async hooks in spawn_blocking
+                        eprintln!("Warning: Async request hooks are not supported in spawn_blocking context");
                     }
                 }
             }
@@ -140,27 +128,15 @@ impl EventHooks {
             let py_response = PyCell::new(py, cloned_response)?;
             let result = hook.call1(py, (py_response,))?;
 
-            // Handle async hooks by checking if result is a coroutine
+            // For now, only handle sync hooks to avoid spawn_blocking conflicts
+            // Async hooks would require a different architecture
             if let Ok(inspect_module) = py.import("inspect") {
                 if let Ok(is_coroutine) =
                     inspect_module.call_method1("iscoroutine", (result.clone(),))
                 {
                     if is_coroutine.is_true()? {
-                        // Try to run async hooks properly using asyncio
-                        if let Ok(asyncio) = py.import("asyncio") {
-                            // Try to get current event loop
-                            if let Ok(get_event_loop) = asyncio.call_method0("get_event_loop") {
-                                // Schedule the coroutine to run in the event loop
-                                if let Ok(_task) =
-                                    get_event_loop.call_method1("create_task", (result,))
-                                {
-                                    // Task created successfully
-                                }
-                            } else {
-                                // If no event loop, try to run with asyncio.run
-                                let _ = asyncio.call_method1("run", (result,));
-                            }
-                        }
+                        // Log a warning instead of trying to run async hooks in spawn_blocking
+                        eprintln!("Warning: Async response hooks are not supported in spawn_blocking context");
                     }
                 }
             }

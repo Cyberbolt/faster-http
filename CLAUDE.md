@@ -19,3 +19,7 @@ Rust 部分，应该把 Python 部分的输入转为 reqwest 的输入，然后�
 - Python 调用 Rust 应该尽可能高效，追求极致性能
 
 - CI/CD 中不应该跑 benchmark
+
+- 如果需要运行 benchmark，为避免阻塞，一定要加一个超时时间，示例运行 `timeout 60s uv run -m benchmark.faster_http_test`
+
+- 禁止运行任何无限阻塞的任务（如 server 等），如果必须运行，请用 timeout 来限制时间

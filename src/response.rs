@@ -266,7 +266,10 @@ impl HttpResponse {
         let body = self.body.clone();
 
         future_into_py(py, async move {
-            Python::with_gil(|py| -> PyResult<Py<PyBytes>> { Ok(PyBytes::new(py, &body).into()) })
+            // Use with_gil directly without spawn_blocking to avoid async context conflicts
+            Python::with_gil(|py| -> PyResult<Py<PyBytes>> { 
+                Ok(PyBytes::new(py, &body).into()) 
+            })
         })
     }
 

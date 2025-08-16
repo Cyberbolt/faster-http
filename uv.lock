@@ -393,6 +393,7 @@ dev = [
     { name = "requests" },
     { name = "ruff" },
     { name = "uvicorn" },
+    { name = "uvloop" },
 ]
 
 [package.metadata]
@@ -417,6 +418,7 @@ dev = [
     { name = "requests", specifier = ">=2.31.0" },
     { name = "ruff", specifier = ">=0.12.1" },
     { name = "uvicorn", specifier = ">=0.35.0" },
+    { name = "uvloop", specifier = ">=0.21.0" },
 ]
 
 [[package]]

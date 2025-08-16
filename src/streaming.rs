@@ -31,12 +31,6 @@ pub struct StreamingHttpResponse {
     // reqwest 响应对象 - 使用 Arc<Mutex<>> 来允许在异步迭代器间共享
     response: Arc<Mutex<Option<reqwest::Response>>>,
 
-    // Python httpx streaming response for localhost fallback
-    python_stream: Option<PyObject>,
-
-    // Python httpx context manager for localhost fallback
-    python_context_manager: Option<PyObject>,
-
     // Cache for content after aread() to allow subsequent access
     cached_content: Arc<Mutex<Option<Vec<u8>>>>,
 
@@ -71,63 +65,13 @@ impl StreamingHttpResponse {
             cookies,
             num_bytes_downloaded: 0,
             response: Arc::new(Mutex::new(Some(response))),
-            python_stream: None,
-            python_context_manager: None,
             cached_content: Arc::new(Mutex::new(None)),
             _closed: Arc::new(RwLock::new(false)),
             _consumed: Arc::new(RwLock::new(false)),
         }
     }
 
-    /// Set the Python context manager for proper cleanup
-    pub fn set_python_context_manager(&mut self, context_manager: PyObject) {
-        self.python_context_manager = Some(context_manager);
-    }
 
-    /// Create StreamingHttpResponse from Python httpx streaming response (for localhost fallback)
-    pub fn from_python_stream(py: Python, python_stream: PyObject) -> PyResult<Self> {
-        // Extract response attributes from Python httpx streaming response
-        let status_code: u16 = python_stream.getattr(py, "status_code")?.extract(py)?;
-        let url: String = python_stream
-            .getattr(py, "url")?
-            .call_method0(py, "__str__")?
-            .extract(py)?;
-
-        // Extract headers - convert httpx.Headers to dict
-        let headers_obj = python_stream.getattr(py, "headers")?;
-        let mut headers = HashMap::new();
-
-        // Convert Headers object to dictionary for easier processing
-        let dict_type = py.import("builtins")?.getattr("dict")?;
-        let headers_dict = dict_type.call1((headers_obj,))?;
-
-        let headers_dict_py = headers_dict.downcast::<pyo3::types::PyDict>()?;
-        for (key, value) in headers_dict_py.iter() {
-            let key_str: String = key.extract()?;
-            let value_str: String = value.extract()?;
-            headers.insert(key_str.to_lowercase(), value_str);
-        }
-
-        let encoding = detect_encoding(&headers);
-        let cookies = parse_cookies_from_headers(&headers);
-
-        Ok(Self {
-            status_code,
-            headers,
-            url,
-            elapsed: 0.0,
-            http_version: "HTTP/1.1".to_string(),
-            encoding,
-            cookies,
-            num_bytes_downloaded: 0,
-            response: Arc::new(Mutex::new(None)), // No reqwest response for Python fallback
-            python_stream: Some(python_stream),
-            python_context_manager: None, // Will be set by core.rs
-            cached_content: Arc::new(Mutex::new(None)),
-            _closed: Arc::new(RwLock::new(false)),
-            _consumed: Arc::new(RwLock::new(false)),
-        })
-    }
 }
 
 #[pymethods]
@@ -211,7 +155,10 @@ impl StreamingHttpResponse {
             let rt = get_global_runtime();
 
             match rt.block_on(async move { response.chunk().await }) {
-                Ok(Some(chunk)) => Python::with_gil(|py| Ok(Some(PyBytes::new(py, &chunk).into()))),
+                Ok(Some(chunk)) => {
+                    // Use with_gil directly without spawn_blocking to avoid async context conflicts
+                    Python::with_gil(|py| Ok(Some(PyBytes::new(py, &chunk).into())))
+                },
                 Ok(None) => {
                     *response_guard = None;
                     Ok(None)
@@ -227,59 +174,6 @@ impl StreamingHttpResponse {
     pub fn iter_bytes(&mut self, chunk_size: Option<usize>) -> PyResult<Vec<PyObject>> {
         let _chunk_size = chunk_size.unwrap_or(8192);
 
-        // Handle Python streaming fallback
-        if let Some(ref python_stream) = self.python_stream {
-            return Python::with_gil(|py| {
-                // Call iter_bytes on the Python httpx streaming response - returns a generator
-                let py_chunks_iter = python_stream.call_method1(py, "iter_bytes", (chunk_size,))?;
-                let mut chunks = Vec::new();
-
-                // Iterate over the Python generator manually
-                loop {
-                    match py_chunks_iter.call_method0(py, "__next__") {
-                        Ok(chunk) => {
-                            // Convert chunk to PyObject bytes
-                            let py_bytes =
-                                if let Ok(bytes_obj) = chunk.extract::<&pyo3::types::PyBytes>(py) {
-                                    // Already a PyBytes - convert to PyObject
-                                    bytes_obj.to_object(py)
-                                } else {
-                                    // Try to convert to bytes
-                                    let chunk_bytes: Vec<u8> =
-                                        if let Ok(bytes_vec) = chunk.extract::<Vec<u8>>(py) {
-                                            bytes_vec
-                                        } else {
-                                            // Fallback: try to get bytes from the object
-                                            let bytes_method = chunk
-                                                .call_method0(py, "__bytes__")
-                                                .or_else(|_| -> PyResult<PyObject> {
-                                                    // If __bytes__ doesn't exist, try converting to bytes
-                                                    let bytes_type =
-                                                        py.import("builtins")?.getattr("bytes")?;
-                                                    Ok(bytes_type.call1((chunk,))?.into())
-                                                })?;
-                                            bytes_method.extract::<Vec<u8>>(py)?
-                                        };
-                                    // Create Python bytes object from Vec<u8>
-                                    pyo3::types::PyBytes::new(py, &chunk_bytes).to_object(py)
-                                };
-                            chunks.push(py_bytes);
-                        }
-                        Err(e) => {
-                            // Check if this is StopIteration (end of iterator)
-                            if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) {
-                                break;
-                            } else {
-                                return Err(e);
-                            }
-                        }
-                    }
-                }
-
-                *self._consumed.write().unwrap() = true;
-                Ok(chunks)
-            });
-        }
 
         // Handle reqwest response
         let response_arc = self.response.clone();
@@ -387,14 +281,6 @@ impl StreamingHttpResponse {
     /// 一次性读取全部内容为 bytes
     #[getter]
     pub fn content(&mut self, py: Python) -> PyResult<PyObject> {
-        // Handle Python streaming fallback
-        if let Some(ref python_stream) = self.python_stream {
-            let content_bytes = python_stream
-                .getattr(py, "content")?
-                .extract::<Vec<u8>>(py)?;
-            *self._consumed.write().unwrap() = true;
-            return Ok(PyBytes::new(py, &content_bytes).to_object(py));
-        }
 
         // Check if we have cached content first
         {
@@ -433,14 +319,6 @@ impl StreamingHttpResponse {
     /// 一次性读取全部内容为文本
     #[getter]
     pub fn text(&mut self) -> PyResult<String> {
-        // Handle Python streaming fallback
-        if let Some(ref python_stream) = self.python_stream {
-            return Python::with_gil(|py| {
-                let text: String = python_stream.getattr(py, "text")?.extract(py)?;
-                *self._consumed.write().unwrap() = true;
-                Ok(text)
-            });
-        }
 
         // Check if we have cached content first
         {
@@ -478,12 +356,6 @@ impl StreamingHttpResponse {
 
     /// JSON 解析
     pub fn json(&mut self, py: Python) -> PyResult<PyObject> {
-        // Handle Python streaming fallback
-        if let Some(ref python_stream) = self.python_stream {
-            let json_data = python_stream.call_method0(py, "json")?;
-            *self._consumed.write().unwrap() = true;
-            return Ok(json_data);
-        }
 
         // Check if we have cached content first
         {
@@ -513,38 +385,12 @@ impl StreamingHttpResponse {
 
     /// Read content for httpx compatibility (required before accessing content/json for streaming responses)
     pub fn read(&mut self) -> PyResult<()> {
-        // Handle Python streaming fallback
-        if let Some(ref python_stream) = self.python_stream {
-            return Python::with_gil(|py| {
-                python_stream.call_method0(py, "read")?;
-                Ok(())
-            });
-        }
 
         // For reqwest responses, this is a no-op since we handle reading internally
         Ok(())
     }
 
     pub fn close(&mut self) -> PyResult<()> {
-        // Handle Python streaming fallback
-        if let Some(ref python_context_manager) = self.python_context_manager {
-            Python::with_gil(|py| {
-                // Call __exit__ on the context manager
-                let _ = python_context_manager.call_method(
-                    py,
-                    "__exit__",
-                    (py.None(), py.None(), py.None()),
-                    None,
-                );
-            });
-        }
-
-        // Also close the stream if available
-        if let Some(ref python_stream) = self.python_stream {
-            Python::with_gil(|py| {
-                let _ = python_stream.call_method0(py, "close");
-            });
-        }
 
         // Handle reqwest response
         let response_arc = self.response.clone();
@@ -700,13 +546,6 @@ impl StreamingHttpResponse {
         let response_arc = self.response.clone();
         let cached_content_arc = self.cached_content.clone();
 
-        // Handle Python streaming fallback
-        if let Some(ref python_stream) = self.python_stream {
-            let python_stream = python_stream.clone();
-            return future_into_py(py, async move {
-                Python::with_gil(|py| python_stream.call_method0(py, "read"))
-            });
-        }
 
         future_into_py(py, async move {
             // First check if we already have cached content

@@ -203,28 +203,19 @@ impl ClientConfig {
             builder = builder.redirect(reqwest::redirect::Policy::limited(max as usize));
         }
 
-        // Optimized configuration for high performance
-        builder = builder
-            .timeout(Duration::from_secs(30))
-            .connect_timeout(Duration::from_secs(5)) // Short connect timeout
-            .pool_idle_timeout(Some(Duration::from_secs(30))) // Enable connection pooling with 30s timeout
-            .pool_max_idle_per_host(10) // Allow 10 idle connections per host
-            .tcp_nodelay(true) // Enable TCP_NODELAY for low latency
-            .tcp_keepalive(Some(Duration::from_secs(60))) // Enable TCP keepalive
-            .danger_accept_invalid_certs(true) // For testing
-            .danger_accept_invalid_hostnames(true); // For testing
-
-        // Configure HTTP versions based on parameters
-        if http1 && !http2 {
+        // Configure HTTP versions - default to HTTP/1.1 only for localhost compatibility
+        if !http2 {
             builder = builder.http1_only();
-        } else if !http1 && http2 {
-            builder = builder.http2_prior_knowledge();
         }
-        // If both are enabled, let reqwest choose automatically
 
-        if http1 {
-            builder = builder.http1_title_case_headers(); // Case headers for HTTP/1.1 compatibility
-        }
+        // Improved localhost compatibility configuration
+        builder = builder
+            // Set shorter connect timeout for localhost
+            .connect_timeout(Duration::from_secs(5))
+            // Set a global timeout as backup
+            .timeout(Duration::from_secs(30))
+            // Enable TCP nodelay for faster local connections
+            .tcp_nodelay(true);
 
         // Only apply SSL for HTTPS URLs - skip for localhost HTTP
         // (SSL config will be applied per-request if needed)
@@ -237,28 +228,14 @@ impl ClientConfig {
     pub fn build_client(&self, _custom_verify: Option<&PyAny>) -> PyResult<Client> {
         let mut builder = Client::builder();
 
-        // Optimized configuration for high performance
+        // Improved localhost compatibility configuration
         builder = builder
+            // Set shorter connect timeout for localhost
+            .connect_timeout(Duration::from_secs(5))
+            // Set a global timeout as backup
             .timeout(Duration::from_secs(30))
-            .connect_timeout(Duration::from_secs(5)) // Short connect timeout
-            .pool_idle_timeout(Some(Duration::from_secs(30))) // Enable connection pooling with 30s timeout
-            .pool_max_idle_per_host(10) // Allow 10 idle connections per host
-            .tcp_nodelay(true) // Enable TCP_NODELAY for low latency
-            .tcp_keepalive(Some(Duration::from_secs(60))) // Enable TCP keepalive
-            .danger_accept_invalid_certs(true) // For testing
-            .danger_accept_invalid_hostnames(true); // For testing
-
-        // Configure HTTP versions based on client configuration
-        if self.http1 && !self.http2 {
-            builder = builder.http1_only();
-        } else if !self.http1 && self.http2 {
-            builder = builder.http2_prior_knowledge();
-        }
-        // If both are enabled, let reqwest choose automatically
-
-        if self.http1 {
-            builder = builder.http1_title_case_headers(); // Case headers for HTTP/1.1 compatibility
-        }
+            // Enable TCP nodelay for faster local connections
+            .tcp_nodelay(true);
 
         // Only apply SSL for HTTPS URLs - skip for localhost HTTP
         // (SSL config will be applied per-request if needed)

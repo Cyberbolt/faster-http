@@ -169,21 +169,19 @@ impl HttpClient {
         let final_cookies = self.config.default_cookies.clone();
         // Note: Individual request cookies would be handled at higher level
 
-        Python::with_gil(|py| {
-            let headers_dict: HashMap<String, String> = final_headers;
-            HttpRequest::new(
-                method.to_string(),
-                final_url,
-                Some(headers_dict.into_py(py)),
-                content,
-                Some(final_params),
-                Some(final_cookies),
-                data,
-                files,
-                json,
-                stream,
-            )
-        })
+        // Use internal constructor to avoid GIL conflicts
+        Ok(HttpRequest::new_internal(
+            method.to_string(),
+            final_url,
+            final_headers,
+            content,
+            Some(final_params),
+            Some(final_cookies),
+            data,
+            files,
+            json,
+            stream,
+        ))
     }
 
     // Send pre-built request
@@ -239,7 +237,6 @@ impl HttpClient {
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
         self.check_not_closed()?;
-        let rt = get_global_runtime();
 
         // Merge default params with request params (same pattern as cookies)
         let merged_params = match params {
@@ -269,7 +266,11 @@ impl HttpClient {
         let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
         let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
 
-        rt.block_on(build_and_send_request(
+        // Note: Event hooks are now handled in Python layer to avoid GIL conflicts
+
+        // Execute the actual request
+        let rt = get_global_runtime();
+        let response = rt.block_on(build_and_send_request(
             &self.config,
             method,
             url,
@@ -286,7 +287,11 @@ impl HttpClient {
             auth_option,
             follow_redirects,
             merged_cookies,
-        ))
+        ))?;
+
+        // Note: Event hooks are now handled in Python layer to avoid GIL conflicts
+
+        Ok(response)
     }
 
     // Public request method for httpx compatibility

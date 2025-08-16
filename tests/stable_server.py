@@ -38,8 +38,6 @@ class StableHTTPRequestHandler(BaseHTTPRequestHandler):
             self.send_response(status_code)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(response_data)))
-            # Add Connection: close for simple test server compatibility
-            self.send_header("Connection", "close")  # Ensure connection closes properly
 
             if headers:
                 for key, value in headers.items():
@@ -116,8 +114,6 @@ class StableHTTPRequestHandler(BaseHTTPRequestHandler):
             try:
                 self.send_response(302)
                 self.send_header("Location", "/get")
-                # Add Connection: close for simple test server compatibility
-                self.send_header("Connection", "close")
                 self.end_headers()
             except (BrokenPipeError, ConnectionResetError, OSError):
                 pass
@@ -301,13 +297,9 @@ class StableHTTPRequestHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("X-Test-Header", "test-value")
-                # Add Connection: close for simple test server compatibility
-                self.send_header("Connection", "close")
                 self.end_headers()
             else:
                 self.send_response(404)
-                # Add Connection: close for simple test server compatibility
-                self.send_header("Connection", "close")
                 self.end_headers()
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass

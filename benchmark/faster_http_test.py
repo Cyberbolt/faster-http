@@ -3,11 +3,10 @@ import collections
 import multiprocessing
 import time
 
-import uvloop
-
+# import uvloop
 import faster_http as http
 
-URL = "http://nginx:21000"
+URL = "http://127.0.0.1:21000"
 
 
 async def fetch(client: http.AsyncClient):
@@ -91,59 +90,9 @@ async def single_core_test(
 
 def process_worker(result_queue: multiprocessing.Queue, duration: int, concurrency: int):
     """The target function for each process in the multi-core test."""
-    success, failed, actual_duration = uvloop.run(run_test(duration, concurrency))
+    success, failed, actual_duration = asyncio.run(run_test(duration, concurrency))
     result_queue.put((success, failed, actual_duration))
 
 
-def multi_core_test(
-    num_processes: int = 4,
-    duration: int = 30,
-    concurrency: int = 24,
-) -> float:
-    """Runs the test across multiple processes to utilize multiple CPU cores."""
-    num_processes = num_processes
-    test_duration = duration
-    concurrency = concurrency
-    print(
-        f"Starting multi-core test for {test_duration}s with a concurrency of "
-        f"{concurrency} per process across {num_processes} processes..."
-    )
-
-    ctx = multiprocessing.get_context("spawn")
-    result_queue = ctx.Queue()
-
-    processes = [
-        ctx.Process(target=process_worker, args=(result_queue, test_duration, concurrency))
-        for _ in range(num_processes)
-    ]
-
-    start_time = time.monotonic()
-    for p in processes:
-        p.start()
-    for p in processes:
-        p.join()
-    total_duration = time.monotonic() - start_time
-
-    total_success = 0
-    total_failed = 0
-    total_rps = 0.0
-
-    while not result_queue.empty():
-        success, failed, duration = result_queue.get()
-        total_success += success
-        total_failed += failed
-        if duration > 0:
-            total_rps += success / duration
-
-    print("\n--- Multi-Core Test Results ---")
-    print(f"Test ran for: {total_duration:.2f} seconds")
-    print(f"Total successful requests: {total_success}")
-    print(f"Total failed requests: {total_failed}")
-    print(f"Aggregated RPS (sum of RPS from each process): {total_rps:.0f}")
-
-    return total_rps
-
-
 if __name__ == "__main__":
-    single_rps = uvloop.run(single_core_test(duration=10, concurrency=50))
-    # multi_rps = multi_core_test(num_processes=4, duration=30, concurrency=50)
+    single_rps = asyncio.run(single_core_test(duration=10, concurrency=50))

@@ -169,6 +169,7 @@ impl HttpRequest {
 
         future_into_py(py, async move {
             use pyo3::types::PyBytes;
+            // Use with_gil directly without spawn_blocking to avoid async context conflicts
             Python::with_gil(|py| -> PyResult<pyo3::Py<PyBytes>> {
                 match content {
                     Some(bytes) => Ok(PyBytes::new(py, &bytes).into()),
@@ -184,6 +185,34 @@ impl HttpRequest {
 }
 
 impl HttpRequest {
+    // Internal constructor that avoids GIL - for use within Rust code
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_internal(
+        method: String,
+        url: String,
+        headers: HashMap<String, String>,
+        content: Option<Vec<u8>>,
+        params: Option<HashMap<String, String>>,
+        cookies: Option<HashMap<String, String>>,
+        data: Option<PyObject>,
+        files: Option<PyObject>,
+        json: Option<PyObject>,
+        stream: Option<bool>,
+    ) -> Self {
+        Self {
+            method,
+            url,
+            headers,
+            content: content.map(Bytes::from),
+            params: params.unwrap_or_default(),
+            cookies: cookies.unwrap_or_default(),
+            data,
+            files,
+            json,
+            stream: stream.unwrap_or(false),
+        }
+    }
+
     // Internal methods for use within the crate - not exposed to Python
     pub fn method_str(&self) -> &str {
         &self.method

@@ -42,3 +42,45 @@ def register_client(client_id: str, client, update_func: Callable):
 def update_hooks(client_id: str, hooks_dict: dict[str, Any]):
     """Update hooks for a client."""
     _sync_manager.update_hooks(client_id, hooks_dict)
+
+
+def execute_request_hooks(event_hooks, request):
+    """Execute request hooks on Python side to avoid Rust GIL conflicts."""
+    if not event_hooks:
+        return
+
+    # Get request hooks
+    try:
+        request_hooks = event_hooks['request']
+        if request_hooks:
+            for hook in request_hooks:
+                if callable(hook):
+                    try:
+                        hook(request)
+                    except Exception as e:
+                        # Log the error but don't break the request
+                        print(f"Warning: Request hook failed: {e}")
+    except (KeyError, TypeError):
+        # No request hooks or invalid hooks
+        pass
+
+
+def execute_response_hooks(event_hooks, response):
+    """Execute response hooks on Python side to avoid Rust GIL conflicts."""
+    if not event_hooks:
+        return
+
+    # Get response hooks
+    try:
+        response_hooks = event_hooks['response']
+        if response_hooks:
+            for hook in response_hooks:
+                if callable(hook):
+                    try:
+                        hook(response)
+                    except Exception as e:
+                        # Log the error but don't break the request
+                        print(f"Warning: Response hook failed: {e}")
+    except (KeyError, TypeError):
+        # No response hooks or invalid hooks
+        pass
