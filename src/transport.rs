@@ -129,35 +129,28 @@ impl FasterhttpTransport {
     /// 处理请求 - 实现httpx.BaseTransport接口
     pub fn handle_request(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
         // 创建默认的配置和headers来调用build_and_send_request
-        let empty_headers = HashMap::new();
+        let empty_headers: HashMap<String, String> = HashMap::new();
         let config = crate::config::ClientConfig::new(
             None, None, None, None, None, None, None, None, None, None, None, None, None, None,
             None, None, None, None, None, None,
         )?;
 
-        // 使用tokio运行时同步执行异步请求
-        let rt = crate::runtime::get_global_runtime();
-        let response = rt.block_on(async {
-            crate::core::build_and_send_request(
-                &config,
-                request.method_str(),
-                request.url_str(),
-                request.content_bytes().map(|c| c.to_vec()),
-                None,                                // data
-                None,                                // json
-                None,                                // files
-                None,                                // params
-                Some(request.headers_map().clone()), // headers
-                None,                                // timeout
-                &None,                               // base_url
-                &empty_headers,                      // default_headers
-                None,                                // default_timeout
-                None,                                // auth
-                true,                                // follow_redirects
-                None,                                // cookies
-            )
-            .await
-        })?;
+        // 使用同步客户端避免block_on
+        let sync_client = crate::sync_core::SyncHttpClient::new(config)?;
+        let response = sync_client.send_request(
+            request.get_method(),
+            request.get_url(),
+            request.get_content(),
+            request.get_data().clone(),
+            request.get_json().clone(),
+            request.get_files().clone(),
+            Some(request.get_params().clone()),
+            Some(request.get_headers().clone()), // headers
+            None,                                // timeout
+            None,                                // auth
+            Some(true),                          // follow_redirects
+            Some(request.get_cookies().clone()), // cookies
+        )?;
 
         Ok(response)
     }

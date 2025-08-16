@@ -1,13 +1,12 @@
-use crate::core::build_and_send_request;
 use crate::response::HttpResponse;
-use crate::runtime::get_global_runtime;
+use crate::sync_core::SyncHttpClient;
 use crate::streaming::StreamingClient;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 
-// Unified request execution using global runtime for all URLs
+// Unified synchronous request execution
 #[allow(clippy::too_many_arguments)]
-fn execute_request_with_runtime(
+fn execute_request_with_sync_client(
     config: &ClientConfig,
     method: &str,
     url: &str,
@@ -22,26 +21,29 @@ fn execute_request_with_runtime(
     follow_redirects: bool,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    // Use global runtime for all URLs to ensure consistent behavior
-    let rt = get_global_runtime();
-    rt.block_on(build_and_send_request(
-        config,
+    // Create synchronous client for this request
+    let sync_client = SyncHttpClient::new(config.clone())?;
+    
+    // Convert HashMap data to PyObject for sync_client
+    let data_obj = data.as_ref().map(|d| Python::with_gil(|py| d.to_object(py)));
+    let json_obj = json.as_ref().map(|j| Python::with_gil(|py| j.to_object(py)));
+    let files_obj = files.as_ref().map(|f| Python::with_gil(|py| f.to_object(py)));
+    
+    // Execute request using synchronous client
+    sync_client.send_request(
         method,
         url,
         content,
-        data,
-        json,
-        files,
+        data_obj,
+        json_obj,
+        files_obj,
         params,
         headers,
         timeout,
-        &None,
-        &HashMap::new(),
-        None,
         auth_tuple,
-        follow_redirects,
+        Some(follow_redirects),
         cookies,
-    ))
+    )
 }
 use crate::auth::{extract_auth, extract_auth_from_object};
 use crate::config::ClientConfig;
@@ -150,7 +152,7 @@ pub fn get(
     let config =
         create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
 
-    execute_request_with_runtime(
+    execute_request_with_sync_client(
         &config,
         "GET",
         url,
@@ -190,7 +192,7 @@ pub fn post(
         create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
 
     let extracted_headers = extract_headers(headers)?;
-    execute_request_with_runtime(
+    execute_request_with_sync_client(
         &config,
         "POST",
         url,
@@ -229,7 +231,7 @@ pub fn put(
     let config =
         create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
 
-    execute_request_with_runtime(
+    execute_request_with_sync_client(
         &config,
         "PUT",
         url,
@@ -268,7 +270,7 @@ pub fn patch(
     let config =
         create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
 
-    execute_request_with_runtime(
+    execute_request_with_sync_client(
         &config,
         "PATCH",
         url,
@@ -302,7 +304,7 @@ pub fn delete(
     let config =
         create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
 
-    execute_request_with_runtime(
+    execute_request_with_sync_client(
         &config,
         "DELETE",
         url,
@@ -336,7 +338,7 @@ pub fn head(
     let config =
         create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
 
-    execute_request_with_runtime(
+    execute_request_with_sync_client(
         &config,
         "HEAD",
         url,
@@ -370,7 +372,7 @@ pub fn options(
     let config =
         create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
 
-    execute_request_with_runtime(
+    execute_request_with_sync_client(
         &config,
         "OPTIONS",
         url,
@@ -412,7 +414,7 @@ pub fn request(
         create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
 
     let extracted_headers = extract_headers(headers)?;
-    execute_request_with_runtime(
+    execute_request_with_sync_client(
         &config,
         method,
         url,

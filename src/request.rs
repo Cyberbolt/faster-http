@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 
 // Request 对象 - Enhanced version with full httpx compatibility
-#[pyclass]
+#[pyclass(module = "faster_http")]
 #[derive(Clone)]
 pub struct HttpRequest {
     method: String,
@@ -185,6 +185,43 @@ impl HttpRequest {
 }
 
 impl HttpRequest {
+    // Internal accessor methods for Rust code
+    pub fn get_method(&self) -> &str {
+        &self.method
+    }
+    
+    pub fn get_url(&self) -> &str {
+        &self.url
+    }
+    
+    pub fn get_headers(&self) -> &HashMap<String, String> {
+        &self.headers
+    }
+    
+    pub fn get_content(&self) -> Option<Vec<u8>> {
+        self.content.as_ref().map(|b| b.to_vec())
+    }
+    
+    pub fn get_params(&self) -> &HashMap<String, String> {
+        &self.params
+    }
+    
+    pub fn get_cookies(&self) -> &HashMap<String, String> {
+        &self.cookies
+    }
+    
+    pub fn get_data(&self) -> &Option<PyObject> {
+        &self.data
+    }
+    
+    pub fn get_files(&self) -> &Option<PyObject> {
+        &self.files
+    }
+    
+    pub fn get_json(&self) -> &Option<PyObject> {
+        &self.json
+    }
+
     // Internal constructor that avoids GIL - for use within Rust code
     #[allow(clippy::too_many_arguments)]
     pub fn new_internal(

@@ -208,14 +208,8 @@ impl ClientConfig {
             builder = builder.http1_only();
         }
 
-        // Improved localhost compatibility configuration
-        builder = builder
-            // Set shorter connect timeout for localhost
-            .connect_timeout(Duration::from_secs(5))
-            // Set a global timeout as backup
-            .timeout(Duration::from_secs(30))
-            // Enable TCP nodelay for faster local connections
-            .tcp_nodelay(true);
+        // Use minimal configuration for maximum compatibility
+        // Only configure what's absolutely necessary
 
         // Only apply SSL for HTTPS URLs - skip for localhost HTTP
         // (SSL config will be applied per-request if needed)
@@ -228,14 +222,8 @@ impl ClientConfig {
     pub fn build_client(&self, _custom_verify: Option<&PyAny>) -> PyResult<Client> {
         let mut builder = Client::builder();
 
-        // Improved localhost compatibility configuration
-        builder = builder
-            // Set shorter connect timeout for localhost
-            .connect_timeout(Duration::from_secs(5))
-            // Set a global timeout as backup
-            .timeout(Duration::from_secs(30))
-            // Enable TCP nodelay for faster local connections
-            .tcp_nodelay(true);
+        // Use minimal configuration for maximum compatibility
+        // Only configure what's absolutely necessary
 
         // Only apply SSL for HTTPS URLs - skip for localhost HTTP
         // (SSL config will be applied per-request if needed)

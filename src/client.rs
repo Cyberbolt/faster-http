@@ -2,13 +2,11 @@ use pyo3::prelude::*;
 // PyCell import removed as it's not used in this file
 use crate::auth::extract_auth;
 use crate::config::ClientConfig;
-use crate::core::{build_and_send_request, send_request};
 use crate::error::RequestError;
 use crate::request::HttpRequest;
 use crate::response::HttpResponse;
-use crate::runtime::get_global_runtime;
+use crate::sync_core::SyncHttpClient;
 use crate::utils::build_url;
-use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -65,9 +63,9 @@ fn extract_cookies_from_object(
 }
 
 // Synchronous HTTP client
-#[pyclass]
+#[pyclass(module = "faster_http")]
 pub struct HttpClient {
-    client: Client,
+    sync_client: SyncHttpClient,
     config: ClientConfig,
     is_closed: AtomicBool,
 }
@@ -126,10 +124,10 @@ impl HttpClient {
             default_encoding,
             params,
         )?;
-        let client = config.build_client(None)?;
+        let sync_client = SyncHttpClient::new(config.clone())?;
 
         Ok(HttpClient {
-            client,
+            sync_client,
             config,
             is_closed: AtomicBool::new(false),
         })
@@ -184,11 +182,24 @@ impl HttpClient {
         ))
     }
 
-    // Send pre-built request
+    // Send pre-built request using synchronous client
     pub fn send(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
         self.check_not_closed()?;
-        let rt = get_global_runtime();
-        rt.block_on(send_request(&self.client, request, &self.config))
+        // Use synchronous client to avoid block_on
+        self.sync_client.send_request(
+            request.get_method(),
+            request.get_url(),
+            request.get_content(),
+            request.get_data().clone(),
+            request.get_json().clone(),
+            request.get_files().clone(),
+            Some(request.get_params().clone()),
+            Some(request.get_headers().clone()),
+            None, // timeout handled by client config
+            None, // auth handled by client config
+            None, // follow_redirects handled by client config
+            Some(request.get_cookies().clone()),
+        )
     }
 
     fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -211,15 +222,16 @@ impl HttpClient {
         Ok(())
     }
 
-    // Expose event_hooks for httpx compatibility
+    // Expose event_hooks for httpx compatibility - return dict like httpx
     #[getter]
-    pub fn event_hooks(&self) -> PyResult<crate::hooks::EventHooksProxy> {
-        Ok(crate::hooks::EventHooksProxy::new(
-            self.config.event_hooks.clone(),
-        ))
+    pub fn event_hooks(&self) -> PyResult<PyObject> {
+        Python::with_gil(|py| {
+            let hooks = self.config.event_hooks.lock().unwrap();
+            hooks.to_python_dict(py)
+        })
     }
 
-    // Generic request method to reduce code duplication
+    // Unified request method that handles all logic in Rust layer
     #[allow(clippy::too_many_arguments)]
     fn _request(
         &self,
@@ -238,58 +250,66 @@ impl HttpClient {
     ) -> PyResult<HttpResponse> {
         self.check_not_closed()?;
 
-        // Merge default params with request params (same pattern as cookies)
-        let merged_params = match params {
-            Some(request_params) => {
-                let mut merged = self.config.default_params.clone();
-                merged.extend(request_params);
-                Some(merged)
-            }
-            None if !self.config.default_params.is_empty() => {
-                Some(self.config.default_params.clone())
-            }
-            _ => None,
-        };
-
-        // Simple cookie merging - delegate actual cookie handling to reqwest
-        let merged_cookies = match cookies {
-            Some(request_cookies) => {
-                let mut merged = self.config.default_cookies.clone();
-                merged.extend(request_cookies);
-                Some(merged)
-            }
-            None if !self.config.default_cookies.is_empty() => {
-                Some(self.config.default_cookies.clone())
-            }
-            _ => None,
-        };
+        // Build complete request parameters in Rust (moved from Python layer)
+        let final_url = self.build_final_url(url, params.as_ref())?;
+        let final_headers = self.merge_headers(headers);
+        let final_cookies = self.merge_cookies(cookies);
         let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
         let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
 
-        // Note: Event hooks are now handled in Python layer to avoid GIL conflicts
+        // Create lightweight request object for hooks if needed
+        let request_for_hooks = if self.has_hooks() {
+            // Convert Python data types to PyObject for hooks
+            let data_obj = data.as_ref().map(|d| Python::with_gil(|py| d.to_object(py)));
+            let files_obj = files.as_ref().map(|f| Python::with_gil(|py| f.to_object(py)));
+            let json_obj = json.as_ref().map(|j| Python::with_gil(|py| j.to_object(py)));
+            
+            Some(HttpRequest::new_internal(
+                method.to_string(),
+                final_url.clone(),
+                final_headers.clone(),
+                content.clone(),
+                params,
+                final_cookies.clone(),
+                data_obj,
+                files_obj,
+                json_obj,
+                None,
+            ))
+        } else {
+            None
+        };
 
-        // Execute the actual request
-        let rt = get_global_runtime();
-        let response = rt.block_on(build_and_send_request(
-            &self.config,
+        // Execute request hooks in Rust layer
+        if let Some(request) = &request_for_hooks {
+            self.execute_request_hooks(request)?;
+        }
+
+        // Convert HashMap data to PyObject for sync_client
+        let data_obj = data.as_ref().map(|d| Python::with_gil(|py| d.to_object(py)));
+        let json_obj = json.as_ref().map(|j| Python::with_gil(|py| j.to_object(py)));
+        let files_obj = files.as_ref().map(|f| Python::with_gil(|py| f.to_object(py)));
+
+        // Execute the actual HTTP request using synchronous client
+        let response = self.sync_client.send_request(
             method,
-            url,
+            &final_url,
             content,
-            data,
-            json,
-            files,
-            merged_params,
-            headers,
+            data_obj,
+            json_obj,
+            files_obj,
+            None, // params already merged into URL
+            Some(final_headers),
             timeout,
-            &self.config.base_url,
-            &self.config.default_headers,
-            self.config.default_timeout,
             auth_option,
-            follow_redirects,
-            merged_cookies,
-        ))?;
+            Some(follow_redirects),
+            final_cookies,
+        )?;
 
-        // Note: Event hooks are now handled in Python layer to avoid GIL conflicts
+        // Execute response hooks in Rust layer
+        if self.has_hooks() {
+            self.execute_response_hooks(&response)?;
+        }
 
         Ok(response)
     }
@@ -531,55 +551,23 @@ impl HttpClient {
     #[allow(clippy::too_many_arguments)]
     pub fn stream(
         &self,
-        method: &str,
-        url: &str,
-        content: Option<Vec<u8>>,
-        data: Option<HashMap<String, PyObject>>,
-        json: Option<HashMap<String, PyObject>>,
-        files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
-        headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-        auth: Option<(String, String)>,
-        follow_redirects: Option<bool>,
-        cookies: Option<HashMap<String, String>>,
+        _method: &str,
+        _url: &str,
+        _content: Option<Vec<u8>>,
+        _data: Option<HashMap<String, PyObject>>,
+        _json: Option<HashMap<String, PyObject>>,
+        _files: Option<HashMap<String, PyObject>>,
+        _params: Option<HashMap<String, String>>,
+        _headers: Option<HashMap<String, String>>,
+        _timeout: Option<f64>,
+        _auth: Option<(String, String)>,
+        _follow_redirects: Option<bool>,
+        _cookies: Option<HashMap<String, String>>,
     ) -> PyResult<crate::streaming::StreamingHttpResponse> {
-        use crate::core::build_and_send_streaming_request;
-
-        self.check_not_closed()?;
-        let rt = get_global_runtime();
-
-        let merged_cookies = match cookies {
-            Some(request_cookies) => {
-                let mut merged = self.config.default_cookies.clone();
-                merged.extend(request_cookies);
-                Some(merged)
-            }
-            None if !self.config.default_cookies.is_empty() => {
-                Some(self.config.default_cookies.clone())
-            }
-            _ => None,
-        };
-        let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
-        let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
-
-        rt.block_on(build_and_send_streaming_request(
-            &self.config,
-            method,
-            url,
-            content,
-            data,
-            json,
-            files,
-            params,
-            headers,
-            timeout,
-            &self.config.base_url,
-            &self.config.default_headers,
-            self.config.default_timeout,
-            auth_option,
-            follow_redirects,
-            merged_cookies,
+        // Streaming is not supported in the synchronous client implementation
+        // For streaming functionality, use the async client instead
+        Err(RequestError::new_err(
+            "Streaming is not supported in synchronous client. Use AsyncHttpClient for streaming functionality."
         ))
     }
 
@@ -615,6 +603,79 @@ impl HttpClient {
     fn check_not_closed(&self) -> PyResult<()> {
         if self.is_closed.load(Ordering::Relaxed) {
             return Err(RequestError::new_err("Client has been closed"));
+        }
+        Ok(())
+    }
+
+    // Helper method to build final URL with base_url and params
+    fn build_final_url(&self, url: &str, params: Option<&HashMap<String, String>>) -> PyResult<String> {
+        use crate::utils::build_url;
+        
+        // Merge default params with request params
+        let merged_params = match params {
+            Some(request_params) => {
+                let mut merged = self.config.default_params.clone();
+                merged.extend(request_params.clone());
+                if merged.is_empty() { None } else { Some(merged) }
+            }
+            None if !self.config.default_params.is_empty() => {
+                Some(self.config.default_params.clone())
+            }
+            _ => None,
+        };
+
+        build_url(url, self.config.base_url.as_ref(), merged_params.as_ref())
+            .map_err(RequestError::new_err)
+    }
+
+    // Helper method to merge headers
+    fn merge_headers(&self, request_headers: Option<HashMap<String, String>>) -> HashMap<String, String> {
+        let mut final_headers = self.config.default_headers.clone();
+        if let Some(headers) = request_headers {
+            final_headers.extend(headers);
+        }
+        final_headers
+    }
+
+    // Helper method to merge cookies
+    fn merge_cookies(&self, request_cookies: Option<HashMap<String, String>>) -> Option<HashMap<String, String>> {
+        match request_cookies {
+            Some(request_cookies) => {
+                let mut merged = self.config.default_cookies.clone();
+                merged.extend(request_cookies);
+                if merged.is_empty() { None } else { Some(merged) }
+            }
+            None if !self.config.default_cookies.is_empty() => {
+                Some(self.config.default_cookies.clone())
+            }
+            _ => None,
+        }
+    }
+
+    // Helper method to check if hooks are configured
+    fn has_hooks(&self) -> bool {
+        let hooks = self.config.event_hooks.lock().unwrap();
+        hooks.has_hooks()
+    }
+
+    // Helper method to execute request hooks
+    fn execute_request_hooks(&self, request: &HttpRequest) -> PyResult<()> {
+        let hooks = self.config.event_hooks.lock().unwrap();
+        if hooks.has_request_hooks() {
+            Python::with_gil(|py| {
+                hooks.execute_request_hooks(py, request)
+            })?;
+        }
+        Ok(())
+    }
+
+    // Helper method to execute response hooks
+    fn execute_response_hooks(&self, response: &HttpResponse) -> PyResult<()> {
+        let hooks = self.config.event_hooks.lock().unwrap();
+        if hooks.has_response_hooks() {
+            Python::with_gil(|py| {
+                hooks.execute_response_hooks(py, response)
+            })?;
         }
         Ok(())
     }

@@ -20,6 +20,6 @@ Rust 部分，应该把 Python 部分的输入转为 reqwest 的输入，然后�
 
 - CI/CD 中不应该跑 benchmark
 
-- 如果需要运行 benchmark，为避免阻塞，一定要加一个超时时间，示例运行 `timeout 60s uv run -m benchmark.faster_http_test`
+- 如果需要运行 benchmark，为避免阻塞，一定要加一个超时时间，示例运行 `timeout 60s uv run -m benchmark.faster_http_test`。性能测试依赖于 http://nginx:21000 这个服务，不要乱改地址(我已经运行好了这个服务)
 
 - 禁止运行任何无限阻塞的任务（如 server 等），如果必须运行，请用 timeout 来限制时间

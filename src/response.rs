@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 // 响应对象 - 生产级版本，与 httpx 完全对齐
-#[pyclass]
+#[pyclass(module = "faster_http")]
 #[derive(Clone)]
 pub struct HttpResponse {
     status_code: u16,

@@ -4,7 +4,11 @@ import multiprocessing
 import time
 
 import httpx
-import uvloop
+
+try:
+    import uvloop
+except ImportError:
+    uvloop = None
 
 URL = "http://nginx:21000"
 
@@ -90,9 +94,19 @@ async def single_core_test(
 
 def process_worker(result_queue: multiprocessing.Queue, duration: int, concurrency: int):
     """The target function for each process in the multi-core test."""
-    success, failed, actual_duration = uvloop.run(run_test(duration, concurrency))
+    # Enable uvloop for this process if available
+    if uvloop is not None:
+        uvloop.install()
+    success, failed, actual_duration = asyncio.run(run_test(duration, concurrency))
     result_queue.put((success, failed, actual_duration))
 
 
 if __name__ == "__main__":
-    single_rps = uvloop.run(single_core_test(duration=10, concurrency=50))
+    # Enable uvloop for better performance if available
+    if uvloop is not None:
+        uvloop.install()
+        print("Using uvloop for enhanced performance")
+    else:
+        print("uvloop not available, using default asyncio event loop")
+
+    single_rps = asyncio.run(single_core_test(duration=10, concurrency=50))

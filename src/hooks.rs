@@ -294,25 +294,15 @@ impl EventHooks {
     }
 
     /// Convert EventHooks back to Python dict format for httpx compatibility
+    /// Only includes standard httpx hook types: 'request' and 'response'
     pub fn to_python_dict(&self, py: Python) -> PyResult<PyObject> {
         use pyo3::types::PyDict;
 
         let dict = PyDict::new(py);
 
-        // Always include standard hook types to match httpx behavior
+        // Only include standard httpx hook types to ensure 100% compatibility
         dict.set_item("request", self.request_hooks.clone())?;
         dict.set_item("response", self.response_hooks.clone())?;
-
-        // Include non-standard hooks only if they have content
-        if !self.pre_request_hooks.is_empty() {
-            dict.set_item("pre_request", self.pre_request_hooks.clone())?;
-        }
-        if !self.post_response_hooks.is_empty() {
-            dict.set_item("post_response", self.post_response_hooks.clone())?;
-        }
-        if !self.error_hooks.is_empty() {
-            dict.set_item("error", self.error_hooks.clone())?;
-        }
 
         Ok(dict.to_object(py))
     }

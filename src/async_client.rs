@@ -13,7 +13,7 @@ use crate::error::RequestError;
 use crate::utils::build_url;
 
 // Asynchronous HTTP client
-#[pyclass]
+#[pyclass(module = "faster_http")]
 #[derive(Clone)]
 pub struct AsyncHttpClient {
     client: Client,

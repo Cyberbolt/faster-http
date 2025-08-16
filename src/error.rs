@@ -47,7 +47,17 @@ pyo3::create_exception!(faster_http, TooManyRedirects, ProtocolError);
 // Transport related exceptions
 pyo3::create_exception!(faster_http, TransportError, HTTPError);
 
+// Additional httpx-compatible exceptions
+pyo3::create_exception!(faster_http, InvalidURL, RequestError);
+pyo3::create_exception!(faster_http, LocalProtocolError, ProtocolError);
+pyo3::create_exception!(faster_http, RemoteProtocolError, ProtocolError);
+pyo3::create_exception!(faster_http, ReadError, RequestError);
+pyo3::create_exception!(faster_http, WriteError, RequestError);
+pyo3::create_exception!(faster_http, UnsupportedProtocol, RequestError);
+
 // 错误处理工具 - httpx 兼容的错误映射
+
+/// Maps reqwest errors to appropriate httpx-compatible exceptions
 pub fn map_reqwest_error(error: reqwest::Error) -> PyErr {
     let error_msg = error.to_string();
 
@@ -78,6 +88,29 @@ pub fn map_reqwest_error(error: reqwest::Error) -> PyErr {
     }
 }
 
+/// Maps ureq errors to appropriate httpx-compatible exceptions
+pub fn map_ureq_error(error: ureq::Error) -> PyErr {
+    match error {
+        ureq::Error::Status(code, _) => {
+            create_http_status_error(code, &format!("HTTP status error: {}", code))
+        }
+        ureq::Error::Transport(transport_err) => {
+            let msg = transport_err.to_string();
+            if msg.contains("timeout") {
+                if msg.contains("connect") {
+                    ConnectTimeout::new_err(format!("Connection timeout: {}", msg))
+                } else {
+                    ReadTimeout::new_err(format!("Request timeout: {}", msg))
+                }
+            } else if msg.contains("connection") {
+                ConnectError::new_err(format!("Connection error: {}", msg))
+            } else {
+                TransportError::new_err(format!("Network error: {}", msg))
+            }
+        }
+    }
+}
+
 /// Create HTTP status error with proper exception type
 pub fn create_http_status_error(status_code: u16, message: &str) -> PyErr {
     HTTPStatusError::new_err(format!("HTTP {} Error: {}", status_code, message))
@@ -97,4 +130,73 @@ pub fn create_timeout_error(timeout_type: &str, message: &str) -> PyErr {
 /// Create stream related error
 pub fn create_stream_error(_error_type: &str, message: &str) -> PyErr {
     StreamError::new_err(format!("Stream error: {}", message))
+}
+
+/// Create URL validation error
+pub fn create_url_error(message: &str) -> PyErr {
+    InvalidURL::new_err(format!("Invalid URL: {}", message))
+}
+
+/// Create generic request error
+pub fn create_request_error(message: &str) -> PyErr {
+    RequestError::new_err(message.to_string())
+}
+
+/// Create file not found error (maps to RequestError for API consistency)
+pub fn create_file_error(message: &str) -> PyErr {
+    RequestError::new_err(format!("File error: {}", message))
+}
+
+/// Create validation error for invalid input
+pub fn create_validation_error(message: &str) -> PyErr {
+    RequestError::new_err(format!("Validation error: {}", message))
+}
+
+/// Create protocol error for low-level protocol issues
+pub fn create_protocol_error(message: &str) -> PyErr {
+    ProtocolError::new_err(format!("Protocol error: {}", message))
+}
+
+/// Create read/write error for I/O operations
+pub fn create_io_error(message: &str, is_read: bool) -> PyErr {
+    if is_read {
+        ReadError::new_err(format!("Read error: {}", message))
+    } else {
+        WriteError::new_err(format!("Write error: {}", message))
+    }
+}
+
+/// Create connection error with detailed context
+pub fn create_connection_error(message: &str, is_timeout: bool) -> PyErr {
+    if is_timeout {
+        ConnectTimeout::new_err(format!("Connection timeout: {}", message))
+    } else {
+        ConnectError::new_err(format!("Connection error: {}", message))
+    }
+}
+
+/// Map std::io::Error to appropriate exception
+pub fn map_io_error(error: std::io::Error) -> PyErr {
+    let msg = error.to_string();
+    match error.kind() {
+        std::io::ErrorKind::NotFound => create_file_error(&msg),
+        std::io::ErrorKind::PermissionDenied => create_validation_error(&msg),
+        std::io::ErrorKind::ConnectionRefused | 
+        std::io::ErrorKind::ConnectionAborted |
+        std::io::ErrorKind::ConnectionReset => create_connection_error(&msg, false),
+        std::io::ErrorKind::TimedOut => create_connection_error(&msg, true),
+        std::io::ErrorKind::InvalidInput | 
+        std::io::ErrorKind::InvalidData => create_validation_error(&msg),
+        _ => create_request_error(&msg),
+    }
+}
+
+/// Map JSON parsing errors to appropriate exception
+pub fn map_json_error(error: serde_json::Error) -> PyErr {
+    create_validation_error(&format!("JSON decode error: {}", error))
+}
+
+/// Map URL parsing errors to appropriate exception  
+pub fn map_url_error(error: url::ParseError) -> PyErr {
+    create_url_error(&error.to_string())
 }

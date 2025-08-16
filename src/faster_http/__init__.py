@@ -20,20 +20,27 @@ from ._core import (
     # Exception hierarchy (only httpx-compatible ones)
     HTTPError,
     HTTPStatusError,
+    # Additional httpx-compatible exceptions
+    InvalidURL,
     Limits,
+    LocalProtocolError,
     # Transport classes (import available ones from Rust)
     MockTransport,
     NetRCAuth,
     PoolTimeout,
     ProtocolError,
     QueryParams,
+    ReadError,
     ReadTimeout,
+    RemoteProtocolError,
     RequestError,
     StreamError,
     Timeout,
     TimeoutException,
     TooManyRedirects,
     TransportError,
+    UnsupportedProtocol,
+    WriteError,
     WriteTimeout,
     delete,
     # HTTP methods
@@ -49,10 +56,8 @@ from ._core import (
 from ._core import (
     AsyncHttpClient as AsyncClient,
 )
-# Import the Python wrapper Client instead of direct Rust Client
-from ._wrapper_client import Client
-# Keep the Rust client available as RustClient for internal use
-from ._core import HttpClient as RustClient
+
+# Note: RustClient is available internally but not exposed in public API
 from ._core import (
     HttpRequest as Request,
 )
@@ -60,75 +65,18 @@ from ._core import (
     HttpResponse as Response,
 )
 
+# Import the Python wrapper Client instead of direct Rust Client
+from ._wrapper_client import Client
+
 # Import additional modules
 from .codes import codes
-from .event_hooks_proxy import EventHooksProxy
 from .proxy import Proxy
 
-
-# Create httpx-compatible exception classes that don't exist in Rust code
-class InvalidURL(RequestError):
-    """Raised when a URL is malformed."""
+# All exception classes are now implemented in Rust and imported from _core
 
 
-class LocalProtocolError(ProtocolError):
-    """Raised for local protocol violations."""
-
-
-class RemoteProtocolError(ProtocolError):
-    """Raised for remote protocol violations."""
-
-
-class ReadError(RequestError):
-    """Raised when a read error occurs."""
-
-
-class WriteError(RequestError):
-    """Raised when a write error occurs."""
-
-
-class UnsupportedProtocol(RequestError):
-    """Raised when an unsupported protocol is used."""
-
-
-# Create httpx-compatible transport and other classes that don't exist in Rust code
-class HTTPTransport:
-    """HTTP transport implementation (placeholder)."""
-
-    def __init__(self, **kwargs):
-        pass
-
-
-class AsyncHTTPTransport:
-    """Async HTTP transport implementation (placeholder)."""
-
-    def __init__(self, **kwargs):
-        pass
-
-
-class AsyncMockTransport:
-    """Async mock transport implementation (placeholder)."""
-
-    def __init__(self, handler=None, **kwargs):
-        self.handler = handler
-
-
-class Auth:
-    """Base authentication class (placeholder)."""
-
-    def auth_flow(self, request):
-        yield request
-
-    async def async_auth_flow(self, request):
-        yield request
-
-
-class Stream:
-    """Stream implementation (placeholder)."""
-
-
-class AsyncStream:
-    """Async stream implementation (placeholder)."""
+# Note: Transport and authentication classes are implemented in Rust
+# Stream functionality is provided through the Response object
 
 
 # httpx constants (placeholders)
@@ -143,11 +91,7 @@ __all__ = [
     "DEFAULT_TIMEOUT_CONFIG",
     "URL",
     "AsyncClient",
-    "AsyncHTTPTransport",
-    "AsyncMockTransport",
-    "AsyncStream",
     # Authentication
-    "Auth",
     "BasicAuth",
     # Primary API (httpx-compatible names)
     "Client",
@@ -155,13 +99,9 @@ __all__ = [
     "ConnectTimeout",
     "Cookies",
     "DigestAuth",
-    # Event hooks proxy for dynamic hook modification
-    "EventHooksProxy",
     # Exception hierarchy (httpx-compatible ones)
     "HTTPError",
     "HTTPStatusError",
-    # Transport classes
-    "HTTPTransport",
     # Model classes (httpx-compatible names)
     "Headers",
     # Additional httpx-compatible exceptions
@@ -181,7 +121,6 @@ __all__ = [
     "RequestError",
     "Response",
     # Stream classes
-    "Stream",
     "StreamError",
     "Timeout",
     "TimeoutException",

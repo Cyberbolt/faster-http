@@ -1,6 +1,6 @@
 use crate::config::ClientConfig;
 use crate::core::build_and_send_streaming_request;
-use crate::error::RequestError;
+use crate::error::{RequestError, create_request_error, map_json_error, create_stream_error};
 use crate::response::{detect_encoding, detect_http_version, parse_cookies_from_headers};
 use crate::runtime::get_global_runtime;
 use pyo3::prelude::*;
@@ -149,7 +149,7 @@ impl StreamingHttpResponse {
         let response_arc = self.response.clone();
         let mut response_guard = response_arc
             .lock()
-            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
+            .map_err(|_| create_request_error("Failed to acquire response lock"))?;
 
         if let Some(response) = response_guard.as_mut() {
             let rt = get_global_runtime();
@@ -163,7 +163,7 @@ impl StreamingHttpResponse {
                     *response_guard = None;
                     Ok(None)
                 }
-                Err(e) => Err(RequestError::new_err(format!("Stream error: {}", e))),
+                Err(e) => Err(create_stream_error("stream", &e.to_string())),
             }
         } else {
             Ok(None)
@@ -179,7 +179,7 @@ impl StreamingHttpResponse {
         let response_arc = self.response.clone();
         let mut response_guard = response_arc
             .lock()
-            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
+            .map_err(|_| create_request_error("Failed to acquire response lock"))?;
 
         if let Some(response) = response_guard.take() {
             let rt = get_global_runtime();
@@ -188,7 +188,7 @@ impl StreamingHttpResponse {
             let bytes = rt
                 .block_on(async move { response.bytes().await })
                 .map_err(|e| {
-                    RequestError::new_err(format!("Failed to read response body: {}", e))
+                    create_request_error(&format!("Failed to read response body: {}", e))
                 })?;
 
             // Split into chunks and convert to Python bytes objects
@@ -215,7 +215,7 @@ impl StreamingHttpResponse {
         let response_arc = self.response.clone();
         let mut response_guard = response_arc
             .lock()
-            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
+            .map_err(|_| create_request_error("Failed to acquire response lock"))?;
 
         if let Some(response) = response_guard.take() {
             let rt = get_global_runtime();
@@ -225,7 +225,7 @@ impl StreamingHttpResponse {
             let text = rt
                 .block_on(async move { response.text().await })
                 .map_err(|e| {
-                    RequestError::new_err(format!("Failed to read response text: {}", e))
+                    create_request_error(&format!("Failed to read response text: {}", e))
                 })?;
 
             // Split into chunks
@@ -247,7 +247,7 @@ impl StreamingHttpResponse {
         let response_arc = self.response.clone();
         let mut response_guard = response_arc
             .lock()
-            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
+            .map_err(|_| create_request_error("Failed to acquire response lock"))?;
 
         if let Some(response) = response_guard.take() {
             let rt = get_global_runtime();
@@ -256,7 +256,7 @@ impl StreamingHttpResponse {
             let text = rt
                 .block_on(async move { response.text().await })
                 .map_err(|e| {
-                    RequestError::new_err(format!("Failed to read response text: {}", e))
+                    create_request_error(&format!("Failed to read response text: {}", e))
                 })?;
 
             // Split into lines
@@ -287,7 +287,7 @@ impl StreamingHttpResponse {
             let cache_guard = self
                 .cached_content
                 .lock()
-                .map_err(|_| RequestError::new_err("Failed to acquire cache lock"))?;
+                .map_err(|_| create_request_error("Failed to acquire cache lock"))?;
             if let Some(ref cached_bytes) = *cache_guard {
                 return Ok(PyBytes::new(py, cached_bytes).to_object(py));
             }
@@ -297,14 +297,14 @@ impl StreamingHttpResponse {
         let response_arc = self.response.clone();
         let mut response_guard = response_arc
             .lock()
-            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
+            .map_err(|_| create_request_error("Failed to acquire response lock"))?;
 
         if let Some(response) = response_guard.take() {
             let rt = get_global_runtime();
             let bytes = rt
                 .block_on(async move { response.bytes().await })
                 .map_err(|e| {
-                    RequestError::new_err(format!("Failed to read response body: {}", e))
+                    create_request_error(&format!("Failed to read response body: {}", e))
                 })?;
 
             *self._consumed.write().unwrap() = true;
@@ -325,7 +325,7 @@ impl StreamingHttpResponse {
             let cache_guard = self
                 .cached_content
                 .lock()
-                .map_err(|_| RequestError::new_err("Failed to acquire cache lock"))?;
+                .map_err(|_| create_request_error("Failed to acquire cache lock"))?;
             if let Some(ref cached_bytes) = *cache_guard {
                 return Ok(String::from_utf8_lossy(cached_bytes).to_string());
             }
@@ -335,14 +335,14 @@ impl StreamingHttpResponse {
         let response_arc = self.response.clone();
         let mut response_guard = response_arc
             .lock()
-            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
+            .map_err(|_| create_request_error("Failed to acquire response lock"))?;
 
         if let Some(response) = response_guard.take() {
             let rt = get_global_runtime();
             let text = rt
                 .block_on(async move { response.text().await })
                 .map_err(|e| {
-                    RequestError::new_err(format!("Failed to read response text: {}", e))
+                    create_request_error(&format!("Failed to read response text: {}", e))
                 })?;
 
             *self._consumed.write().unwrap() = true;
@@ -362,11 +362,11 @@ impl StreamingHttpResponse {
             let cache_guard = self
                 .cached_content
                 .lock()
-                .map_err(|_| RequestError::new_err("Failed to acquire cache lock"))?;
+                .map_err(|_| create_request_error("Failed to acquire cache lock"))?;
             if let Some(ref cached_bytes) = *cache_guard {
                 let text = String::from_utf8_lossy(cached_bytes);
                 let json_value: serde_json::Value = serde_json::from_str(&text)
-                    .map_err(|e| RequestError::new_err(format!("JSON decode error: {}", e)))?;
+                    .map_err(map_json_error)?;
                 return pythonize::pythonize(py, &json_value).map_err(|e| {
                     RequestError::new_err(format!("Failed to convert JSON to Python: {}", e))
                 });
@@ -376,7 +376,7 @@ impl StreamingHttpResponse {
         // Fallback to reading from response directly (if not cached)
         let text = self.text()?;
         let json_value: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| RequestError::new_err(format!("JSON decode error: {}", e)))?;
+            .map_err(map_json_error)?;
         pythonize::pythonize(py, &json_value)
             .map_err(|e| RequestError::new_err(format!("Failed to convert JSON to Python: {}", e)))
     }
@@ -396,7 +396,7 @@ impl StreamingHttpResponse {
         let response_arc = self.response.clone();
         let mut response_guard = response_arc
             .lock()
-            .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
+            .map_err(|_| create_request_error("Failed to acquire response lock"))?;
         *response_guard = None;
         *self._closed.write().unwrap() = true;
         *self._consumed.write().unwrap() = true; // Mark as consumed when closed
@@ -439,7 +439,7 @@ impl StreamingHttpResponse {
             let response = {
                 let mut response_guard = response_arc
                     .lock()
-                    .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
+                    .map_err(|_| create_request_error("Failed to acquire response lock"))?;
                 response_guard.take()
             };
 
@@ -477,7 +477,7 @@ impl StreamingHttpResponse {
             let response = {
                 let mut response_guard = response_arc
                     .lock()
-                    .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
+                    .map_err(|_| create_request_error("Failed to acquire response lock"))?;
                 response_guard.take()
             };
 
@@ -510,7 +510,7 @@ impl StreamingHttpResponse {
             let response = {
                 let mut response_guard = response_arc
                     .lock()
-                    .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
+                    .map_err(|_| create_request_error("Failed to acquire response lock"))?;
                 response_guard.take()
             };
 
@@ -552,7 +552,7 @@ impl StreamingHttpResponse {
             {
                 let cache_guard = cached_content_arc
                     .lock()
-                    .map_err(|_| RequestError::new_err("Failed to acquire cache lock"))?;
+                    .map_err(|_| create_request_error("Failed to acquire cache lock"))?;
                 if cache_guard.is_some() {
                     return Ok(()); // Content already read
                 }
@@ -562,7 +562,7 @@ impl StreamingHttpResponse {
             let response = {
                 let mut response_guard = response_arc
                     .lock()
-                    .map_err(|_| RequestError::new_err("Failed to acquire response lock"))?;
+                    .map_err(|_| create_request_error("Failed to acquire response lock"))?;
                 response_guard.take()
             };
 
@@ -583,7 +583,7 @@ impl StreamingHttpResponse {
             {
                 let mut cache_guard = cached_content_arc
                     .lock()
-                    .map_err(|_| RequestError::new_err("Failed to acquire cache lock"))?;
+                    .map_err(|_| create_request_error("Failed to acquire cache lock"))?;
                 *cache_guard = Some(bytes.to_vec());
             }
 

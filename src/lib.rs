@@ -19,6 +19,7 @@ mod response;
 mod runtime;
 mod ssl_config;
 mod streaming;
+mod sync_core;
 mod transport;
 mod utils;
 
@@ -106,6 +107,14 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
 
     // Transport exceptions
     m.add("TransportError", py.get_type::<TransportError>())?;
+
+    // Additional httpx-compatible exceptions
+    m.add("InvalidURL", py.get_type::<InvalidURL>())?;
+    m.add("LocalProtocolError", py.get_type::<LocalProtocolError>())?;
+    m.add("RemoteProtocolError", py.get_type::<RemoteProtocolError>())?;
+    m.add("ReadError", py.get_type::<ReadError>())?;
+    m.add("WriteError", py.get_type::<WriteError>())?;
+    m.add("UnsupportedProtocol", py.get_type::<UnsupportedProtocol>())?;
 
     Ok(())
 }

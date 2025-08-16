@@ -1,10 +1,11 @@
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use std::collections::HashMap;
+use crate::error::{create_validation_error, create_file_error, create_url_error};
 
 /// Simple Headers wrapper - minimal interface for httpx compatibility
 /// Core logic handled by reqwest in HTTP requests
-#[pyclass(name = "Headers")]
+#[pyclass(name = "Headers", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpHeaders {
     inner: HashMap<String, String>,
@@ -27,7 +28,7 @@ impl HttpHeaders {
                 return Ok(v.clone());
             }
         }
-        Err(pyo3::exceptions::PyKeyError::new_err(key.to_string()))
+        Err(create_validation_error(&format!("Header not found: {}", key)))
     }
 
     fn __setitem__(&mut self, key: String, value: String) {
@@ -91,7 +92,7 @@ impl HttpHeaders {
 }
 
 /// Simple QueryParams wrapper - string parsing delegated to reqwest
-#[pyclass(name = "QueryParams")]
+#[pyclass(name = "QueryParams", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpQueryParams {
     inner: HashMap<String, String>,
@@ -148,7 +149,7 @@ impl HttpQueryParams {
         self.inner
             .get(key)
             .cloned()
-            .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(key.to_string()))
+            .ok_or_else(|| create_validation_error(&format!("Query parameter not found: {}", key)))
     }
 
     fn __setitem__(&mut self, key: String, value: String) {
@@ -217,7 +218,7 @@ impl HttpQueryParams {
 }
 
 /// Simple Cookies wrapper - processing delegated to reqwest
-#[pyclass(name = "Cookies")]
+#[pyclass(name = "Cookies", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpCookies {
     inner: HashMap<String, String>,
@@ -237,7 +238,7 @@ impl HttpCookies {
         self.inner
             .get(key)
             .cloned()
-            .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(key.to_string()))
+            .ok_or_else(|| create_validation_error(&format!("Cookie not found: {}", key)))
     }
 
     fn __setitem__(&mut self, key: String, value: String) {
@@ -294,7 +295,7 @@ impl HttpCookies {
 }
 
 /// Simple URL wrapper - parsing handled by reqwest
-#[pyclass(name = "URL")]
+#[pyclass(name = "URL", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpUrl {
     url: String,
@@ -306,7 +307,7 @@ impl HttpUrl {
     #[new]
     pub fn new(url: String) -> PyResult<Self> {
         let parsed = url::Url::parse(&url)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid URL: {}", e)))?;
+            .map_err(|e| create_url_error(&e.to_string()))?;
         Ok(Self { url, parsed })
     }
 
@@ -389,7 +390,7 @@ impl HttpUrl {
 
     pub fn resolve_reference(&self, reference: &str) -> PyResult<Self> {
         let resolved = self.parsed.join(reference).map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!("Cannot resolve reference: {}", e))
+            create_url_error(&format!("Cannot resolve reference: {}", e))
         })?;
         Ok(Self {
             url: resolved.to_string(),
@@ -416,7 +417,7 @@ impl HttpUrl {
 }
 
 /// Timeout configuration - minimal wrapper for reqwest
-#[pyclass(name = "Timeout")]
+#[pyclass(name = "Timeout", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpTimeout {
     connect: Option<f64>,
@@ -447,7 +448,7 @@ impl HttpTimeout {
             })
         } else if connect.is_none() && read.is_none() && write.is_none() && pool.is_none() {
             // If no timeout specified at all, raise error like httpx
-            Err(pyo3::exceptions::PyValueError::new_err(
+            Err(create_validation_error(
                 "httpx.Timeout must either include a default, or set all four parameters explicitly."
             ))
         } else {
@@ -489,7 +490,7 @@ impl HttpTimeout {
 }
 
 /// Connection pool limits - minimal wrapper for reqwest
-#[pyclass(name = "Limits")]
+#[pyclass(name = "Limits", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpLimits {
     max_keepalive_connections: i32,
@@ -530,7 +531,7 @@ impl HttpLimits {
 }
 
 /// Basic authentication - minimal interface wrapper for reqwest
-#[pyclass(name = "BasicAuth")]
+#[pyclass(name = "BasicAuth", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpBasicAuth {
     username: String,
@@ -581,7 +582,7 @@ impl HttpBasicAuth {
 }
 
 /// Digest authentication - minimal interface wrapper for reqwest
-#[pyclass(name = "DigestAuth")]
+#[pyclass(name = "DigestAuth", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpDigestAuth {
     username: String,
@@ -632,7 +633,7 @@ impl HttpDigestAuth {
 }
 
 /// NetRC authentication - minimal interface wrapper for reqwest
-#[pyclass(name = "NetRCAuth")]
+#[pyclass(name = "NetRCAuth", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpNetRCAuth {
     file: Option<String>,
@@ -653,14 +654,14 @@ impl HttpNetRCAuth {
         // Check if the file actually exists, like httpx does
         if let Some(ref path) = file_path {
             if !std::path::Path::new(path).exists() {
-                return Err(pyo3::exceptions::PyFileNotFoundError::new_err(format!(
+                return Err(create_file_error(&format!(
                     "Could not find .netrc file at {}",
                     path
                 )));
             }
         } else {
-            return Err(pyo3::exceptions::PyFileNotFoundError::new_err(
-                "Could not find .netrc file",
+            return Err(create_file_error(
+                "Could not find .netrc file"
             ));
         }
 

@@ -1,6 +1,7 @@
 ---
 name: 代码审查员
 model: sonnet
+color: yellow
 description: 专业的代码审查专家，主动检查代码质量、安全性和可维护性。
 ---
 
