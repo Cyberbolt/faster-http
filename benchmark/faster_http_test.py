@@ -1,6 +1,5 @@
 import asyncio
 import collections
-import multiprocessing
 import time
 
 try:
@@ -69,7 +68,7 @@ async def run_test(duration: int, concurrency: int):
         return counters["success"], counters["failed"], actual_duration
 
 
-async def single_core_test(
+async def test(
     duration: int = 30,
     concurrency: int = 24,
 ) -> float:
@@ -92,15 +91,6 @@ async def single_core_test(
     return rps
 
 
-def process_worker(result_queue: multiprocessing.Queue, duration: int, concurrency: int):
-    """The target function for each process in the multi-core test."""
-    # Enable uvloop for this process if available
-    if uvloop is not None:
-        uvloop.install()
-    success, failed, actual_duration = asyncio.run(run_test(duration, concurrency))
-    result_queue.put((success, failed, actual_duration))
-
-
 if __name__ == "__main__":
     # Enable uvloop for better performance if available
     if uvloop is not None:
@@ -109,4 +99,4 @@ if __name__ == "__main__":
     else:
         print("uvloop not available, using default asyncio event loop")
 
-    single_rps = asyncio.run(single_core_test(duration=10, concurrency=50))
+    single_rps = asyncio.run(test(duration=10, concurrency=50))
