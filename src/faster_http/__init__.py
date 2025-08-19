@@ -24,8 +24,8 @@ from ._core import (
     InvalidURL,
     Limits,
     LocalProtocolError,
-    # Transport classes (import available ones from Rust)
-    MockTransport,
+    # Transport classes temporarily disabled during hyper migration
+    # MockTransport,
     NetRCAuth,
     PoolTimeout,
     ProtocolError,

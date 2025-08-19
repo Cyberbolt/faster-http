@@ -1,286 +1,255 @@
-use crate::error::RequestError;
+// Simplified utils for hyper migration - multipart upload temporarily disabled
 use pyo3::prelude::*;
 use serde_json::Value;
 use std::collections::HashMap;
 
-// Minimal utility functions - most URL/header processing delegated to reqwest
-// Only keep essential interface conversion utilities
-
-// 统一的 URL 构建函数，避免重复代码
+/// Build a URL with query parameters
 pub fn build_url(
-    url: &str,
+    base_path: &str,
     base_url: Option<&String>,
     params: Option<&HashMap<String, String>>,
 ) -> Result<String, String> {
-    let mut final_url = url.to_string();
-
-    // Handle base URL if provided
-    if let Some(base) = base_url {
-        if !url.starts_with("http://") && !url.starts_with("https://") {
-            final_url = format!(
+    let mut final_url = if let Some(base) = base_url {
+        if base_path.starts_with("http://") || base_path.starts_with("https://") {
+            base_path.to_string()
+        } else {
+            format!(
                 "{}/{}",
                 base.trim_end_matches('/'),
-                url.trim_start_matches('/')
-            );
+                base_path.trim_start_matches('/')
+            )
         }
-    }
+    } else {
+        base_path.to_string()
+    };
 
-    // Handle query parameters
-    if let Some(params) = params {
-        let mut parsed_url =
-            reqwest::Url::parse(&final_url).map_err(|e| format!("Invalid URL: {}", e))?;
+    // Add query parameters
+    if let Some(params_map) = params {
+        if !params_map.is_empty() {
+            let query_string: Vec<String> = params_map
+                .iter()
+                .map(|(key, value)| format!("{}={}", urlencoding::encode(key), urlencoding::encode(value)))
+                .collect();
 
-        for (key, value) in params {
-            parsed_url.query_pairs_mut().append_pair(key, value);
+            if final_url.contains('?') {
+                final_url.push('&');
+            } else {
+                final_url.push('?');
+            }
+            final_url.push_str(&query_string.join("&"));
         }
-        final_url = parsed_url.to_string();
     }
 
     Ok(final_url)
 }
 
-// File upload processing - delegate to reqwest multipart
+/// Build multipart form data from Python files and data
+pub fn build_multipart_body(
+    files_data: Option<HashMap<String, PyObject>>,
+    form_data: Option<HashMap<String, PyObject>>,
+) -> PyResult<(Vec<u8>, String)> {
+    use uuid::Uuid;
+    
+    // Generate a random boundary
+    let boundary = format!("----formdata-{}", Uuid::new_v4().simple());
+    let boundary_bytes = format!("--{}", boundary);
+    let end_boundary_bytes = format!("--{}--", boundary);
+    
+    let mut body = Vec::new();
+    
+    Python::with_gil(|py| -> PyResult<()> {
+        // Add form data fields first if any
+        if let Some(data) = form_data {
+            for (name, value) in data {
+                // Write boundary
+                body.extend_from_slice(boundary_bytes.as_bytes());
+                body.extend_from_slice(b"\r\n");
+                
+                // Write Content-Disposition header
+                body.extend_from_slice(
+                    format!("Content-Disposition: form-data; name=\"{}\"\r\n\r\n", name).as_bytes()
+                );
+                
+                // Convert Python value to string and write it
+                let value_str = if let Ok(s) = value.extract::<String>(py) {
+                    s
+                } else if let Ok(i) = value.extract::<i64>(py) {
+                    i.to_string()
+                } else if let Ok(f) = value.extract::<f64>(py) {
+                    f.to_string()
+                } else if let Ok(b) = value.extract::<bool>(py) {
+                    b.to_string()
+                } else {
+                    // Use Python's str() representation as fallback
+                    value.call_method0(py, "__str__")?.extract::<String>(py)?
+                };
+                
+                body.extend_from_slice(value_str.as_bytes());
+                body.extend_from_slice(b"\r\n");
+            }
+        }
+        
+        // Add file uploads if any
+        if let Some(files) = files_data {
+            for (field_name, file_obj) in files {
+                // Write boundary
+                body.extend_from_slice(boundary_bytes.as_bytes());
+                body.extend_from_slice(b"\r\n");
+                
+                // Get filename from file object if possible
+                let filename = if let Ok(name) = file_obj.getattr(py, "name") {
+                    if let Ok(name_str) = name.extract::<String>(py) {
+                        // Extract just the filename from full path
+                        std::path::Path::new(&name_str)
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("file")
+                            .to_string()
+                    } else {
+                        "file".to_string()
+                    }
+                } else {
+                    "file".to_string()
+                };
+                
+                // Guess MIME type from filename
+                let mime_type = mime_guess::from_path(&filename)
+                    .first_or_octet_stream()
+                    .as_ref()
+                    .to_string();
+                
+                // Write Content-Disposition and Content-Type headers
+                body.extend_from_slice(
+                    format!(
+                        "Content-Disposition: form-data; name=\"{}\"; filename=\"{}\"\r\n",
+                        field_name, filename
+                    ).as_bytes()
+                );
+                body.extend_from_slice(
+                    format!("Content-Type: {}\r\n\r\n", mime_type).as_bytes()
+                );
+                
+                // Read file content
+                let file_content = if let Ok(read_method) = file_obj.getattr(py, "read") {
+                    // Call read() method to get file content
+                    let content = read_method.call0(py)?;
+                    if let Ok(bytes) = content.extract::<Vec<u8>>(py) {
+                        bytes
+                    } else if let Ok(string) = content.extract::<String>(py) {
+                        string.into_bytes()
+                    } else {
+                        return Err(crate::error::RequestError::new_err(
+                            "File content must be bytes or string"
+                        ));
+                    }
+                } else {
+                    return Err(crate::error::RequestError::new_err(
+                        "File object must have a read() method"
+                    ));
+                };
+                
+                // Write file content
+                body.extend_from_slice(&file_content);
+                body.extend_from_slice(b"\r\n");
+            }
+        }
+        
+        Ok(())
+    })?;
+    
+    // Add final boundary
+    body.extend_from_slice(end_boundary_bytes.as_bytes());
+    body.extend_from_slice(b"\r\n");
+    
+    let content_type = format!("multipart/form-data; boundary={}", boundary);
+    
+    Ok((body, content_type))
+}
+
+// Legacy function for compatibility - now redirects to new implementation
 pub fn build_multipart_form(
     files_data: HashMap<String, PyObject>,
-) -> PyResult<reqwest::multipart::Form> {
-    Python::with_gil(|py| {
-        let mut form = reqwest::multipart::Form::new();
-
-        for (field_name, file_obj) in files_data {
-            let part = process_file_upload(py, &file_obj, &field_name)?;
-            form = form.part(field_name, part);
-        }
-
-        Ok(form)
-    })
+) -> PyResult<String> {
+    let (_, content_type) = build_multipart_body(Some(files_data), None)?;
+    Ok(content_type)
 }
 
-fn process_file_upload(
-    py: Python,
-    file_obj: &PyObject,
-    field_name: &str,
-) -> PyResult<reqwest::multipart::Part> {
-    // Process byte data
-    if let Ok(bytes_data) = file_obj.extract::<Vec<u8>>(py) {
-        return reqwest::multipart::Part::bytes(bytes_data)
-            .file_name(format!("{}.bin", field_name))
-            .mime_str("application/octet-stream")
-            .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)));
-    }
-
-    // Process string data
-    if let Ok(string_data) = file_obj.extract::<String>(py) {
-        return reqwest::multipart::Part::text(string_data)
-            .file_name(format!("{}.txt", field_name))
-            .mime_str("text/plain")
-            .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)));
-    }
-
-    // Process tuple format
-    if let Ok((filename, content_obj)) = file_obj.extract::<(Option<String>, PyObject)>(py) {
-        return process_tuple_upload(py, filename, content_obj);
-    }
-
-    if let Ok((filename, content_obj, content_type)) =
-        file_obj.extract::<(Option<String>, PyObject, String)>(py)
-    {
-        return process_tuple_upload_with_type(py, filename, content_obj, content_type);
-    }
-
-    // Process FileUpload object
-    if let Ok(bytes_data) = file_obj
-        .call_method0(py, "to_bytes")?
-        .extract::<Vec<u8>>(py)
-    {
-        let mut part = reqwest::multipart::Part::bytes(bytes_data);
-
-        if let Ok(Some(filename)) = file_obj
-            .getattr(py, "filename")?
-            .extract::<Option<String>>(py)
-        {
-            part = part.file_name(filename);
-        }
-
-        if let Ok(content_type) = file_obj
-            .call_method0(py, "get_content_type")?
-            .extract::<String>(py)
-        {
-            part = part
-                .mime_str(&content_type)
-                .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
-        }
-
-        return Ok(part);
-    }
-
-    Err(RequestError::new_err(format!(
-        "Unsupported file format for field '{}'. Expected bytes, string, tuple, or FileUpload object.",
-        field_name
-    )))
-}
-
-fn process_tuple_upload(
-    py: Python,
-    filename: Option<String>,
-    content_obj: PyObject,
-) -> PyResult<reqwest::multipart::Part> {
-    if let Ok(bytes_content) = content_obj.extract::<Vec<u8>>(py) {
-        let mut part = reqwest::multipart::Part::bytes(bytes_content);
-
-        if let Some(fname) = filename {
-            if let Some(mime_type) = guess_mime_type(&fname) {
-                part = part
-                    .mime_str(&mime_type)
-                    .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
-            }
-            part = part.file_name(fname);
-        }
-
-        Ok(part)
-    } else if let Ok(string_content) = content_obj.extract::<String>(py) {
-        let mut part = reqwest::multipart::Part::text(string_content);
-
-        if let Some(fname) = filename {
-            part = part.file_name(fname);
-        }
-
-        Ok(part)
-    } else {
-        Err(RequestError::new_err(
-            "Invalid content type in tuple format".to_string(),
-        ))
-    }
-}
-
-fn process_tuple_upload_with_type(
-    py: Python,
-    filename: Option<String>,
-    content_obj: PyObject,
-    content_type: String,
-) -> PyResult<reqwest::multipart::Part> {
-    if let Ok(bytes_content) = content_obj.extract::<Vec<u8>>(py) {
-        let mut part = reqwest::multipart::Part::bytes(bytes_content)
-            .mime_str(&content_type)
-            .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
-
-        if let Some(fname) = filename {
-            part = part.file_name(fname);
-        }
-
-        Ok(part)
-    } else if let Ok(string_content) = content_obj.extract::<String>(py) {
-        let mut part = reqwest::multipart::Part::text(string_content)
-            .mime_str(&content_type)
-            .map_err(|e| RequestError::new_err(format!("Invalid mime type: {}", e)))?;
-
-        if let Some(fname) = filename {
-            part = part.file_name(fname);
-        }
-
-        Ok(part)
-    } else {
-        Err(RequestError::new_err(
-            "Invalid content type in tuple format".to_string(),
-        ))
-    }
-}
-
-fn guess_mime_type(filename: &str) -> Option<String> {
-    let extension = std::path::Path::new(filename)
-        .extension()?
-        .to_str()?
-        .to_lowercase();
-
-    match extension.as_str() {
-        "txt" => Some("text/plain".to_string()),
-        "html" | "htm" => Some("text/html".to_string()),
-        "css" => Some("text/css".to_string()),
-        "js" => Some("application/javascript".to_string()),
-        "json" => Some("application/json".to_string()),
-        "xml" => Some("application/xml".to_string()),
-        "pdf" => Some("application/pdf".to_string()),
-        "png" => Some("image/png".to_string()),
-        "jpg" | "jpeg" => Some("image/jpeg".to_string()),
-        "gif" => Some("image/gif".to_string()),
-        "svg" => Some("image/svg+xml".to_string()),
-        "mp4" => Some("video/mp4".to_string()),
-        "mp3" => Some("audio/mpeg".to_string()),
-        "zip" => Some("application/zip".to_string()),
-        "csv" => Some("text/csv".to_string()),
-        "xlsx" => {
-            Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string())
-        }
-        "docx" => Some(
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string(),
-        ),
-        _ => Some("application/octet-stream".to_string()),
-    }
-}
-
-// Python data conversion tools
-pub fn python_dict_to_json_value(data: HashMap<String, PyObject>) -> PyResult<Value> {
-    let mut map = serde_json::Map::new();
-
-    Python::with_gil(|py| {
-        for (key, value) in data {
-            let json_value = python_to_json_value(py, &value)?;
-            map.insert(key, json_value);
-        }
-        Ok(Value::Object(map))
-    })
-}
-
+/// Convert Python dict to URL-encoded form string
 pub fn python_dict_to_form_string(data: HashMap<String, PyObject>) -> PyResult<String> {
-    let mut form_pairs = Vec::new();
-
     Python::with_gil(|py| {
+        let mut form_parts = Vec::new();
+        
         for (key, value) in data {
-            let value_str = if value.is_none(py) {
-                "".to_string()
+            // Convert Python value to string
+            let value_str = if let Ok(s) = value.extract::<String>(py) {
+                s
+            } else if let Ok(i) = value.extract::<i64>(py) {
+                i.to_string()
+            } else if let Ok(f) = value.extract::<f64>(py) {
+                f.to_string()
+            } else if let Ok(b) = value.extract::<bool>(py) {
+                b.to_string()
             } else {
-                format!("{}", value.as_ref(py))
+                // Use Python's str() representation as fallback
+                value.call_method0(py, "__str__")?.extract::<String>(py)?
             };
-            form_pairs.push(format!(
-                "{}={}",
-                urlencoding::encode(&key),
+            
+            form_parts.push(format!("{}={}", 
+                urlencoding::encode(&key), 
                 urlencoding::encode(&value_str)
             ));
         }
-        Ok(form_pairs.join("&"))
+        
+        Ok(form_parts.join("&"))
     })
 }
 
-fn python_to_json_value(py: Python, obj: &PyObject) -> PyResult<Value> {
-    if obj.is_none(py) {
-        Ok(Value::Null)
-    } else if let Ok(b) = obj.extract::<bool>(py) {
-        Ok(Value::Bool(b))
+/// Convert Python dict to JSON value
+pub fn python_dict_to_json_value(data: HashMap<String, PyObject>) -> PyResult<Value> {
+    Python::with_gil(|py| {
+        let mut json_map = serde_json::Map::new();
+        
+        for (key, value) in data {
+            let json_value = python_object_to_json_value(py, &value)?;
+            json_map.insert(key, json_value);
+        }
+        
+        Ok(Value::Object(json_map))
+    })
+}
+
+/// Convert Python object to JSON value recursively
+fn python_object_to_json_value(py: Python, obj: &PyObject) -> PyResult<Value> {
+    // Try different Python types
+    if let Ok(s) = obj.extract::<String>(py) {
+        Ok(Value::String(s))
     } else if let Ok(i) = obj.extract::<i64>(py) {
         Ok(Value::Number(serde_json::Number::from(i)))
     } else if let Ok(f) = obj.extract::<f64>(py) {
-        Ok(Value::Number(
-            serde_json::Number::from_f64(f).unwrap_or_else(|| serde_json::Number::from(0)),
-        ))
-    } else if let Ok(s) = obj.extract::<String>(py) {
-        Ok(Value::String(s))
-    } else if let Ok(dict) = obj.extract::<HashMap<String, PyObject>>(py) {
-        // Handle nested dictionaries
-        let mut map = serde_json::Map::new();
-        for (key, value) in dict {
-            let json_value = python_to_json_value(py, &value)?;
-            map.insert(key, json_value);
+        if let Some(num) = serde_json::Number::from_f64(f) {
+            Ok(Value::Number(num))
+        } else {
+            Ok(Value::Null)
         }
-        Ok(Value::Object(map))
+    } else if let Ok(b) = obj.extract::<bool>(py) {
+        Ok(Value::Bool(b))
+    } else if obj.is_none(py) {
+        Ok(Value::Null)
     } else if let Ok(list) = obj.extract::<Vec<PyObject>>(py) {
-        // Handle lists
         let mut json_array = Vec::new();
         for item in list {
-            let json_value = python_to_json_value(py, &item)?;
-            json_array.push(json_value);
+            json_array.push(python_object_to_json_value(py, &item)?);
         }
         Ok(Value::Array(json_array))
+    } else if let Ok(dict) = obj.extract::<HashMap<String, PyObject>>(py) {
+        let mut json_map = serde_json::Map::new();
+        for (key, value) in dict {
+            json_map.insert(key, python_object_to_json_value(py, &value)?);
+        }
+        Ok(Value::Object(json_map))
     } else {
-        // Fallback to string representation
-        Ok(Value::String(format!("{}", obj.as_ref(py))))
+        // Fallback: convert to string
+        let s = obj.call_method0(py, "__str__")?.extract::<String>(py)?;
+        Ok(Value::String(s))
     }
 }

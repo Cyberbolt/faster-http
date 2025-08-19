@@ -1,58 +1,55 @@
 use crate::config::ClientConfig;
-use crate::error::{map_reqwest_error, ConnectTimeout, ReadTimeout, RequestError};
+use crate::error::{RequestError};
+use crate::hyper_client::HyperHttpClient;
 use crate::request::HttpRequest;
-use crate::response::{detect_encoding, HttpResponse};
-use crate::streaming::StreamingHttpResponse;
+use crate::response::HttpResponse;
 use pyo3::prelude::*;
-// Removed unused PyDict and PyTuple imports
-use reqwest::Client;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+use hyper::{Method, Uri};
+use bytes::Bytes;
+use std::str::FromStr;
+use base64::Engine;
+
+// Temporary stub for streaming response during hyper migration
+pub struct StreamingHttpResponse;
 
 // Removed unused JsonParseResult type alias
-use crate::utils::{build_multipart_form, python_dict_to_form_string, python_dict_to_json_value};
+use crate::utils::{python_dict_to_form_string, python_dict_to_json_value, build_multipart_body};
+
 
 // 发送请求的核心函数（基于已构建的请求）
 pub async fn send_request(
-    client: &Client,
+    client: &HyperHttpClient,
     request: &HttpRequest,
-    config: &ClientConfig,
+    _config: &ClientConfig,
 ) -> PyResult<HttpResponse> {
     let start_time = Instant::now();
     let url_str = request.url_str();
 
-    // Process request directly with reqwest - no localhost fallback needed
+    // Parse URI
+    let uri = Uri::from_str(url_str)
+        .map_err(|e| RequestError::new_err(format!("Invalid URI: {}", e)))?;
 
-    // Process request directly without hooks to avoid async context conflicts
-
+    // Parse method
     let method = request
         .method_str()
-        .parse::<reqwest::Method>()
+        .parse::<Method>()
         .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
 
-    let mut req = client.request(method, url_str);
+    // Prepare headers
+    let headers = Some(request.headers_map().clone());
 
-    for (key, value) in request.headers_map() {
-        req = req.header(key, value);
-    }
+    // Prepare body
+    let body = request.content_bytes().map(|b| Bytes::copy_from_slice(b));
 
-    if let Some(content) = request.content_bytes() {
-        req = req.body(content.to_vec());
-    }
-
-    if let Some(timeout) = config.default_timeout {
-        req = req.timeout(timeout);
-    }
-
-    let response = req.send().await.map_err(map_reqwest_error)?;
-    let http_response = process_response(response, start_time, config).await?;
-
-    Ok(http_response)
+    // Send request using hyper client
+    client.request(method, uri, headers, body).await
 }
 
 // 优化版：直接从数据发送请求，避免 HttpRequest 中间对象
 pub async fn send_request_direct(
-    client: &Client,
+    client: &HyperHttpClient,
     method: &str,
     url: &str,
     headers: &HashMap<String, String>,
@@ -61,91 +58,27 @@ pub async fn send_request_direct(
 ) -> PyResult<HttpResponse> {
     let start_time = Instant::now();
 
+    // Parse URI
+    let uri = Uri::from_str(url)
+        .map_err(|e| RequestError::new_err(format!("Invalid URI: {}", e)))?;
+
+    // Parse method
     let method = method
-        .parse::<reqwest::Method>()
+        .parse::<Method>()
         .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
 
-    let mut req = client.request(method, url);
+    // Prepare headers
+    let headers = Some(headers.clone());
 
-    for (key, value) in headers {
-        req = req.header(key, value);
-    }
+    // Prepare body
+    let body = content.map(|b| Bytes::copy_from_slice(b));
 
-    if let Some(content_bytes) = content {
-        req = req.body(content_bytes.to_vec());
-    }
-
-    if let Some(timeout) = config.default_timeout {
-        req = req.timeout(timeout);
-    }
-
-    let response = req.send().await.map_err(map_reqwest_error)?;
-    process_response(response, start_time, config).await
+    // Send request using hyper client
+    client.request(method, uri, headers, body).await
 }
 
-// 处理响应的核心函数 - 简化版本，与 httpx 对齐
-pub async fn process_response(
-    response: reqwest::Response,
-    start_time: Instant,
-    _config: &ClientConfig,
-) -> PyResult<HttpResponse> {
-    let status_code = response.status().as_u16();
-    let url = response.url().to_string();
-
-    let http_version = match response.version() {
-        reqwest::Version::HTTP_09 => "HTTP/0.9",
-        reqwest::Version::HTTP_10 => "HTTP/1.0",
-        reqwest::Version::HTTP_11 => "HTTP/1.1",
-        reqwest::Version::HTTP_2 => "HTTP/2",
-        reqwest::Version::HTTP_3 => "HTTP/3",
-        _ => "Unknown",
-    }
-    .to_string();
-
-    let headers: HashMap<String, String> = response
-        .headers()
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-        .collect();
-
-    // 直接从 reqwest 响应中提取 cookies 以确保正确性
-    let cookies = extract_cookies_from_response(&response);
-
-    // 读取 body - 让 reqwest 处理流式优化
-    let body = response.bytes().await.map_err(|e| {
-        if e.is_timeout() {
-            ReadTimeout::new_err(format!("Timeout reading response body: {}", e))
-        } else {
-            RequestError::new_err(format!("Failed to read response body: {}", e))
-        }
-    })?;
-
-    let elapsed = start_time.elapsed().as_secs_f64();
-    let is_redirect_status = matches!(status_code, 301 | 302 | 303 | 307 | 308);
-    let encoding = detect_encoding(&headers);
-    let num_bytes_downloaded = body.len();
-
-    let response = HttpResponse::new(
-        status_code,
-        headers,
-        body,
-        url,
-        elapsed,
-        is_redirect_status,
-        http_version,
-        cookies,
-        encoding,
-        Vec::new(),
-        None,
-        num_bytes_downloaded,
-    );
-
-    // Process response directly without hooks to avoid async context conflicts
-
-    Ok(response)
-}
-
-// 现在只有一个简化的响应处理函数
+// Legacy response processing function - removed in hyper migration
+// Response processing is now handled directly by hyper_client module
 
 
 // 核心请求构建和发送函数
@@ -170,11 +103,11 @@ pub async fn build_and_send_request(
 ) -> PyResult<HttpResponse> {
     let start_time = Instant::now();
 
-    // 使用配置中的客户端或按配置构建新客户端
+    // 使用配置中的客户端
     let client = if follow_redirects {
-        config.redirect_client.clone()
+        &config.redirect_client
     } else {
-        config.no_redirect_client.clone()
+        &config.no_redirect_client
     };
 
     // 构建URL
@@ -209,34 +142,21 @@ pub async fn build_and_send_request(
         }
     }
 
-    // Process all URLs directly with reqwest - no localhost fallback needed
+    // Parse URI
+    let uri = Uri::from_str(&full_url)
+        .map_err(|e| RequestError::new_err(format!("Invalid URI: {}", e)))?;
 
-    // 合并 headers 先，以便用于 hooks
+    // Parse method
+    let method = method
+        .parse::<Method>()
+        .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
+
+    // 合并 headers
     let mut final_headers = default_headers.clone();
     if let Some(ref headers) = headers {
         final_headers.extend(headers.iter().map(|(k, v)| (k.clone(), v.clone())));
     }
 
-    // Request hooks will be executed in client.rs synchronous layer to avoid GIL conflicts
-    // This async function focuses only on the core HTTP request logic
-
-    // 创建请求构建器
-    let method = method
-        .parse::<reqwest::Method>()
-        .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
-
-    let mut request = client.request(method, &full_url);
-
-    // 添加查询参数
-    if let Some(ref params) = params {
-        request = request.query(&params);
-    }
-
-    // 添加 headers 到请求
-    for (key, value) in &final_headers {
-        request = request.header(key, value);
-    }
-
     // 添加 cookies 到请求头
     if let Some(ref cookie_map) = cookies {
         if !cookie_map.is_empty() {
@@ -245,216 +165,71 @@ pub async fn build_and_send_request(
                 .map(|(k, v)| format!("{}={}", k, v))
                 .collect::<Vec<_>>()
                 .join("; ");
-            request = request.header("Cookie", cookie_string);
+            final_headers.insert("Cookie".to_string(), cookie_string);
         }
     }
 
-    // 设置认证
+    // 设置认证 - Basic Authentication
     if let Some((username, password)) = auth {
-        request = request.basic_auth(username, Some(password));
+        let credentials = format!("{}:{}", username, password);
+        let encoded = base64::engine::general_purpose::STANDARD.encode(credentials.as_bytes());
+        final_headers.insert("Authorization".to_string(), format!("Basic {}", encoded));
     }
 
-    // 设置超时 - 使用更长的超时时间进行调试，negative values被忽略
-    let timeout_duration = timeout
-        .and_then(|t| {
-            if t >= 0.0 {
-                Some(Duration::from_secs_f64(t))
-            } else {
-                None
-            }
-        })
-        .or(default_timeout)
-        .unwrap_or(Duration::from_secs(60));
-    request = request.timeout(timeout_duration);
-
-    // 设置body - 优先级：content > files > json > data
-    if let Some(ref content_bytes) = content {
-        request = request.body(content_bytes.clone());
+    // 准备请求体 - 优先级：content > files > json > data
+    let body = if let Some(content_bytes) = content {
+        Some(Bytes::from(content_bytes))
     } else if let Some(files_data) = files {
         // 处理文件上传 (multipart/form-data)
-        let form = build_multipart_form(files_data)?;
-        request = request.multipart(form);
+        let (multipart_body, content_type) = build_multipart_body(Some(files_data), data)?;
+        final_headers.insert("Content-Type".to_string(), content_type);
+        Some(Bytes::from(multipart_body))
     } else if let Some(json_data) = json {
         let json_value = python_dict_to_json_value(json_data)?;
-        request = request.json(&json_value);
+        let json_string = serde_json::to_string(&json_value)
+            .map_err(|e| RequestError::new_err(format!("JSON serialization failed: {}", e)))?;
+        final_headers.insert("Content-Type".to_string(), "application/json".to_string());
+        Some(Bytes::from(json_string))
     } else if let Some(form_data) = data {
         // 使用 form encoded 而不是 multipart
         let form_string = python_dict_to_form_string(form_data)?;
-        request = request
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(form_string);
-    }
+        final_headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+        Some(Bytes::from(form_string))
+    } else {
+        None
+    };
 
-    // 发送请求
-    let response = request.send().await.map_err(|e| {
-        // 添加详细的错误信息用于调试
-        let error_msg = format!("Request failed for URL {}: {}", full_url, e);
-        if e.is_timeout() {
-            ReadTimeout::new_err(format!("Request timeout: {}", error_msg))
-        } else if e.is_connect() {
-            ConnectTimeout::new_err(format!("Connection timeout: {}", error_msg))
-        } else {
-            RequestError::new_err(format!("Request failed: {}", error_msg))
-        }
-    })?;
-
-    // 处理响应
-    let http_response = process_response(response, start_time, config).await?;
-
-    // Response hooks will be executed in client.rs synchronous layer to avoid GIL conflicts
-    // This async function focuses only on the core HTTP request logic
-
-    Ok(http_response)
+    // 发送请求使用 hyper 客户端
+    client.request(method, uri, Some(final_headers), body).await
 }
 
 
 // 核心流式请求构建和发送函数 - 返回 StreamingHttpResponse
+// Temporarily disabled during hyper migration - streaming requires additional implementation
 #[allow(clippy::too_many_arguments)]
 pub async fn build_and_send_streaming_request(
-    config: &ClientConfig,
-    method: &str,
-    url: &str,
-    content: Option<Vec<u8>>,
-    data: Option<HashMap<String, PyObject>>,
-    json: Option<HashMap<String, PyObject>>,
-    files: Option<HashMap<String, PyObject>>,
-    params: Option<HashMap<String, String>>,
-    headers: Option<HashMap<String, String>>,
-    timeout: Option<f64>,
-    base_url: &Option<String>,
-    default_headers: &HashMap<String, String>,
-    default_timeout: Option<Duration>,
-    auth: Option<(String, String)>,
-    follow_redirects: bool,
-    cookies: Option<HashMap<String, String>>,
+    _config: &ClientConfig,
+    _method: &str,
+    _url: &str,
+    _content: Option<Vec<u8>>,
+    _data: Option<HashMap<String, PyObject>>,
+    _json: Option<HashMap<String, PyObject>>,
+    _files: Option<HashMap<String, PyObject>>,
+    _params: Option<HashMap<String, String>>,
+    _headers: Option<HashMap<String, String>>,
+    _timeout: Option<f64>,
+    _base_url: &Option<String>,
+    _default_headers: &HashMap<String, String>,
+    _default_timeout: Option<Duration>,
+    _auth: Option<(String, String)>,
+    _follow_redirects: bool,
+    _cookies: Option<HashMap<String, String>>,
 ) -> PyResult<StreamingHttpResponse> {
-    // 使用配置中的客户端或按配置构建新客户端
-    let client = if follow_redirects {
-        config.redirect_client.clone()
-    } else {
-        config.no_redirect_client.clone()
-    };
-
-    // 构建URL
-    let full_url = if let Some(base) = base_url {
-        if url.starts_with("http://") || url.starts_with("https://") {
-            url.to_string()
-        } else {
-            format!(
-                "{}/{}",
-                base.trim_end_matches('/'),
-                url.trim_start_matches('/')
-            )
-        }
-    } else {
-        url.to_string()
-    };
-
-    // Process all URLs directly with reqwest streaming - no localhost fallback needed
-
-    // 创建请求构建器
-    let method = method
-        .parse::<reqwest::Method>()
-        .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
-
-    let mut request = client.request(method, &full_url);
-
-    // 添加查询参数
-    if let Some(ref params) = params {
-        request = request.query(&params);
-    }
-
-    // 合并header
-    for (key, value) in default_headers {
-        request = request.header(key, value);
-    }
-    if let Some(headers) = headers {
-        for (key, value) in headers {
-            request = request.header(key, value);
-        }
-    }
-
-    // 添加 cookies 到请求头
-    if let Some(ref cookie_map) = cookies {
-        if !cookie_map.is_empty() {
-            let cookie_string = cookie_map
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, v))
-                .collect::<Vec<_>>()
-                .join("; ");
-            request = request.header("Cookie", cookie_string);
-        }
-    }
-
-    // 设置认证
-    if let Some((username, password)) = auth {
-        request = request.basic_auth(username, Some(password));
-    }
-
-    // 设置超时 - 使用更长的超时时间进行调试，negative values被忽略
-    let timeout_duration = timeout
-        .and_then(|t| {
-            if t >= 0.0 {
-                Some(Duration::from_secs_f64(t))
-            } else {
-                None
-            }
-        })
-        .or(default_timeout)
-        .unwrap_or(Duration::from_secs(60));
-    request = request.timeout(timeout_duration);
-
-    // 设置body - 优先级：content > files > json > data
-    if let Some(content_bytes) = content {
-        request = request.body(content_bytes);
-    } else if let Some(files_data) = files {
-        // 处理文件上传 (multipart/form-data)
-        let form = build_multipart_form(files_data)?;
-        request = request.multipart(form);
-    } else if let Some(json_data) = json {
-        let json_value = python_dict_to_json_value(json_data)?;
-        request = request.json(&json_value);
-    } else if let Some(form_data) = data {
-        // 使用 form encoded 而不是 multipart
-        let form_string = python_dict_to_form_string(form_data)?;
-        request = request
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(form_string);
-    }
-
-    // 发送请求 - 关键：不读取响应体，保持流式
-    let response = request.send().await.map_err(|e| {
-        if e.is_timeout() {
-            ReadTimeout::new_err(format!("Request timeout: {}", e))
-        } else if e.is_connect() {
-            ConnectTimeout::new_err(format!("Connection timeout: {}", e))
-        } else {
-            RequestError::new_err(format!("Request failed: {}", e))
-        }
-    })?;
-
-    // 创建流式响应 - 不读取 body，保持 reqwest::Response
-    Ok(StreamingHttpResponse::new(response))
+    // TODO: Implement streaming with hyper client  
+    // Return a placeholder error for now
+    Err(RequestError::new_err(
+        "Streaming requests not yet implemented with hyper client"
+    ))
 }
 
-// 从 reqwest 响应中提取 cookies - 保持与 reqwest 的兼容性
-fn extract_cookies_from_response(response: &reqwest::Response) -> HashMap<String, String> {
-    let mut cookies = HashMap::new();
-
-    // 获取所有的 Set-Cookie 头部
-    for value in response.headers().get_all("set-cookie") {
-        if let Ok(cookie_str) = value.to_str() {
-            // 解析单个 Set-Cookie 头部
-            if let Some(cookie_pair) = cookie_str.split(';').next() {
-                if let Some((name, val)) = cookie_pair.split_once('=') {
-                    cookies.insert(
-                        name.trim().to_string(),
-                        val.trim().trim_matches('"').to_string(),
-                    );
-                }
-            }
-        }
-    }
-
-    cookies
-}
+// Legacy cookie extraction function removed - functionality moved to hyper_client module

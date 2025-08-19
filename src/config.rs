@@ -1,11 +1,11 @@
 use crate::auth::{extract_auth_from_object, AuthType};
 use crate::error::RequestError;
 use crate::hooks::EventHooks;
-use crate::proxy_config::ProxySystem;
-use crate::ssl_config::SslConfig;
-use crate::transport::TransportConfig;
+use crate::hyper_client::{HyperHttpClient, HyperClientConfig};
+use crate::proxy_config_stub::ProxySystem;
+use crate::ssl_config_stub::SslConfig;
+use crate::transport_stub::TransportConfig;
 use pyo3::prelude::*;
-use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -31,8 +31,8 @@ pub struct ClientConfig {
     pub default_encoding: String,            // Default character encoding
     pub default_params: HashMap<String, String>, // Default query parameters
     // 预构建的客户端以支持高效的重定向控制
-    pub redirect_client: Client,
-    pub no_redirect_client: Client,
+    pub redirect_client: HyperHttpClient,
+    pub no_redirect_client: HyperHttpClient,
 }
 
 impl ClientConfig {
@@ -138,21 +138,19 @@ impl ClientConfig {
         let http2_enabled = http2.unwrap_or(false);
 
         // 预构建两个客户端以支持高效的重定向控制
-        let redirect_client = Self::build_client_with_ssl_proxy_and_redirect(
+        let redirect_client = Self::build_hyper_client_with_redirect(
             true,
-            &ssl_config,
-            &proxy_system,
             http1_enabled,
             http2_enabled,
             max_redirects,
+            timeout_value,
         )?;
-        let no_redirect_client = Self::build_client_with_ssl_proxy_and_redirect(
+        let no_redirect_client = Self::build_hyper_client_with_redirect(
             false,
-            &ssl_config,
-            &proxy_system,
             http1_enabled,
             http2_enabled,
             max_redirects,
+            timeout_value,
         )?;
 
         Ok(ClientConfig {
@@ -186,55 +184,48 @@ impl ClientConfig {
         })
     }
 
-    fn build_client_with_ssl_proxy_and_redirect(
+    fn build_hyper_client_with_redirect(
         follow_redirects: bool,
-        _ssl_config: &SslConfig,
-        _proxy_system: &ProxySystem,
         http1: bool,
         http2: bool,
         max_redirects: Option<i32>,
-    ) -> PyResult<Client> {
-        let mut builder = Client::builder();
+        timeout: Option<f64>,
+    ) -> PyResult<HyperHttpClient> {
+        let timeout_duration = timeout
+            .and_then(|t| {
+                if t >= 0.0 {
+                    Some(Duration::from_secs_f64(t))
+                } else {
+                    None
+                }
+            })
+            .or(Some(Duration::from_secs(30)));
 
-        // Configure redirects
-        if !follow_redirects {
-            builder = builder.redirect(reqwest::redirect::Policy::none());
-        } else if let Some(max) = max_redirects {
-            builder = builder.redirect(reqwest::redirect::Policy::limited(max as usize));
-        }
+        let config = HyperClientConfig {
+            follow_redirects,
+            max_redirects: max_redirects.unwrap_or(20) as usize,
+            timeout: timeout_duration,
+            http1_only: http1 && !http2,
+            http2_only: http2 && !http1,
+        };
 
-        // Configure HTTP versions - default to HTTP/1.1 only for localhost compatibility
-        if !http2 {
-            builder = builder.http1_only();
-        }
-
-        // Use minimal configuration for maximum compatibility
-        // Only configure what's absolutely necessary
-
-        // Only apply SSL for HTTPS URLs - skip for localhost HTTP
-        // (SSL config will be applied per-request if needed)
-
-        builder
-            .build()
-            .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))
+        HyperHttpClient::new(config)
     }
 
-    pub fn build_client(&self, _custom_verify: Option<&PyAny>) -> PyResult<Client> {
-        let mut builder = Client::builder();
+    pub fn build_client(&self, _custom_verify: Option<&PyAny>) -> PyResult<HyperHttpClient> {
+        let config = HyperClientConfig {
+            follow_redirects: self.follow_redirects,
+            max_redirects: self.max_redirects as usize,
+            timeout: self.default_timeout,
+            http1_only: self.http1 && !self.http2,
+            http2_only: self.http2 && !self.http1,
+        };
 
-        // Use minimal configuration for maximum compatibility
-        // Only configure what's absolutely necessary
-
-        // Only apply SSL for HTTPS URLs - skip for localhost HTTP
-        // (SSL config will be applied per-request if needed)
-
-        builder
-            .build()
-            .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))
+        HyperHttpClient::new(config)
     }
 
     // 根据 follow_redirects 参数选择合适的客户端
-    pub fn get_client_for_redirect(&self, follow_redirects: bool) -> &Client {
+    pub fn get_client_for_redirect(&self, follow_redirects: bool) -> &HyperHttpClient {
         if follow_redirects {
             &self.redirect_client
         } else {

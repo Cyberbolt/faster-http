@@ -111,8 +111,8 @@ impl HttpQueryParams {
                     // For now, provide basic interface compatibility
                     let mut inner = HashMap::new();
 
-                    // Use reqwest's URL parsing - this is the correct approach
-                    if let Ok(parsed_url) = reqwest::Url::parse(&format!(
+                    // Use url crate's URL parsing
+                    if let Ok(parsed_url) = url::Url::parse(&format!(
                         "http://example.com?{}",
                         string_params.trim_start_matches('?')
                     )) {

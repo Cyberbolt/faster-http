@@ -1,5 +1,6 @@
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
+use std::error::Error;
 
 // 创建自定义异常类型 - 完整的 httpx 兼容异常层次结构
 pyo3::create_exception!(faster_http, HTTPError, PyException);
@@ -57,30 +58,25 @@ pyo3::create_exception!(faster_http, UnsupportedProtocol, RequestError);
 
 // 错误处理工具 - httpx 兼容的错误映射
 
-/// Maps reqwest errors to appropriate httpx-compatible exceptions
-pub fn map_reqwest_error(error: reqwest::Error) -> PyErr {
+/// Maps hyper errors to appropriate httpx-compatible exceptions  
+pub fn map_hyper_error(error: hyper::Error) -> PyErr {
     let error_msg = error.to_string();
 
     if error.is_timeout() {
         ReadTimeout::new_err(format!("Request timeout: {}", error_msg))
-    } else if error.is_connect() {
-        if error_msg.contains("timeout") {
-            ConnectTimeout::new_err(format!("Connection timeout: {}", error_msg))
-        } else {
-            ConnectError::new_err(format!("Connection error: {}", error_msg))
-        }
-    } else if error.is_request() {
+    } else if error_msg.contains("connection") || error_msg.contains("connect") {
+        ConnectError::new_err(format!("Connection error: {}", error_msg))
+    } else if error.is_closed() || error.is_incomplete_message() {
+        ProtocolError::new_err(format!("Protocol error: {}", error_msg))
+    } else if error.is_parse() || error.is_parse_status() {
+        LocalProtocolError::new_err(format!("Parse error: {}", error_msg))
+    } else if error.is_user() {
         RequestError::new_err(format!("Request error: {}", error_msg))
-    } else if error.is_redirect() {
-        TooManyRedirects::new_err(format!("Too many redirects: {}", error_msg))
-    } else if error.is_body() || error.is_decode() {
-        RequestError::new_err(format!("Response decoding error: {}", error_msg))
-    } else if let Some(status) = error.status() {
-        let status_code = status.as_u16();
-        HTTPStatusError::new_err(format!("HTTP {} error: {}", status_code, error_msg))
+    } else if error.is_canceled() {
+        RequestError::new_err(format!("Request canceled: {}", error_msg))
     } else {
         // Map all other errors to appropriate httpx-compatible exceptions
-        if error_msg.contains("transport") || error_msg.contains("connection") {
+        if error_msg.contains("transport") {
             TransportError::new_err(format!("Transport error: {}", error_msg))
         } else {
             HTTPError::new_err(format!("HTTP error: {}", error_msg))
@@ -88,28 +84,65 @@ pub fn map_reqwest_error(error: reqwest::Error) -> PyErr {
     }
 }
 
-/// Maps ureq errors to appropriate httpx-compatible exceptions
-pub fn map_ureq_error(error: ureq::Error) -> PyErr {
-    match error {
-        ureq::Error::Status(code, _) => {
-            create_http_status_error(code, &format!("HTTP status error: {}", code))
+/// Maps hyper-util errors to appropriate httpx-compatible exceptions
+pub fn map_hyper_util_error(error: hyper_util::client::legacy::Error) -> PyErr {
+    let error_msg = error.to_string();
+    
+    // Check error message patterns since hyper::Error doesn't implement Clone 
+    // We'll match on error message patterns instead
+    let error_msg = error.to_string();
+    
+    // Check for timeout errors
+    if error_msg.contains("timeout") {
+        if error_msg.contains("connect") {
+            ConnectTimeout::new_err(format!("Connection timeout: {}", error_msg))
+        } else {
+            ReadTimeout::new_err(format!("Request timeout: {}", error_msg))
         }
-        ureq::Error::Transport(transport_err) => {
-            let msg = transport_err.to_string();
-            if msg.contains("timeout") {
-                if msg.contains("connect") {
-                    ConnectTimeout::new_err(format!("Connection timeout: {}", msg))
-                } else {
-                    ReadTimeout::new_err(format!("Request timeout: {}", msg))
-                }
-            } else if msg.contains("connection") {
-                ConnectError::new_err(format!("Connection error: {}", msg))
-            } else {
-                TransportError::new_err(format!("Network error: {}", msg))
-            }
-        }
+    } else if error_msg.contains("connection") {
+        ConnectError::new_err(format!("Connection error: {}", error_msg))
+    } else if error_msg.contains("redirect") {
+        TooManyRedirects::new_err(format!("Too many redirects: {}", error_msg))
+    } else {
+        RequestError::new_err(format!("Request error: {}", error_msg))
     }
 }
+
+/// Maps Tower service errors to appropriate httpx-compatible exceptions
+pub fn map_tower_error<E: std::error::Error + Send + Sync + 'static>(error: E) -> PyErr {
+    let error_msg = error.to_string();
+    
+    if error_msg.contains("timeout") {
+        ReadTimeout::new_err(format!("Service timeout: {}", error_msg))
+    } else if error_msg.contains("connection") {
+        ConnectError::new_err(format!("Service connection error: {}", error_msg))
+    } else {
+        TransportError::new_err(format!("Service error: {}", error_msg))
+    }
+}
+
+/// Maps HTTP body errors to appropriate httpx-compatible exceptions
+pub fn map_http_body_error<E: std::error::Error + Send + Sync + 'static>(error: E) -> PyErr {
+    let error_msg = error.to_string();
+    ReadError::new_err(format!("Body read error: {}", error_msg))
+}
+
+// Legacy error mapping functions - disabled during migration to hyper
+// These functions are commented out as reqwest and ureq are no longer dependencies
+
+/*
+/// Maps reqwest errors to appropriate httpx-compatible exceptions
+/// Deprecated: This function is kept for backward compatibility during migration
+#[deprecated(note = "Use map_hyper_error instead")]
+pub fn map_reqwest_error(error: reqwest::Error) -> PyErr {
+    // Implementation disabled during hyper migration
+}
+
+/// Maps ureq errors to appropriate httpx-compatible exceptions
+pub fn map_ureq_error(error: ureq::Error) -> PyErr {
+    // Implementation disabled during hyper migration
+}
+*/
 
 /// Create HTTP status error with proper exception type
 pub fn create_http_status_error(status_code: u16, message: &str) -> PyErr {

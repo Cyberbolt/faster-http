@@ -124,7 +124,7 @@ impl HttpClient {
             default_encoding,
             params,
         )?;
-        let sync_client = SyncHttpClient::new(config.clone())?;
+        let sync_client = SyncHttpClient::new_with_config(config.clone())?;
 
         Ok(HttpClient {
             sync_client,
@@ -563,7 +563,7 @@ impl HttpClient {
         _auth: Option<(String, String)>,
         _follow_redirects: Option<bool>,
         _cookies: Option<HashMap<String, String>>,
-    ) -> PyResult<crate::streaming::StreamingHttpResponse> {
+    ) -> PyResult<crate::streaming_stub::StreamingHttpResponse> {
         // Streaming is not supported in the synchronous client implementation
         // For streaming functionality, use the async client instead
         Err(RequestError::new_err(

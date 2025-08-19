@@ -1,6 +1,6 @@
 use crate::response::HttpResponse;
 use crate::sync_core::SyncHttpClient;
-use crate::streaming::StreamingClient;
+use crate::streaming_stub::StreamingClient;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 
@@ -22,7 +22,7 @@ fn execute_request_with_sync_client(
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
     // Create synchronous client for this request
-    let sync_client = SyncHttpClient::new(config.clone())?;
+    let sync_client = SyncHttpClient::new()?;
     
     // Convert HashMap data to PyObject for sync_client
     let data_obj = data.as_ref().map(|d| Python::with_gil(|py| d.to_object(py)));

@@ -1,29 +1,79 @@
-use crate::config::ClientConfig;
-use crate::error::{map_ureq_error, create_request_error, map_json_error};
-use crate::response::HttpResponse;
+// Synchronous HTTP client implementation using hyper with tokio runtime
 use pyo3::prelude::*;
 use std::collections::HashMap;
-use ureq::{Agent, AgentBuilder, Response};
+use crate::config::ClientConfig;
+use crate::response::HttpResponse;
+use crate::request::HttpRequest;
+use crate::error::RequestError;
+use crate::hyper_client::{HyperHttpClient, HyperClientConfig};
+use crate::core::{build_and_send_request, send_request_direct};
+use std::sync::OnceLock;
+use tokio::runtime::Runtime;
 use std::time::Duration;
-use std::io::Read;
-use base64;
-use bytes::Bytes;
 
-/// Synchronous HTTP client implementation using ureq
-/// This avoids any use of tokio runtime and block_on calls
+/// Global tokio runtime for synchronous operations
+static SYNC_RUNTIME: OnceLock<Runtime> = OnceLock::new();
+
+/// Get or create the global tokio runtime for sync operations
+fn get_sync_runtime() -> &'static Runtime {
+    SYNC_RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_name("faster-http-sync")
+            .build()
+            .expect("Failed to create tokio runtime for sync operations")
+    })
+}
+
+#[pyclass(module = "faster_http")]
 pub struct SyncHttpClient {
-    agent: Agent,
+    client: HyperHttpClient,
     config: ClientConfig,
 }
 
+#[pymethods]
 impl SyncHttpClient {
-    /// Create a new synchronous HTTP client from config
-    pub fn new(config: ClientConfig) -> PyResult<Self> {
-        let agent = build_ureq_agent(&config)?;
-        Ok(SyncHttpClient { agent, config })
+    #[new]
+    pub fn new() -> PyResult<Self> {
+        // Create default config for direct Python usage
+        let config = ClientConfig::new(
+            None,    // base_url
+            None,    // timeout
+            None,    // headers
+            None,    // verify
+            None,    // follow_redirects
+            None,    // auth
+            None,    // proxy
+            None,    // proxies
+            None,    // cookies
+            None,    // http1
+            None,    // http2
+            None,    // event_hooks
+            None,    // cert
+            None,    // trust_env
+            None,    // transport
+            None,    // mounts
+            None,    // limits
+            None,    // max_redirects
+            None,    // default_encoding
+            None,    // params
+        )?;
+        // Convert ClientConfig to HyperClientConfig
+        let hyper_config = HyperClientConfig {
+            follow_redirects: config.follow_redirects,
+            max_redirects: config.max_redirects as usize,
+            timeout: config.default_timeout,
+            http1_only: config.http1,
+            http2_only: config.http2,
+        };
+
+        // Create the hyper client
+        let client = HyperHttpClient::new(hyper_config)?;
+
+        Ok(Self { client, config })
     }
 
-    /// Execute a synchronous HTTP request
+    /// Send a request using the synchronous client (blocking wrapper around async client)
     #[allow(clippy::too_many_arguments)]
     pub fn send_request(
         &self,
@@ -40,226 +90,299 @@ impl SyncHttpClient {
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        // Build final URL with params
-        let final_url = self.build_final_url(url, params.as_ref())?;
+        let runtime = get_sync_runtime();
         
-        // Merge headers
-        let final_headers = self.merge_headers(headers);
+        // Create a clone of the client to move into the async block
+        let client = self.client.clone();
+        let config = self.config.clone();
+
+        // Convert timeout to Duration if provided
+        let timeout_duration = timeout.map(|t| Duration::from_secs_f64(t));
+
+        // Execute the async operation synchronously
+        runtime.block_on(async move {
+            build_and_send_request(
+                &config,
+                method,
+                url,
+                content,
+                data.and_then(|obj| {
+                    Python::with_gil(|py| {
+                        // Convert PyObject to HashMap for data parameter
+                        obj.extract::<HashMap<String, PyObject>>(py).ok()
+                    })
+                }),
+                json.and_then(|obj| {
+                    Python::with_gil(|py| {
+                        // Convert PyObject to HashMap for json parameter  
+                        obj.extract::<HashMap<String, PyObject>>(py).ok()
+                    })
+                }),
+                files.and_then(|obj| {
+                    Python::with_gil(|py| {
+                        // Convert PyObject to HashMap for files parameter
+                        obj.extract::<HashMap<String, PyObject>>(py).ok()
+                    })
+                }),
+                params,
+                headers,
+                timeout,
+                &config.base_url,
+                &config.default_headers,
+                config.default_timeout.or(timeout_duration),
+                auth,
+                follow_redirects.unwrap_or(config.follow_redirects),
+                cookies,
+            ).await
+        })
+    }
+
+    /// Send a simple request directly (optimized version)
+    pub fn send_request_direct(
+        &self,
+        method: &str,
+        url: &str,
+        headers: HashMap<String, String>,
+        content: Option<Vec<u8>>,
+    ) -> PyResult<HttpResponse> {
+        let runtime = get_sync_runtime();
         
-        // Merge cookies
-        let final_cookies = self.merge_cookies(cookies);
-        
-        // Create ureq request
-        let mut request = self.agent.request(method, &final_url);
-        
-        // Add headers
-        for (key, value) in final_headers {
-            request = request.set(&key, &value);
-        }
-        
-        // Add cookies
-        if let Some(cookies) = final_cookies {
-            for (key, value) in cookies {
-                request = request.set("Cookie", &format!("{}={}", key, value));
-            }
-        }
-        
-        // Add authentication
-        if let Some((username, password)) = auth {
-            use base64::Engine;
-            let auth_value = base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", username, password));
-            request = request.set("Authorization", &format!("Basic {}", auth_value));
-        }
-        
-        // Set timeout
-        if let Some(timeout_secs) = timeout {
-            // ureq uses timeout per operation, not total request timeout
-            let timeout_duration = Duration::from_secs_f64(timeout_secs);
-            request = request.timeout(timeout_duration);
-        } else if let Some(default_timeout) = self.config.default_timeout {
-            request = request.timeout(default_timeout);
-        }
-        
-        // Execute request based on content type
-        let response = if let Some(content) = content {
-            // Raw bytes content
-            request.send_bytes(&content)
-        } else if let Some(json_data) = json {
-            // JSON content
-            let json_value = python_object_to_json_value(json_data)?;
-            request.send_json(json_value)
-        } else if let Some(form_data) = data {
-            // Form data - convert to URL encoded string
-            let form_string = encode_python_object_as_form(form_data)?;
-            request
-                .set("Content-Type", "application/x-www-form-urlencoded")
-                .send_string(&form_string)
-        } else if files.is_some() {
-            // Multipart file upload - not supported in ureq directly
-            return Err(create_request_error(
-                "File uploads are not supported in synchronous mode. Use async client instead."
-            ));
-        } else {
-            // No body
-            request.call()
+        // Create a clone of the client to move into the async block
+        let client = self.client.clone();
+        let config = self.config.clone();
+
+        // Execute the async operation synchronously
+        runtime.block_on(async move {
+            send_request_direct(&client, method, url, &headers, content.as_deref(), &config).await
+        })
+    }
+
+    /// Send a GET request
+    pub fn get(
+        &self,
+        url: &str,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        cookies: Option<HashMap<String, String>>,
+        auth: Option<(String, String)>,
+        follow_redirects: Option<bool>,
+        timeout: Option<f64>,
+    ) -> PyResult<HttpResponse> {
+        self.send_request(
+            "GET",
+            url,
+            None,
+            None,
+            None,
+            None,
+            params,
+            headers,
+            timeout,
+            auth,
+            follow_redirects,
+            cookies,
+        )
+    }
+
+    /// Send a POST request
+    pub fn post(
+        &self,
+        url: &str,
+        content: Option<Vec<u8>>,
+        data: Option<PyObject>,
+        json: Option<PyObject>,
+        files: Option<PyObject>,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        cookies: Option<HashMap<String, String>>,
+        auth: Option<(String, String)>,
+        follow_redirects: Option<bool>,
+        timeout: Option<f64>,
+    ) -> PyResult<HttpResponse> {
+        self.send_request(
+            "POST",
+            url,
+            content,
+            data,
+            json,
+            files,
+            params,
+            headers,
+            timeout,
+            auth,
+            follow_redirects,
+            cookies,
+        )
+    }
+
+    /// Send a PUT request
+    pub fn put(
+        &self,
+        url: &str,
+        content: Option<Vec<u8>>,
+        data: Option<PyObject>,
+        json: Option<PyObject>,
+        files: Option<PyObject>,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        cookies: Option<HashMap<String, String>>,
+        auth: Option<(String, String)>,
+        follow_redirects: Option<bool>,
+        timeout: Option<f64>,
+    ) -> PyResult<HttpResponse> {
+        self.send_request(
+            "PUT",
+            url,
+            content,
+            data,
+            json,
+            files,
+            params,
+            headers,
+            timeout,
+            auth,
+            follow_redirects,
+            cookies,
+        )
+    }
+
+    /// Send a PATCH request
+    pub fn patch(
+        &self,
+        url: &str,
+        content: Option<Vec<u8>>,
+        data: Option<PyObject>,
+        json: Option<PyObject>,
+        files: Option<PyObject>,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        cookies: Option<HashMap<String, String>>,
+        auth: Option<(String, String)>,
+        follow_redirects: Option<bool>,
+        timeout: Option<f64>,
+    ) -> PyResult<HttpResponse> {
+        self.send_request(
+            "PATCH",
+            url,
+            content,
+            data,
+            json,
+            files,
+            params,
+            headers,
+            timeout,
+            auth,
+            follow_redirects,
+            cookies,
+        )
+    }
+
+    /// Send a DELETE request
+    pub fn delete(
+        &self,
+        url: &str,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        cookies: Option<HashMap<String, String>>,
+        auth: Option<(String, String)>,
+        follow_redirects: Option<bool>,
+        timeout: Option<f64>,
+    ) -> PyResult<HttpResponse> {
+        self.send_request(
+            "DELETE",
+            url,
+            None,
+            None,
+            None,
+            None,
+            params,
+            headers,
+            timeout,
+            auth,
+            follow_redirects,
+            cookies,
+        )
+    }
+
+    /// Send a HEAD request
+    pub fn head(
+        &self,
+        url: &str,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        cookies: Option<HashMap<String, String>>,
+        auth: Option<(String, String)>,
+        follow_redirects: Option<bool>,
+        timeout: Option<f64>,
+    ) -> PyResult<HttpResponse> {
+        self.send_request(
+            "HEAD",
+            url,
+            None,
+            None,
+            None,
+            None,
+            params,
+            headers,
+            timeout,
+            auth,
+            follow_redirects,
+            cookies,
+        )
+    }
+
+    /// Send an OPTIONS request
+    pub fn options(
+        &self,
+        url: &str,
+        params: Option<HashMap<String, String>>,
+        headers: Option<HashMap<String, String>>,
+        cookies: Option<HashMap<String, String>>,
+        auth: Option<(String, String)>,
+        follow_redirects: Option<bool>,
+        timeout: Option<f64>,
+    ) -> PyResult<HttpResponse> {
+        self.send_request(
+            "OPTIONS",
+            url,
+            None,
+            None,
+            None,
+            None,
+            params,
+            headers,
+            timeout,
+            auth,
+            follow_redirects,
+            cookies,
+        )
+    }
+}
+
+impl SyncHttpClient {
+    /// Create a new SyncHttpClient with the provided config (internal use)
+    pub fn new_with_config(config: ClientConfig) -> PyResult<Self> {
+        // Convert ClientConfig to HyperClientConfig
+        let hyper_config = HyperClientConfig {
+            follow_redirects: config.follow_redirects,
+            max_redirects: config.max_redirects as usize,
+            timeout: config.default_timeout,
+            http1_only: config.http1,
+            http2_only: config.http2,
         };
-        
-        // Handle response or error
-        match response {
-            Ok(resp) => convert_ureq_response_to_http_response(resp),
-            Err(ureq::Error::Status(code, resp)) => {
-                // HTTP error responses (4xx, 5xx) - still convert to HttpResponse
-                convert_ureq_response_to_http_response(resp)
-            }
-            Err(ureq_error) => {
-                Err(map_ureq_error(ureq_error))
-            }
-        }
-    }
 
-    /// Build final URL with base_url and params
-    fn build_final_url(&self, url: &str, params: Option<&HashMap<String, String>>) -> PyResult<String> {
-        use crate::utils::build_url;
-        
-        // Merge default params with request params
-        let merged_params = match params {
-            Some(request_params) => {
-                let mut merged = self.config.default_params.clone();
-                merged.extend(request_params.clone());
-                if merged.is_empty() { None } else { Some(merged) }
-            }
-            None if !self.config.default_params.is_empty() => {
-                Some(self.config.default_params.clone())
-            }
-            _ => None,
-        };
+        // Create the hyper client
+        let client = HyperHttpClient::new(hyper_config)?;
 
-        build_url(url, self.config.base_url.as_ref(), merged_params.as_ref())
-            .map_err(|e| create_request_error(&e.to_string()))
-    }
-
-    /// Merge client default headers with request headers
-    fn merge_headers(&self, request_headers: Option<HashMap<String, String>>) -> HashMap<String, String> {
-        let mut final_headers = self.config.default_headers.clone();
-        if let Some(headers) = request_headers {
-            final_headers.extend(headers);
-        }
-        final_headers
-    }
-
-    /// Merge client default cookies with request cookies
-    fn merge_cookies(&self, request_cookies: Option<HashMap<String, String>>) -> Option<HashMap<String, String>> {
-        match request_cookies {
-            Some(request_cookies) => {
-                let mut merged = self.config.default_cookies.clone();
-                merged.extend(request_cookies);
-                if merged.is_empty() { None } else { Some(merged) }
-            }
-            None if !self.config.default_cookies.is_empty() => {
-                Some(self.config.default_cookies.clone())
-            }
-            _ => None,
-        }
+        Ok(Self { client, config })
     }
 }
 
-/// Build ureq Agent from ClientConfig
-fn build_ureq_agent(config: &ClientConfig) -> PyResult<Agent> {
-    let mut agent_builder = AgentBuilder::new();
-    
-    // Set redirects
-    if config.follow_redirects {
-        let max_redirects = config.max_redirects as u32;
-        agent_builder = agent_builder.redirects(max_redirects);
-    } else {
-        agent_builder = agent_builder.redirects(0);
-    }
-    
-    // Note: ureq has limited TLS configuration options compared to reqwest
-    // Some advanced features like custom CA certificates are not supported
-    
-    Ok(agent_builder.build())
-}
-
-/// Convert Python object to serde_json::Value for JSON requests
-fn python_object_to_json_value(obj: PyObject) -> PyResult<serde_json::Value> {
-    Python::with_gil(|py| {
-        let json_str = py
-            .import("json")?
-            .getattr("dumps")?
-            .call1((obj,))?
-            .extract::<String>()?;
-        
-        serde_json::from_str(&json_str)
-            .map_err(map_json_error)
-    })
-}
-
-/// Encode Python object as URL-encoded form string
-fn encode_python_object_as_form(obj: PyObject) -> PyResult<String> {
-    Python::with_gil(|py| -> PyResult<String> {
-        // Try to extract as dict first
-        if let Ok(dict) = obj.extract::<HashMap<String, PyObject>>(py) {
-            let mut pairs = Vec::new();
-            for (key, value) in dict {
-                let value_str = value.extract::<String>(py)
-                    .or_else(|_| {
-                        // Try to convert to string
-                        value.call_method0(py, "__str__")?.extract::<String>(py)
-                    })?;
-                
-                pairs.push(format!("{}={}", 
-                    urlencoding::encode(&key), 
-                    urlencoding::encode(&value_str)
-                ));
-            }
-            Ok(pairs.join("&"))
-        } else {
-            // Try to convert to string directly
-            let form_str = obj.extract::<String>(py)
-                .or_else(|_| {
-                    obj.call_method0(py, "__str__")?.extract::<String>(py)
-                })?;
-            Ok(form_str)
-        }
-    })
-}
-
-/// Convert ureq Response to our HttpResponse
-fn convert_ureq_response_to_http_response(resp: Response) -> PyResult<HttpResponse> {
-    // Get status code
-    let status_code = resp.status();
-    
-    // Get headers
-    let mut headers = HashMap::new();
-    for name in resp.headers_names() {
-        if let Some(value) = resp.header(&name) {
-            headers.insert(name.to_lowercase(), value.to_string());
+impl Clone for SyncHttpClient {
+    fn clone(&self) -> Self {
+        Self {
+            client: self.client.clone(),
+            config: self.config.clone(),
         }
     }
-    
-    // Read response body
-    let mut body = Vec::new();
-    resp.into_reader()
-        .read_to_end(&mut body)
-        .map_err(|e| create_request_error(&format!("Failed to read response body: {}", e)))?;
-    
-    // Store body length before moving body
-    let body_len = body.len();
-    
-    // Create HttpResponse with all required parameters
-    Ok(HttpResponse::new(
-        status_code as u16,
-        headers,
-        Bytes::from(body),
-        "".to_string(), // URL not easily available from ureq response
-        0.0, // elapsed time not tracked in this simple implementation
-        false, // is_redirect_status - simplified for now
-        "HTTP/1.1".to_string(), // default HTTP version
-        HashMap::new(), // cookies - not extracted from response for now
-        None, // encoding - not determined here
-        Vec::new(), // history - empty for sync implementation
-        None, // request - not stored for sync implementation
-        body_len, // num_bytes_downloaded
-    ))
 }

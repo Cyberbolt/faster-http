@@ -585,14 +585,14 @@ fn normalize_encoding_name(encoding: &str) -> String {
     }
 }
 
-// 检测 HTTP 版本
-pub fn detect_http_version(version: &reqwest::Version) -> String {
+// 检测 HTTP 版本 - updated for hyper
+pub fn detect_http_version(version: &hyper::Version) -> String {
     match *version {
-        reqwest::Version::HTTP_09 => "HTTP/0.9".to_string(),
-        reqwest::Version::HTTP_10 => "HTTP/1.0".to_string(),
-        reqwest::Version::HTTP_11 => "HTTP/1.1".to_string(),
-        reqwest::Version::HTTP_2 => "HTTP/2".to_string(),
-        reqwest::Version::HTTP_3 => "HTTP/3".to_string(),
+        hyper::Version::HTTP_09 => "HTTP/0.9".to_string(),
+        hyper::Version::HTTP_10 => "HTTP/1.0".to_string(),
+        hyper::Version::HTTP_11 => "HTTP/1.1".to_string(),
+        hyper::Version::HTTP_2 => "HTTP/2".to_string(),
+        hyper::Version::HTTP_3 => "HTTP/3".to_string(),
         _ => "HTTP/1.1".to_string(), // 默认值
     }
 }

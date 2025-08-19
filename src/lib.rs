@@ -12,15 +12,16 @@ mod config;
 mod core;
 mod error;
 mod hooks;
+mod hyper_client; // New hyper-based client module
 mod models;
-mod proxy_config;
+mod proxy_config_stub; // Temporary stub for proxy configuration
 mod request;
 mod response;
 mod runtime;
-mod ssl_config;
-mod streaming;
-mod sync_core;
-mod transport;
+mod ssl_config_stub; // Temporary stub for SSL configuration
+mod streaming_stub; // Temporary stub for streaming functionality
+mod sync_core; // Synchronous HTTP client implementation
+mod transport_stub; // Temporary stub for transport configuration
 mod utils;
 
 // Re-export main types and functions
@@ -63,10 +64,10 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     // Add hooks proxy class
     m.add_class::<EventHooksProxy>()?;
 
-    // Add transport classes
-    m.add_class::<transport::FasterhttpTransport>()?;
-    m.add_class::<transport::MockTransport>()?;
-    m.add_class::<transport::HTTPSRedirectTransport>()?;
+    // Transport classes temporarily disabled during hyper migration
+    // m.add_class::<transport::FasterhttpTransport>()?;
+    // m.add_class::<transport::MockTransport>()?;
+    // m.add_class::<transport::HTTPSRedirectTransport>()?;
 
     // Add API functions
     m.add_function(wrap_pyfunction!(api::get, m)?)?;

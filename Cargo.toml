@@ -15,8 +15,19 @@ crate-type = ["cdylib"]
 # "abi3-py39" tells pyo3 (and maturin) to build using the stable ABI with minimum Python version 3.9
 pyo3 = { version = "0.20.3", features = ["extension-module", "abi3-py310"] }
 pyo3-asyncio = { version = "0.20.0", features = ["tokio-runtime"] }
-reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli", "deflate", "cookies", "multipart", "http2", "native-tls-alpn"] }
-ureq = { version = "2.9", features = ["json"] }
+# Hyper ecosystem dependencies for high-performance HTTP client
+hyper = { version = "1.0", features = ["client", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "http2", "tokio"] }
+hyper-rustls = { version = "0.27", features = ["http1", "http2", "webpki-tokio", "ring"] }
+tower = { version = "0.4" }
+tower-service = "0.3"
+http-body-util = "0.1"
+rustls = { version = "0.23", features = ["ring"] }
+rustls-webpki = "0.102"
+webpki-roots = "0.26"
+# Keep essential utilities
+mime = "0.3"
+mime_guess = "2.0"
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -28,6 +39,8 @@ urlencoding = "2.1"
 pythonize = "0.20.0"
 http = "1.0"
 base64 = "0.22"
+uuid = { version = "1.0", features = ["v4"] }
+multipart = "0.18"
 
 # 修复 PyO3 + Tokio 在程序退出时的清理问题，特别是在 ARM64 架构上
 [profile.release]

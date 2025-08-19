@@ -1,8 +1,8 @@
 use crate::config::ClientConfig;
+use crate::hyper_client::HyperHttpClient;
 use crate::request::HttpRequest;
 use pyo3::prelude::*;
 use pyo3_asyncio::tokio::future_into_py;
-use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -16,7 +16,7 @@ use crate::utils::build_url;
 #[pyclass(module = "faster_http")]
 #[derive(Clone)]
 pub struct AsyncHttpClient {
-    client: Client,
+    client: HyperHttpClient,
     config: ClientConfig,
     is_closed: Arc<AtomicBool>,
 }
@@ -438,8 +438,8 @@ impl AsyncHttpClient {
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
-    ) -> PyResult<crate::streaming::StreamingClient> {
-        use crate::streaming::StreamingClient;
+    ) -> PyResult<crate::streaming_stub::StreamingClient> {
+        use crate::streaming_stub::StreamingClient;
 
         self.check_not_closed()?;
 
