@@ -4,35 +4,35 @@ use crate::response::HttpResponse;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
 use pyo3::PyCell;
-use reqwest::Client;
+use crate::hyper_client::HyperHttpClient;
 use std::collections::HashMap;
 
-/// Transport配置结构体 - 对应httpx的Transport系统
+/// Transport configuration structure - corresponding to httpx's Transport system
 #[derive(Clone, Default)]
 pub struct TransportConfig {
-    /// 默认transport (用于未匹配的请求)
+    /// Default transport (for unmatched requests)
     pub default_transport: Option<PyObject>,
-    /// 挂载的transport映射 (scheme/domain -> transport)
+    /// Mounted transport mapping (scheme/domain -> transport)
     pub mounts: HashMap<String, PyObject>,
-    /// 是否启用自定义transport
+    /// Whether to enable custom transport
     pub enable_custom_transport: bool,
 }
 
 impl TransportConfig {
-    /// 从Python参数创建Transport配置
+    /// Create Transport configuration from Python parameters
     pub fn from_python_params(
         transport: Option<PyObject>,
         mounts: Option<&PyDict>,
     ) -> PyResult<Self> {
         let mut config = TransportConfig::default();
 
-        // 设置默认transport
+        // Set default transport
         if let Some(transport_obj) = transport {
             config.default_transport = Some(transport_obj);
             config.enable_custom_transport = true;
         }
 
-        // 设置挂载的transport
+        // Set mounted transport
         if let Some(mounts_dict) = mounts {
             for (key, value) in mounts_dict.iter() {
                 let key_str = key.downcast::<PyString>()?.to_str()?.to_string();
@@ -48,94 +48,93 @@ impl TransportConfig {
         Ok(config)
     }
 
-    /// 为给定的URL选择合适的transport
+    /// Select appropriate transport for the given URL
     pub fn select_transport_for_url(&self, url: &str) -> Option<&PyObject> {
-        // 解析URL获取scheme和host
+        // Parse URL to get scheme and host
         if let Ok(parsed_url) = url::Url::parse(url) {
             let scheme = parsed_url.scheme();
             let host = parsed_url.host_str().unwrap_or("");
 
-            // 1. 首先检查完整URL匹配
+            // 1. First check complete URL matching
             if let Some(transport) = self.mounts.get(url) {
                 return Some(transport);
             }
 
-            // 2. 检查scheme + host匹配 (例如: "https://example.com")
+            // 2. Check scheme + host matching (e.g.: "https://example.com")
             let scheme_host = format!("{}://{}", scheme, host);
             if let Some(transport) = self.mounts.get(&scheme_host) {
                 return Some(transport);
             }
 
-            // 3. 检查host匹配 (例如: "example.com")
+            // 3. Check host matching (e.g.: "example.com")
             if let Some(transport) = self.mounts.get(host) {
                 return Some(transport);
             }
 
-            // 4. 检查scheme匹配 (例如: "https://")
+            // 4. Check scheme matching (e.g.: "https://")
             let scheme_pattern = format!("{}://", scheme);
             if let Some(transport) = self.mounts.get(&scheme_pattern) {
                 return Some(transport);
             }
         }
 
-        // 5. 返回默认transport
+        // 5. Return default transport
         self.default_transport.as_ref()
     }
 
-    /// 检查是否应该使用自定义transport处理请求
+    /// Check if custom transport should be used to handle the request
     pub fn should_use_custom_transport(&self, url: &str) -> bool {
         self.enable_custom_transport
             && (self.default_transport.is_some() || self.select_transport_for_url(url).is_some())
     }
 
-    /// 使用自定义transport发送请求
+    /// Send request using custom transport
     pub fn send_request_via_custom_transport(
         &self,
         transport: &PyObject,
         request: &HttpRequest,
     ) -> PyResult<HttpResponse> {
         Python::with_gil(|py| {
-            // 将HttpRequest转换为Python对象
+            // Convert HttpRequest to Python object
             let py_request = PyCell::new(py, request.clone())?;
 
-            // 调用transport的handle_request方法
+            // Call the handle_request method of transport
             let result = transport.call_method1(py, "handle_request", (py_request,))?;
 
-            // 期望返回HttpResponse对象
+            // Expect to return HttpResponse object
             result.extract::<HttpResponse>(py)
         })
     }
 }
 
-/// 默认的faster-http Transport实现
-/// 这个类包装了reqwest客户端，提供了与httpx.BaseTransport兼容的接口
+/// Default faster-http Transport implementation
+/// This class wraps the hyper client, providing an interface compatible with httpx.BaseTransport
 #[pyclass]
 pub struct FasterhttpTransport {
     #[allow(dead_code)]
-    client: Client,
+    client: HyperHttpClient,
 }
 
 #[pymethods]
 impl FasterhttpTransport {
     #[new]
     pub fn new() -> PyResult<Self> {
-        let client = Client::builder()
-            .build()
+        let client = HyperHttpClient::new(crate::hyper_client::HyperClientConfig::default())
             .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))?;
 
         Ok(FasterhttpTransport { client })
     }
 
-    /// 处理请求 - 实现httpx.BaseTransport接口
+    /// Handle request - implement httpx.BaseTransport interface
     pub fn handle_request(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
-        // 创建默认的配置和headers来调用build_and_send_request
+        // Create default configuration and headers to call build_and_send_request
         let empty_headers: HashMap<String, String> = HashMap::new();
         let config = crate::config::ClientConfig::new(
             None, None, None, None, None, None, None, None, None, None, None, None, None, None,
             None, None, None, None, None, None,
         )?;
 
-        // 使用同步客户端避免block_on
+        // Use sync client to avoid block_on
         let sync_client = crate::sync_core::SyncHttpClient::new(config)?;
         let response = sync_client.send_request(
             request.get_method(),
@@ -155,25 +154,25 @@ impl FasterhttpTransport {
         Ok(response)
     }
 
-    /// 关闭transport
+    /// Close transport
     pub fn close(&self) -> PyResult<()> {
-        // reqwest客户端没有显式的关闭方法
+        // hyper client has no explicit close method
         Ok(())
     }
 
-    /// 异步关闭transport
+    /// Asynchronously close transport
     pub fn aclose(&self) -> PyResult<()> {
-        // reqwest客户端没有显式的关闭方法
+        // hyper client has no explicit close method
         Ok(())
     }
 }
 
-/// 创建一个mock transport用于测试
+/// Create a mock transport for testing
 #[pyclass]
 pub struct MockTransport {
-    /// 预定义的响应映射 (URL -> Response)
+    /// Predefined response mapping (URL -> Response)
     responses: HashMap<String, HttpResponse>,
-    /// 默认响应
+    /// Default response
     default_response: Option<HttpResponse>,
 }
 
@@ -190,31 +189,31 @@ impl MockTransport {
         }
     }
 
-    /// 添加mock响应
+    /// Add mock response
     pub fn add_response(&mut self, url: String, response: HttpResponse) {
         self.responses.insert(url, response);
     }
 
-    /// 设置默认响应
+    /// Set default response
     pub fn set_default_response(&mut self, response: HttpResponse) {
         self.default_response = Some(response);
     }
 
-    /// 处理请求 - 返回预定义的mock响应
+    /// Handle request - return predefined mock response
     pub fn handle_request(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
         let url = request.url_str();
 
-        // 检查是否有特定URL的响应
+        // Check if there is a response for the specific URL
         if let Some(response) = self.responses.get(url) {
             return Ok(response.clone());
         }
 
-        // 检查是否有默认响应
+        // Check if there is a default response
         if let Some(response) = &self.default_response {
             return Ok(response.clone());
         }
 
-        // 如果没有配置响应，返回404
+        // If no response is configured, return 404
         Err(RequestError::new_err(format!(
             "No mock response configured for URL: {}",
             url
@@ -230,10 +229,10 @@ impl MockTransport {
     }
 }
 
-/// 重定向Transport - 将HTTP请求重定向到HTTPS
+/// Redirect Transport - redirect HTTP requests to HTTPS
 #[pyclass]
 pub struct HTTPSRedirectTransport {
-    /// 底层transport
+    /// Underlying transport
     transport: FasterhttpTransport,
 }
 
@@ -246,13 +245,13 @@ impl HTTPSRedirectTransport {
         })
     }
 
-    /// 处理请求 - 将HTTP重定向到HTTPS
+    /// Handle request - redirect HTTP to HTTPS
     pub fn handle_request(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
         let original_url = request.url_str();
 
-        // 检查是否为HTTP URL
+        // Check if it's an HTTP URL
         if original_url.starts_with("http://") {
-            // 创建HTTPS版本的请求
+            // Create HTTPS version of the request
             let https_url = original_url.replacen("http://", "https://", 1);
             let https_request = Python::with_gil(|py| {
                 HttpRequest::new(
@@ -269,10 +268,10 @@ impl HTTPSRedirectTransport {
                 )
             })?;
 
-            // 使用底层transport发送HTTPS请求
+            // Use underlying transport to send HTTPS request
             self.transport.handle_request(&https_request)
         } else {
-            // 直接发送原始请求
+            // Send original request directly
             self.transport.handle_request(request)
         }
     }
@@ -302,17 +301,17 @@ mod tests {
     fn test_transport_url_selection() {
         let config = TransportConfig::default();
 
-        // 这个测试需要Python对象，暂时跳过
-        // 在实际使用中会有Python对象
+        // This test requires Python objects, skip for now
+        // In actual use, there will be Python objects
         assert!(!config.should_use_custom_transport("https://example.com"));
     }
 
     #[tokio::test]
     async fn test_mock_transport() {
-        // 创建mock transport
+        // Create mock transport
         let mock_transport = MockTransport::new(None, None);
 
-        // 测试没有配置响应的情况
+        // Test the case where no response is configured
         let request = Python::with_gil(|_py| {
             HttpRequest::new(
                 "GET".to_string(),

@@ -1,8 +1,8 @@
 """
-faster-http: A high-performance HTTP client for Python, powered by Rust's reqwest library.
+faster-http: A high-performance HTTP client for Python, powered by Rust's hyper library.
 
 This library provides a drop-in replacement for httpx with significantly better performance
-by leveraging Rust's reqwest library through PyO3 bindings.
+by leveraging Rust's hyper library through PyO3 bindings.
 """
 
 __version__ = "0.1.0"
@@ -108,7 +108,6 @@ __all__ = [
     "InvalidURL",
     "Limits",
     "LocalProtocolError",
-    "MockTransport",
     "NetRCAuth",
     "PoolTimeout",
     "ProtocolError",

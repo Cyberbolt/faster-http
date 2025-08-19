@@ -2,7 +2,7 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use std::error::Error;
 
-// 创建自定义异常类型 - 完整的 httpx 兼容异常层次结构
+// Create custom exception types - complete httpx-compatible exception hierarchy
 pyo3::create_exception!(faster_http, HTTPError, PyException);
 
 // Connection related exceptions
@@ -56,7 +56,7 @@ pyo3::create_exception!(faster_http, ReadError, RequestError);
 pyo3::create_exception!(faster_http, WriteError, RequestError);
 pyo3::create_exception!(faster_http, UnsupportedProtocol, RequestError);
 
-// 错误处理工具 - httpx 兼容的错误映射
+// Error handling utilities - httpx-compatible error mapping
 
 /// Maps hyper errors to appropriate httpx-compatible exceptions  
 pub fn map_hyper_error(error: hyper::Error) -> PyErr {
@@ -127,22 +127,7 @@ pub fn map_http_body_error<E: std::error::Error + Send + Sync + 'static>(error: 
     ReadError::new_err(format!("Body read error: {}", error_msg))
 }
 
-// Legacy error mapping functions - disabled during migration to hyper
-// These functions are commented out as reqwest and ureq are no longer dependencies
-
-/*
-/// Maps reqwest errors to appropriate httpx-compatible exceptions
-/// Deprecated: This function is kept for backward compatibility during migration
-#[deprecated(note = "Use map_hyper_error instead")]
-pub fn map_reqwest_error(error: reqwest::Error) -> PyErr {
-    // Implementation disabled during hyper migration
-}
-
-/// Maps ureq errors to appropriate httpx-compatible exceptions
-pub fn map_ureq_error(error: ureq::Error) -> PyErr {
-    // Implementation disabled during hyper migration
-}
-*/
+// Legacy error mapping functions - removed as reqwest and ureq are no longer dependencies
 
 /// Create HTTP status error with proper exception type
 pub fn create_http_status_error(status_code: u16, message: &str) -> PyErr {

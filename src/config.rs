@@ -30,7 +30,7 @@ pub struct ClientConfig {
     pub max_redirects: i32,                  // Maximum number of redirects to follow
     pub default_encoding: String,            // Default character encoding
     pub default_params: HashMap<String, String>, // Default query parameters
-    // 预构建的客户端以支持高效的重定向控制
+    // Pre-built clients to support efficient redirect control
     pub redirect_client: HyperHttpClient,
     pub no_redirect_client: HyperHttpClient,
 }
@@ -137,7 +137,7 @@ impl ClientConfig {
         let http1_enabled = http1.unwrap_or(true);
         let http2_enabled = http2.unwrap_or(false);
 
-        // 预构建两个客户端以支持高效的重定向控制
+        // Pre-build two clients to support efficient redirect control
         let redirect_client = Self::build_hyper_client_with_redirect(
             true,
             http1_enabled,
@@ -163,7 +163,7 @@ impl ClientConfig {
                         None
                     }
                 })
-                .or(Some(Duration::from_secs(30))), // 设置默认30秒超时，负数被忽略
+                .or(Some(Duration::from_secs(30))), // Set default 30-second timeout, negative values are ignored
             default_headers: headers.unwrap_or_default(),
             follow_redirects: follow_redirects.unwrap_or(true),
             auth: auth_type,
@@ -224,7 +224,7 @@ impl ClientConfig {
         HyperHttpClient::new(config)
     }
 
-    // 根据 follow_redirects 参数选择合适的客户端
+    // Select appropriate client based on follow_redirects parameter
     pub fn get_client_for_redirect(&self, follow_redirects: bool) -> &HyperHttpClient {
         if follow_redirects {
             &self.redirect_client

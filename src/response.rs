@@ -6,7 +6,7 @@ use pyo3::types::{IntoPyDict, PyBytes};
 use serde_json::Value;
 use std::collections::HashMap;
 
-// 响应对象 - 生产级版本，与 httpx 完全对齐
+// Response object - production version, fully aligned with httpx
 #[pyclass(module = "faster_http")]
 #[derive(Clone)]
 pub struct HttpResponse {
@@ -22,10 +22,10 @@ pub struct HttpResponse {
     history: Vec<PyObject>,
     request: Option<PyObject>,
     num_bytes_downloaded: usize,
-    // httpx 扩展
+    // httpx extensions
     extensions: HashMap<String, PyObject>,
     next_request: Option<PyObject>,
-    // 内部状态
+    // Internal state
     _closed: bool,
 }
 
@@ -67,7 +67,7 @@ impl HttpResponse {
 
 #[pymethods]
 impl HttpResponse {
-    // ==================== 基本属性 - 优化版本 ====================
+    // ==================== Basic properties - optimized version ====================
     #[getter]
     pub fn status_code(&self) -> u16 {
         self.status_code
@@ -75,23 +75,23 @@ impl HttpResponse {
 
     #[getter]
     pub fn headers(&self) -> crate::models::HttpHeaders {
-        // 返回 Headers 对象以保持与 httpx 兼容
+        // Return Headers object to maintain httpx compatibility
         crate::models::HttpHeaders::new(Some(self.headers.clone()))
     }
 
     #[getter]
     pub fn url(&self) -> PyResult<crate::models::HttpUrl> {
-        // 返回 URL 对象以保持与 httpx 兼容
+        // Return URL object to maintain httpx compatibility
         crate::models::HttpUrl::new(self.url.clone())
     }
 
     #[getter]
     pub fn elapsed(&self) -> PyResult<PyObject> {
-        // 返回 datetime.timedelta 对象以保持与 httpx 兼容
+        // Return datetime.timedelta object to maintain httpx compatibility
         Python::with_gil(|py| {
             let datetime = py.import("datetime")?;
             let timedelta = datetime.getattr("timedelta")?;
-            // 使用 seconds 参数而不是 days
+            // Use seconds parameter instead of days
             timedelta
                 .call((), Some([("seconds", self.elapsed)].into_py_dict(py)))
                 .map(|obj| obj.to_object(py))
@@ -100,19 +100,19 @@ impl HttpResponse {
 
     #[getter]
     pub fn http_version(&self) -> &str {
-        // 返回字符串引用，避免clone
+        // Return string reference, avoid clone
         &self.http_version
     }
 
     #[getter]
     pub fn cookies(&self) -> crate::models::HttpCookies {
-        // 返回 Cookies 对象以保持与 httpx 兼容
+        // Return Cookies object to maintain httpx compatibility
         crate::models::HttpCookies::new(Some(self.cookies.clone()))
     }
 
     #[getter]
     pub fn encoding(&self) -> Option<&str> {
-        // 返回字符串引用的Option，避免clone
+        // Return Option of string reference, avoid clone
         self.encoding.as_deref()
     }
 
@@ -121,7 +121,7 @@ impl HttpResponse {
         self.num_bytes_downloaded
     }
 
-    // ==================== httpx 标准属性 ====================
+    // ==================== httpx standard properties ====================
     #[getter]
     pub fn is_redirect(&self) -> bool {
         self.is_redirect_status
@@ -174,10 +174,10 @@ impl HttpResponse {
         self.next_request.clone()
     }
 
-    // ==================== 内容访问 ====================
+    // ==================== Content access ====================
     #[getter]
     pub fn content(&self, py: Python) -> PyResult<PyObject> {
-        // 返回真正的 bytes 对象，不是 &[u8]
+        // Return real bytes object, not &[u8]
         Ok(PyBytes::new(py, &self.body).to_object(py))
     }
 
@@ -188,12 +188,12 @@ impl HttpResponse {
         match encoding.to_lowercase().as_str() {
             "utf-8" | "utf8" => Ok(String::from_utf8_lossy(&self.body).to_string()),
             "latin-1" | "iso-8859-1" => {
-                // Latin-1 每个字节对应一个 Unicode 码点
+                // Latin-1 each byte corresponds to one Unicode code point
                 let text = self.body.iter().map(|&b| b as char).collect::<String>();
                 Ok(text)
             }
             _ => {
-                // 其他编码，尝试 UTF-8，失败则用 latin-1
+                // Other encodings, try UTF-8, fallback to latin-1 if failed
                 match String::from_utf8(self.body.to_vec()) {
                     Ok(text) => Ok(text),
                     Err(_) => {
@@ -213,7 +213,7 @@ impl HttpResponse {
             .map_err(|e| PyValueError::new_err(format!("Failed to convert JSON to Python: {e}")))
     }
 
-    // ==================== 流式方法 - 生产级实现 ====================
+    // ==================== Streaming methods - production implementation ====================
     pub fn iter_bytes(&self, chunk_size: Option<usize>) -> PyResult<Vec<Py<PyBytes>>> {
         let chunk_size = chunk_size.unwrap_or(8192);
         let mut chunks = Vec::new();
@@ -250,7 +250,7 @@ impl HttpResponse {
     }
 
     pub fn iter_raw(&self, chunk_size: Option<usize>) -> PyResult<Vec<Py<PyBytes>>> {
-        // iter_raw 与 iter_bytes 相同，表示未解码的原始数据
+        // iter_raw is the same as iter_bytes, representing raw unencoded data
         self.iter_bytes(chunk_size)
     }
 
@@ -281,7 +281,7 @@ impl HttpResponse {
         self.next_request = request;
     }
 
-    // ==================== 其他方法 ====================
+    // ==================== Other methods ====================
     pub fn raise_for_status(&self) -> PyResult<()> {
         if self.status_code >= 400 {
             let response_obj = Python::with_gil(|py| {
@@ -307,7 +307,7 @@ impl HttpResponse {
         self._closed
     }
 
-    // ==================== httpx 兼容性属性 ====================
+    // ==================== httpx compatibility properties ====================
     #[getter]
     pub fn default_encoding(&self) -> &str {
         "utf-8"
@@ -320,7 +320,7 @@ impl HttpResponse {
 
     #[getter]
     pub fn is_stream_consumed(&self) -> bool {
-        false // 我们总是缓存整个响应
+        false // We always cache the entire response
     }
 
     // ==================== Extensions manipulation ====================
@@ -407,18 +407,18 @@ impl HttpResponse {
         links
     }
 
-    // ==================== 异步方法的同步版本 ====================
+    // ==================== Sync versions of async methods ====================
     pub fn aclose(&self) -> PyResult<()> {
-        // 异步版本的 close，但在同步环境中直接返回
+        // Async version of close, but return directly in sync environment
         Ok(())
     }
 
     pub fn stream(&self) -> PyResult<()> {
-        // 流式访问（在我们的实现中是 no-op）
+        // Streaming access (no-op in our implementation)
         Ok(())
     }
 
-    // ==================== 异步迭代器方法 ====================
+    // ==================== Async iterator methods ====================
     #[allow(clippy::needless_borrow)]
     pub fn aiter_bytes(&self, chunk_size: Option<usize>) -> PyResult<PyObject> {
         let chunk_size = chunk_size.unwrap_or(8192);
@@ -507,7 +507,7 @@ aiter_lines_impl(lines)
         self.aiter_bytes(chunk_size)
     }
 
-    // ==================== Python 特殊方法 ====================
+    // ==================== Python special methods ====================
     fn __repr__(&self) -> String {
         format!("<Response [{}]>", self.status_code)
     }
@@ -527,16 +527,16 @@ aiter_lines_impl(lines)
     }
 }
 
-// ==================== 工具函数 ====================
+// ==================== Utility functions ====================
 
-// 从 headers 解析 cookies
+// Parse cookies from headers
 pub fn parse_cookies_from_headers(headers: &HashMap<String, String>) -> HashMap<String, String> {
     let mut cookies = HashMap::new();
 
     for (key, value) in headers {
         if key.to_lowercase() == "set-cookie" {
-            // 每个 Set-Cookie 头都是独立的，不应该用逗号分割
-            // 因为 cookie 值本身可能包含逗号
+            // Each Set-Cookie header is independent, should not be split by comma
+            // Because cookie values themselves may contain commas
             if let Some(cookie_pair) = value.split(';').next() {
                 if let Some((name, val)) = cookie_pair.split_once('=') {
                     cookies.insert(
@@ -551,16 +551,16 @@ pub fn parse_cookies_from_headers(headers: &HashMap<String, String>) -> HashMap<
     cookies
 }
 
-// 检测编码 - 生产级实现
+// Detect encoding - production implementation
 pub fn detect_encoding(headers: &HashMap<String, String>) -> Option<String> {
-    // 1. 首先检查 Content-Type 头
+    // 1. First check Content-Type header
     if let Some(content_type) = headers.get("content-type") {
         if let Some(charset_start) = content_type.to_lowercase().find("charset=") {
             let charset = &content_type[charset_start + 8..];
             let charset = charset.split(';').next().unwrap_or(charset);
             let charset = charset.trim().trim_matches('"').trim_matches('\'');
 
-            // 标准化编码名称
+            // Normalize encoding name
             let normalized = normalize_encoding_name(charset);
             if !normalized.is_empty() {
                 return Some(normalized);
@@ -568,11 +568,11 @@ pub fn detect_encoding(headers: &HashMap<String, String>) -> Option<String> {
         }
     }
 
-    // 2. 默认使用 UTF-8
+    // 2. Default to UTF-8
     Some("utf-8".to_string())
 }
 
-// 标准化编码名称
+// Normalize encoding name
 fn normalize_encoding_name(encoding: &str) -> String {
     let normalized = encoding.to_lowercase().replace(['_', '-'], "");
 
@@ -585,7 +585,7 @@ fn normalize_encoding_name(encoding: &str) -> String {
     }
 }
 
-// 检测 HTTP 版本 - updated for hyper
+// Detect HTTP version - updated for hyper
 pub fn detect_http_version(version: &hyper::Version) -> String {
     match *version {
         hyper::Version::HTTP_09 => "HTTP/0.9".to_string(),
@@ -593,6 +593,6 @@ pub fn detect_http_version(version: &hyper::Version) -> String {
         hyper::Version::HTTP_11 => "HTTP/1.1".to_string(),
         hyper::Version::HTTP_2 => "HTTP/2".to_string(),
         hyper::Version::HTTP_3 => "HTTP/3".to_string(),
-        _ => "HTTP/1.1".to_string(), // 默认值
+        _ => "HTTP/1.1".to_string(), // Default value
     }
 }

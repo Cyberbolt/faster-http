@@ -1,7 +1,7 @@
 [project]
 name = "faster-http"
 version = "0.1.0"
-description = "A high-performance HTTP client for Python, powered by Rust's reqwest library with httpx-compatible API"
+description = "A high-performance HTTP client for Python, powered by Rust's hyper library with httpx-compatible API"
 readme = "README.md"
 authors = [
     { name = "Cyberbolt", email = "735245473@qq.com" }
@@ -38,9 +38,9 @@ Documentation = "https://github.com/cyberbolt/faster-http#readme"
 module-name = "faster_http._core"
 python-packages = ["faster_http"]
 python-source = "src"
-# 确保使用 ABI3 构建兼容多个 Python 版本的 wheel
+# Ensure ABI3 is used to build wheels compatible with multiple Python versions
 features = ["pyo3/abi3-py310"]
-# 针对不同平台构建优化的 wheel
+# Build optimized wheels for different platforms
 strip = true
 
 [build-system]

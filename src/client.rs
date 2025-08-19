@@ -133,7 +133,7 @@ impl HttpClient {
         })
     }
 
-    // Build request object - delegate URL processing to reqwest
+    // Build request object - delegate URL processing to hyper
     #[allow(clippy::too_many_arguments)]
     pub fn build_request(
         &self,

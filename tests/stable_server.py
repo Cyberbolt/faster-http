@@ -15,8 +15,8 @@ from urllib.parse import parse_qs, urlparse
 
 def get_working_localhost_address():
     """
-    获取在当前环境中可工作的本地地址。
-    保持简单，使用127.0.0.1。
+    Get the working localhost address in the current environment.
+    Keep it simple, use 127.0.0.1.
     """
     return "127.0.0.1"
 
@@ -322,13 +322,13 @@ class StableHTTPServer:
     """Stable HTTP server that handles connection issues gracefully."""
 
     def __init__(self, host=None, port=0):
-        # 确保服务器和客户端使用兼容的地址
+        # Ensure server and client use compatible address
         if host is not None:
-            # 如果指定了host，直接使用
+            # If host is specified, use it directly
             bind_host = host
             client_host = host
         else:
-            # 自动选择在当前环境中可工作的地址
+            # Automatically select an address that works in the current environment
             working_host = get_working_localhost_address()
             bind_host = working_host
             client_host = working_host

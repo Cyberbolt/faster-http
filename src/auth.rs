@@ -1,4 +1,4 @@
-// Authentication types enum - minimal interface for reqwest delegation
+// Authentication types enum - minimal interface for hyper delegation
 use crate::models::{HttpBasicAuth, HttpDigestAuth, HttpNetRCAuth};
 use pyo3::prelude::*;
 
@@ -10,7 +10,7 @@ pub enum AuthType {
     Bearer { token: String },
 }
 
-// Convert Python auth objects to AuthType enum for reqwest processing
+// Convert Python auth objects to AuthType enum for hyper processing
 pub fn extract_auth_from_object(auth_obj: &PyObject) -> PyResult<Option<AuthType>> {
     Python::with_gil(|py| {
         // Try to extract as BasicAuth

@@ -560,7 +560,7 @@ impl AsyncHttpClient {
             _ => None,
         };
 
-        // Simple cookie merging - delegate actual cookie handling to reqwest
+        // Simple cookie merging - delegate actual cookie handling to hyper
         let merged_cookies = match cookies {
             Some(request_cookies) => {
                 let mut merged = self.config.default_cookies.clone();

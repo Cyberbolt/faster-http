@@ -18,7 +18,7 @@ pub struct StreamingHttpResponse;
 use crate::utils::{python_dict_to_form_string, python_dict_to_json_value, build_multipart_body};
 
 
-// 发送请求的核心函数（基于已构建的请求）
+// Core function for sending requests (based on pre-built requests)
 pub async fn send_request(
     client: &HyperHttpClient,
     request: &HttpRequest,
@@ -47,7 +47,7 @@ pub async fn send_request(
     client.request(method, uri, headers, body).await
 }
 
-// 优化版：直接从数据发送请求，避免 HttpRequest 中间对象
+// Optimized version: send requests directly from data, avoiding HttpRequest intermediate objects
 pub async fn send_request_direct(
     client: &HyperHttpClient,
     method: &str,
@@ -81,7 +81,7 @@ pub async fn send_request_direct(
 // Response processing is now handled directly by hyper_client module
 
 
-// 核心请求构建和发送函数
+// Core request building and sending function
 #[allow(clippy::too_many_arguments)]
 pub async fn build_and_send_request(
     config: &ClientConfig,
@@ -103,14 +103,14 @@ pub async fn build_and_send_request(
 ) -> PyResult<HttpResponse> {
     let start_time = Instant::now();
 
-    // 使用配置中的客户端
+    // Use client from configuration
     let client = if follow_redirects {
         &config.redirect_client
     } else {
         &config.no_redirect_client
     };
 
-    // 构建URL
+    // Build URL
     let mut full_url = if let Some(base) = base_url {
         if url.starts_with("http://") || url.starts_with("https://") {
             url.to_string()
@@ -125,7 +125,7 @@ pub async fn build_and_send_request(
         url.to_string()
     };
 
-    // 添加查询参数到URL（如果有的话）
+    // Add query parameters to URL (if any)
     if let Some(params_map) = &params {
         if !params_map.is_empty() {
             let query_string: Vec<String> = params_map
@@ -151,13 +151,13 @@ pub async fn build_and_send_request(
         .parse::<Method>()
         .map_err(|e| RequestError::new_err(format!("Invalid HTTP method: {}", e)))?;
 
-    // 合并 headers
+    // Merge headers
     let mut final_headers = default_headers.clone();
     if let Some(ref headers) = headers {
         final_headers.extend(headers.iter().map(|(k, v)| (k.clone(), v.clone())));
     }
 
-    // 添加 cookies 到请求头
+    // Add cookies to request headers
     if let Some(ref cookie_map) = cookies {
         if !cookie_map.is_empty() {
             let cookie_string = cookie_map
@@ -169,18 +169,18 @@ pub async fn build_and_send_request(
         }
     }
 
-    // 设置认证 - Basic Authentication
+    // Set authentication - Basic Authentication
     if let Some((username, password)) = auth {
         let credentials = format!("{}:{}", username, password);
         let encoded = base64::engine::general_purpose::STANDARD.encode(credentials.as_bytes());
         final_headers.insert("Authorization".to_string(), format!("Basic {}", encoded));
     }
 
-    // 准备请求体 - 优先级：content > files > json > data
+    // Prepare request body - priority: content > files > json > data
     let body = if let Some(content_bytes) = content {
         Some(Bytes::from(content_bytes))
     } else if let Some(files_data) = files {
-        // 处理文件上传 (multipart/form-data)
+        // Handle file upload (multipart/form-data)
         let (multipart_body, content_type) = build_multipart_body(Some(files_data), data)?;
         final_headers.insert("Content-Type".to_string(), content_type);
         Some(Bytes::from(multipart_body))
@@ -191,7 +191,7 @@ pub async fn build_and_send_request(
         final_headers.insert("Content-Type".to_string(), "application/json".to_string());
         Some(Bytes::from(json_string))
     } else if let Some(form_data) = data {
-        // 使用 form encoded 而不是 multipart
+        // Use form encoded instead of multipart
         let form_string = python_dict_to_form_string(form_data)?;
         final_headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
         Some(Bytes::from(form_string))
@@ -199,12 +199,12 @@ pub async fn build_and_send_request(
         None
     };
 
-    // 发送请求使用 hyper 客户端
+    // Send request using hyper client
     client.request(method, uri, Some(final_headers), body).await
 }
 
 
-// 核心流式请求构建和发送函数 - 返回 StreamingHttpResponse
+// Core streaming request building and sending function - returns StreamingHttpResponse
 // Temporarily disabled during hyper migration - streaming requires additional implementation
 #[allow(clippy::too_many_arguments)]
 pub async fn build_and_send_streaming_request(

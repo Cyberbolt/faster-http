@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::error::{create_validation_error, create_file_error, create_url_error};
 
 /// Simple Headers wrapper - minimal interface for httpx compatibility
-/// Core logic handled by reqwest in HTTP requests
+/// Core logic handled by hyper in HTTP requests
 #[pyclass(name = "Headers", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpHeaders {
@@ -75,7 +75,7 @@ impl HttpHeaders {
     }
 
     fn __contains__(&self, key: &str) -> bool {
-        // 支持不区分大小写的查找
+        // Support case-insensitive lookup
         for k in self.inner.keys() {
             if k.to_lowercase() == key.to_lowercase() {
                 return true;
@@ -91,7 +91,7 @@ impl HttpHeaders {
     }
 }
 
-/// Simple QueryParams wrapper - string parsing delegated to reqwest
+/// Simple QueryParams wrapper - string parsing delegated to hyper
 #[pyclass(name = "QueryParams", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpQueryParams {
@@ -107,7 +107,7 @@ impl HttpQueryParams {
         Python::with_gil(|py| {
             if let Some(p) = params {
                 if let Ok(string_params) = p.extract::<String>(py) {
-                    // Let reqwest handle parsing when actually used
+                    // Let hyper handle parsing when actually used
                     // For now, provide basic interface compatibility
                     let mut inner = HashMap::new();
 
@@ -217,7 +217,7 @@ impl HttpQueryParams {
     }
 }
 
-/// Simple Cookies wrapper - processing delegated to reqwest
+/// Simple Cookies wrapper - processing delegated to hyper
 #[pyclass(name = "Cookies", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpCookies {
@@ -251,7 +251,7 @@ impl HttpCookies {
 
     #[pyo3(signature = (name, value, domain = None))]
     fn set(&mut self, name: String, value: String, domain: Option<String>) {
-        // Note: domain parameter ignored for now, reqwest handles cookie domains
+        // Note: domain parameter ignored for now, hyper handles cookie domains
         let _ = domain; // Suppress unused parameter warning
         self.inner.insert(name, value);
     }
@@ -294,7 +294,7 @@ impl HttpCookies {
     }
 }
 
-/// Simple URL wrapper - parsing handled by reqwest
+/// Simple URL wrapper - parsing handled by hyper
 #[pyclass(name = "URL", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpUrl {
@@ -416,7 +416,7 @@ impl HttpUrl {
     }
 }
 
-/// Timeout configuration - minimal wrapper for reqwest
+/// Timeout configuration - minimal wrapper for hyper
 #[pyclass(name = "Timeout", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpTimeout {
@@ -489,7 +489,7 @@ impl HttpTimeout {
     }
 }
 
-/// Connection pool limits - minimal wrapper for reqwest
+/// Connection pool limits - minimal wrapper for hyper
 #[pyclass(name = "Limits", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpLimits {
@@ -530,7 +530,7 @@ impl HttpLimits {
     }
 }
 
-/// Basic authentication - minimal interface wrapper for reqwest
+/// Basic authentication - minimal interface wrapper for hyper
 #[pyclass(name = "BasicAuth", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpBasicAuth {
@@ -556,11 +556,11 @@ impl HttpBasicAuth {
     }
 
     // Minimal auth_flow method for httpx compatibility
-    // Actual authentication is handled by reqwest during request sending
+    // Actual authentication is handled by hyper during request sending
     fn auth_flow(&self, request: PyObject) -> PyResult<PyObject> {
         Python::with_gil(|py| {
             // Simple placeholder implementation for httpx compatibility
-            // The real auth logic happens in the Rust request sending code using reqwest
+            // The real auth logic happens in the Rust request sending code using hyper
             let iter = py.eval(
                 "iter([request])",
                 Some([("request", &request)].into_py_dict(py)),
@@ -581,7 +581,7 @@ impl HttpBasicAuth {
     }
 }
 
-/// Digest authentication - minimal interface wrapper for reqwest
+/// Digest authentication - minimal interface wrapper for hyper
 #[pyclass(name = "DigestAuth", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpDigestAuth {
@@ -607,11 +607,11 @@ impl HttpDigestAuth {
     }
 
     // Minimal auth_flow method for httpx compatibility
-    // Actual digest authentication is handled by reqwest during request sending
+    // Actual digest authentication is handled by hyper during request sending
     fn auth_flow(&self, request: PyObject) -> PyResult<PyObject> {
         Python::with_gil(|py| {
             // Simple placeholder implementation for httpx compatibility
-            // The real digest auth logic happens in the Rust request sending code using reqwest
+            // The real digest auth logic happens in the Rust request sending code using hyper
             let iter = py.eval(
                 "iter([request])",
                 Some([("request", &request)].into_py_dict(py)),
@@ -632,7 +632,7 @@ impl HttpDigestAuth {
     }
 }
 
-/// NetRC authentication - minimal interface wrapper for reqwest
+/// NetRC authentication - minimal interface wrapper for hyper
 #[pyclass(name = "NetRCAuth", module = "faster_http")]
 #[derive(Debug, Clone)]
 pub struct HttpNetRCAuth {
