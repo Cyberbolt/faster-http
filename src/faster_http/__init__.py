@@ -73,6 +73,10 @@ from .codes import codes
 from .proxy import Proxy
 
 # All exception classes are now implemented in Rust and imported from _core
+# httpx-compatible exception aliases for better compatibility
+RequestTimeout = TimeoutException  # httpx uses RequestTimeout
+ConnectionError = ConnectError     # httpx uses ConnectionError
+SSLError = ConnectError           # Temporary alias, should be specific SSL error
 
 
 # Note: Transport and authentication classes are implemented in Rust
@@ -86,25 +90,20 @@ DEFAULT_TIMEOUT_CONFIG = {"connect": 5.0, "read": 5.0, "write": 5.0, "pool": 5.0
 
 # Define public API
 __all__ = [
-    # Constants
     "DEFAULT_CIPHERS",
     "DEFAULT_TIMEOUT_CONFIG",
     "URL",
     "AsyncClient",
-    # Authentication
     "BasicAuth",
-    # Primary API (httpx-compatible names)
     "Client",
     "ConnectError",
     "ConnectTimeout",
+    "ConnectionError",
     "Cookies",
     "DigestAuth",
-    # Exception hierarchy (httpx-compatible ones)
     "HTTPError",
     "HTTPStatusError",
-    # Model classes (httpx-compatible names)
     "Headers",
-    # Additional httpx-compatible exceptions
     "InvalidURL",
     "Limits",
     "LocalProtocolError",
@@ -118,8 +117,9 @@ __all__ = [
     "RemoteProtocolError",
     "Request",
     "RequestError",
+    "RequestTimeout",
     "Response",
-    # Stream classes
+    "SSLError",
     "StreamError",
     "Timeout",
     "TimeoutException",
@@ -128,10 +128,8 @@ __all__ = [
     "UnsupportedProtocol",
     "WriteError",
     "WriteTimeout",
-    # Status codes and proxy configuration
     "codes",
     "delete",
-    # Convenience functions
     "get",
     "head",
     "options",

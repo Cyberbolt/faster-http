@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::auth::extract_auth;
 use crate::core::{build_and_send_request, send_request_direct};
 use crate::error::RequestError;
-use crate::utils::build_url;
+use crate::utils::{build_url, build_url_with_python_params};
 
 // Asynchronous HTTP client
 #[pyclass(module = "faster_http")]
@@ -45,7 +45,7 @@ impl AsyncHttpClient {
         limits: Option<PyObject>,
         max_redirects: Option<i32>,
         default_encoding: Option<String>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
     ) -> PyResult<Self> {
         let config = ClientConfig::new(
             base_url,
@@ -84,7 +84,7 @@ impl AsyncHttpClient {
         py: Python,
         method: &str,
         url: &str,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         content: Option<Vec<u8>>,
         data: Option<PyObject>,
@@ -99,8 +99,11 @@ impl AsyncHttpClient {
         }
 
         // Use centralized URL building with merged params
-        let final_url = build_url(url, self.config.base_url.as_ref(), Some(&final_params))
-            .map_err(RequestError::new_err)?;
+        let final_url = crate::utils::build_url_with_python_params(
+            url, 
+            self.config.base_url.as_ref(), 
+            Some(&final_params)
+        )?;
 
         // Simple header merging
         let mut final_headers = self.config.default_headers.clone();
@@ -184,7 +187,7 @@ impl AsyncHttpClient {
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -213,7 +216,7 @@ impl AsyncHttpClient {
         &self,
         py: Python<'py>,
         url: String,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -246,7 +249,7 @@ impl AsyncHttpClient {
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -279,7 +282,7 @@ impl AsyncHttpClient {
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -312,7 +315,7 @@ impl AsyncHttpClient {
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -341,7 +344,7 @@ impl AsyncHttpClient {
         &self,
         py: Python<'py>,
         url: String,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -370,7 +373,7 @@ impl AsyncHttpClient {
         &self,
         py: Python<'py>,
         url: String,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -399,7 +402,7 @@ impl AsyncHttpClient {
         &self,
         py: Python<'py>,
         url: String,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -432,7 +435,7 @@ impl AsyncHttpClient {
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -492,7 +495,7 @@ impl AsyncHttpClient {
     }
 
     #[getter]
-    pub fn params(&self) -> HashMap<String, String> {
+    pub fn params(&self) -> HashMap<String, PyObject> {
         self.config.default_params.clone()
     }
 
@@ -538,7 +541,7 @@ impl AsyncHttpClient {
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,

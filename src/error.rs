@@ -1,6 +1,5 @@
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
-use std::error::Error;
 
 // Create custom exception types - complete httpx-compatible exception hierarchy
 pyo3::create_exception!(faster_http, HTTPError, PyException);
@@ -48,6 +47,11 @@ pyo3::create_exception!(faster_http, TooManyRedirects, ProtocolError);
 // Transport related exceptions
 pyo3::create_exception!(faster_http, TransportError, HTTPError);
 
+// Initialization related exceptions
+pyo3::create_exception!(faster_http, ConnectionPoolInitFailed, HTTPError);
+pyo3::create_exception!(faster_http, RuntimeInitFailed, HTTPError);
+pyo3::create_exception!(faster_http, ClientInitFailed, HTTPError);
+
 // Additional httpx-compatible exceptions
 pyo3::create_exception!(faster_http, InvalidURL, RequestError);
 pyo3::create_exception!(faster_http, LocalProtocolError, ProtocolError);
@@ -55,6 +59,7 @@ pyo3::create_exception!(faster_http, RemoteProtocolError, ProtocolError);
 pyo3::create_exception!(faster_http, ReadError, RequestError);
 pyo3::create_exception!(faster_http, WriteError, RequestError);
 pyo3::create_exception!(faster_http, UnsupportedProtocol, RequestError);
+pyo3::create_exception!(faster_http, InternalError, HTTPError);  // For locks and internal state errors
 
 // Error handling utilities - httpx-compatible error mapping
 
@@ -86,22 +91,21 @@ pub fn map_hyper_error(error: hyper::Error) -> PyErr {
 
 /// Maps hyper-util errors to appropriate httpx-compatible exceptions
 pub fn map_hyper_util_error(error: hyper_util::client::legacy::Error) -> PyErr {
-    let error_msg = error.to_string();
-    
     // Check error message patterns since hyper::Error doesn't implement Clone 
     // We'll match on error message patterns instead
     let error_msg = error.to_string();
+    let error_msg_lower = error_msg.to_lowercase();
     
     // Check for timeout errors
-    if error_msg.contains("timeout") {
-        if error_msg.contains("connect") {
+    if error_msg_lower.contains("timeout") {
+        if error_msg_lower.contains("connect") {
             ConnectTimeout::new_err(format!("Connection timeout: {}", error_msg))
         } else {
             ReadTimeout::new_err(format!("Request timeout: {}", error_msg))
         }
-    } else if error_msg.contains("connection") {
+    } else if error_msg_lower.contains("connection") || error_msg_lower.contains("connect") {
         ConnectError::new_err(format!("Connection error: {}", error_msg))
-    } else if error_msg.contains("redirect") {
+    } else if error_msg_lower.contains("redirect") {
         TooManyRedirects::new_err(format!("Too many redirects: {}", error_msg))
     } else {
         RequestError::new_err(format!("Request error: {}", error_msg))

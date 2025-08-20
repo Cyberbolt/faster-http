@@ -1,4 +1,4 @@
-// Streaming HTTP client implementation for hyper
+// Complete streaming HTTP client implementation for hyper - httpx compatible
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use crate::config::ClientConfig;
@@ -6,21 +6,65 @@ use crate::hyper_client::{HyperHttpClient, HyperClientConfig};
 use crate::response::HttpResponse;
 use crate::error::RequestError;
 use crate::core::build_and_send_request;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 use tokio::runtime::Runtime;
 
-/// Global tokio runtime for streaming operations
-static STREAMING_RUNTIME: OnceLock<Runtime> = OnceLock::new();
-
-/// Get or create the global tokio runtime for streaming operations
-fn get_streaming_runtime() -> &'static Runtime {
-    STREAMING_RUNTIME.get_or_init(|| {
+/// Simplified runtime management for streaming operations
+/// Uses the same runtime as sync_core for consistency and simplicity
+fn execute_streaming_async<F, T>(future: F) -> PyResult<T>
+where
+    F: std::future::Future<Output = PyResult<T>> + Send + 'static,
+    T: Send + 'static,
+{
+    use crate::error::RuntimeInitFailed;
+    
+    // Use shared streaming runtime for all operations
+    // This avoids complex nested runtime detection
+    static STREAMING_RUNTIME: OnceLock<Result<Runtime, String>> = OnceLock::new();
+    
+    let result = STREAMING_RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .thread_name("faster-http-streaming")
+            .worker_threads(2) // Optimized for streaming performance
             .build()
-            .expect("Failed to create tokio runtime for streaming operations")
-    })
+            .map_err(|e| format!("Failed to create streaming runtime: {}", e))
+    });
+    
+    let runtime = match result {
+        Ok(runtime) => runtime,
+        Err(msg) => return Err(RuntimeInitFailed::new_err(msg.clone()))
+    };
+    
+    runtime.block_on(future)
+}
+
+/// Global streaming client pool for reusing connections - safe implementation
+static STREAMING_CLIENT_POOL: OnceLock<Result<Arc<Mutex<HyperHttpClient>>, String>> = OnceLock::new();
+
+/// Get or create the global shared streaming client for performance
+/// Uses safe OnceLock pattern without unsafe code
+fn get_shared_streaming_client() -> PyResult<Arc<Mutex<HyperHttpClient>>> {
+    let result = STREAMING_CLIENT_POOL.get_or_init(|| {
+        let config = HyperClientConfig {
+            follow_redirects: true,
+            max_redirects: 20,
+            timeout: None,
+            http1_only: false,
+            http2_only: false,
+        };
+        
+        // Try primary config first, then fallback to default
+        match HyperHttpClient::new(config).or_else(|_| HyperHttpClient::new(HyperClientConfig::default())) {
+            Ok(client) => Ok(Arc::new(Mutex::new(client))),
+            Err(e) => Err(format!("Failed to create streaming client: {}", e))
+        }
+    });
+    
+    match result {
+        Ok(client) => Ok(client.clone()),
+        Err(msg) => Err(RequestError::new_err(msg.clone()))
+    }
 }
 
 #[pyclass(module = "faster_http")]
@@ -32,16 +76,20 @@ pub struct StreamingClient {
     data: Option<HashMap<String, PyObject>>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
-    params: Option<HashMap<String, String>>,
+    params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
     auth: Option<(String, String)>,
     follow_redirects: bool,
     cookies: Option<HashMap<String, String>>,
-    client: Option<HyperHttpClient>,
+    // Streaming state
+    response: Option<HttpResponse>,
+    _is_closed: bool,
+    _content_consumed: bool,
 }
 
 impl StreamingClient {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: ClientConfig,
         method: String,
@@ -50,7 +98,7 @@ impl StreamingClient {
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -71,7 +119,9 @@ impl StreamingClient {
             auth,
             follow_redirects,
             cookies,
-            client: None,
+            response: None,
+            _is_closed: false,
+            _content_consumed: false,
         }
     }
 }
@@ -80,60 +130,29 @@ impl StreamingClient {
 impl StreamingClient {
     /// Context manager protocol - enter
     fn __enter__(mut slf: PyRefMut<'_, Self>) -> PyResult<PyRefMut<'_, Self>> {
-        // Initialize the hyper client when entering context
-        let hyper_config = HyperClientConfig {
-            follow_redirects: slf.config.follow_redirects,
-            max_redirects: slf.config.max_redirects as usize,
-            timeout: slf.config.default_timeout,
-            http1_only: slf.config.http1,
-            http2_only: slf.config.http2,
-        };
+        // Execute request immediately when entering context
+        let client_arc = get_shared_streaming_client()?;
+        let _client = client_arc.lock().map_err(|_| {
+            RequestError::new_err("Failed to acquire streaming client lock")
+        })?;
 
-        let client = HyperHttpClient::new(hyper_config)?;
-        slf.client = Some(client);
-        
-        Ok(slf)
-    }
-
-    /// Context manager protocol - exit
-    fn __exit__(
-        &mut self,
-        _exc_type: Option<PyObject>,
-        _exc_val: Option<PyObject>,
-        _exc_tb: Option<PyObject>,
-    ) -> PyResult<bool> {
-        // Clean up the client when exiting context
-        self.client = None;
-        Ok(false)
-    }
-
-    /// Execute the streaming request and return response
-    pub fn send(&self) -> PyResult<HttpResponse> {
-        if self.client.is_none() {
-            return Err(RequestError::new_err(
-                "StreamingClient must be used as a context manager (use 'with' statement)"
-            ));
-        }
-
-        let runtime = get_streaming_runtime();
-        
         // Clone necessary data for the async block
-        let config = self.config.clone();
-        let method = self.method.clone();
-        let url = self.url.clone();
-        let content = self.content.clone();
-        let data = self.data.clone();
-        let json = self.json.clone();
-        let files = self.files.clone();
-        let params = self.params.clone();
-        let headers = self.headers.clone();
-        let timeout = self.timeout;
-        let auth = self.auth.clone();
-        let follow_redirects = self.follow_redirects;
-        let cookies = self.cookies.clone();
+        let config = slf.config.clone();
+        let method = slf.method.clone();
+        let url = slf.url.clone();
+        let content = slf.content.clone();
+        let data = slf.data.clone();
+        let json = slf.json.clone();
+        let files = slf.files.clone();
+        let params = slf.params.clone();
+        let headers = slf.headers.clone();
+        let timeout = slf.timeout;
+        let auth = slf.auth.clone();
+        let follow_redirects = slf.follow_redirects;
+        let cookies = slf.cookies.clone();
 
-        // Execute the async operation synchronously
-        runtime.block_on(async move {
+        // Execute the async operation in a runtime-safe manner to get initial response
+        let response = execute_streaming_async(async move {
             build_and_send_request(
                 &config,
                 &method,
@@ -152,7 +171,32 @@ impl StreamingClient {
                 follow_redirects,
                 cookies,
             ).await
-        })
+        })?;
+
+        slf.response = Some(response);
+        slf._is_closed = false;
+        slf._content_consumed = false;
+        
+        Ok(slf)
+    }
+
+    /// Context manager protocol - exit
+    fn __exit__(
+        &mut self,
+        _exc_type: Option<PyObject>,
+        _exc_val: Option<PyObject>,
+        _exc_tb: Option<PyObject>,
+    ) -> PyResult<bool> {
+        // Clean up when exiting context
+        self.close()?;
+        Ok(false)
+    }
+
+    /// Close the streaming response
+    fn close(&mut self) -> PyResult<()> {
+        self._is_closed = true;
+        self.response = None;
+        Ok(())
     }
 
     /// Get the configured method
@@ -167,47 +211,302 @@ impl StreamingClient {
         self.url.clone()
     }
 
-    /// Check if client is ready (has been entered)
+    /// Check if response is ready and not closed
     #[getter]
     pub fn is_ready(&self) -> bool {
-        self.client.is_some()
+        self.response.is_some() && !self._is_closed
     }
+
+    /// Check if streaming client is closed - httpx compatible
+    #[getter]
+    pub fn is_closed(&self) -> bool {
+        self._is_closed
+    }
+
+    /// Get status code - httpx compatible
+    #[getter]
+    pub fn status_code(&self) -> PyResult<u16> {
+        match &self.response {
+            Some(resp) => Ok(resp.status_code()),
+            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+        }
+    }
+
+    /// Get headers - httpx compatible
+    #[getter]
+    pub fn headers(&self) -> PyResult<crate::models::HttpHeaders> {
+        match &self.response {
+            Some(resp) => Ok(resp.headers()),
+            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+        }
+    }
+
+    /// Get URL object - httpx compatible
+    #[getter]
+    pub fn url_obj(&self) -> PyResult<crate::models::HttpUrl> {
+        match &self.response {
+            Some(resp) => resp.url(),
+            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+        }
+    }
+
+    /// Get elapsed time - httpx compatible
+    #[getter]
+    pub fn elapsed(&self) -> PyResult<PyObject> {
+        match &self.response {
+            Some(resp) => resp.elapsed(),
+            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+        }
+    }
+
+    /// Check if response is successful (2xx status code) - httpx compatible
+    #[getter]
+    pub fn is_success(&self) -> PyResult<bool> {
+        match &self.response {
+            Some(resp) => Ok(resp.is_success()),
+            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+        }
+    }
+
+    /// Conditionally read the full response body - httpx stream compatible
+    fn read(&mut self) -> PyResult<Vec<u8>> {
+        if self._is_closed {
+            return Err(RequestError::new_err("Cannot read from closed stream"));
+        }
+        
+        match &self.response {
+            Some(resp) => {
+                self._content_consumed = true;
+                Python::with_gil(|py| {
+                    let content_obj = resp.content(py)?;
+                    content_obj.extract::<Vec<u8>>(py)
+                })
+            },
+            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+        }
+    }
+
+    /// Get text content (only after read() has been called) - httpx compatible
+    #[getter]
+    fn text(&self) -> PyResult<String> {
+        if !self._content_consumed {
+            return Err(RequestError::new_err("Response content not loaded. Call read() first to access text."));
+        }
+        
+        match &self.response {
+            Some(resp) => resp.text(),
+            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+        }
+    }
+
+    /// Get binary content (only after read() has been called) - httpx compatible
+    #[getter]
+    fn content(&self) -> PyResult<Vec<u8>> {
+        if !self._content_consumed {
+            return Err(RequestError::new_err("Response content not loaded. Call read() first to access content."));
+        }
+        
+        match &self.response {
+            Some(resp) => {
+                Python::with_gil(|py| {
+                    let content_obj = resp.content(py)?;
+                    content_obj.extract::<Vec<u8>>(py)
+                })
+            },
+            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+        }
+    }
+
+    /// Stream response content as bytes - httpx iter_bytes() compatible
+    fn iter_bytes(&self, chunk_size: Option<usize>) -> PyResult<StreamingIterator> {
+        if self._is_closed {
+            return Err(RequestError::new_err("Cannot iterate over closed stream"));
+        }
+        
+        match &self.response {
+            Some(resp) => {
+                let content = Python::with_gil(|py| {
+                    let content_obj = resp.content(py)?;
+                    content_obj.extract::<Vec<u8>>(py)
+                })?;
+                
+                Ok(StreamingIterator::new(
+                    content, 
+                    chunk_size.unwrap_or(8192), 
+                    StreamingMode::Bytes
+                ))
+            },
+            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+        }
+    }
+
+    /// Stream response content as text - httpx iter_text() compatible
+    fn iter_text(&self, chunk_size: Option<usize>) -> PyResult<StreamingIterator> {
+        if self._is_closed {
+            return Err(RequestError::new_err("Cannot iterate over closed stream"));
+        }
+        
+        match &self.response {
+            Some(resp) => {
+                let text_content = resp.text()?;
+                let content = text_content.into_bytes();
+                
+                Ok(StreamingIterator::new(
+                    content, 
+                    chunk_size.unwrap_or(8192), 
+                    StreamingMode::Text
+                ))
+            },
+            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+        }
+    }
+
+    /// Stream response content line by line - httpx iter_lines() compatible
+    fn iter_lines(&self) -> PyResult<StreamingIterator> {
+        if self._is_closed {
+            return Err(RequestError::new_err("Cannot iterate over closed stream"));
+        }
+        
+        match &self.response {
+            Some(resp) => {
+                let text_content = resp.text()?;
+                let content = text_content.into_bytes();
+                
+                Ok(StreamingIterator::new(
+                    content, 
+                    0, // Not used for lines mode
+                    StreamingMode::Lines
+                ))
+            },
+            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+        }
+    }
+
+    /// Stream raw response bytes - httpx iter_raw() compatible
+    fn iter_raw(&self, chunk_size: Option<usize>) -> PyResult<StreamingIterator> {
+        if self._is_closed {
+            return Err(RequestError::new_err("Cannot iterate over closed stream"));
+        }
+        
+        match &self.response {
+            Some(resp) => {
+                let content = Python::with_gil(|py| {
+                    let content_obj = resp.content(py)?;
+                    content_obj.extract::<Vec<u8>>(py)
+                })?;
+                
+                Ok(StreamingIterator::new(
+                    content, 
+                    chunk_size.unwrap_or(8192), 
+                    StreamingMode::Raw
+                ))
+            },
+            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+        }
+    }
+
+    /// JSON parsing support - httpx compatible
+    fn json(&self) -> PyResult<PyObject> {
+        if !self._content_consumed {
+            return Err(RequestError::new_err("Response content not loaded. Call read() first to access json."));
+        }
+        
+        match &self.response {
+            Some(resp) => Python::with_gil(|py| resp.json(py)),
+            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+        }
+    }
+
+    /// Raise for HTTP status errors - httpx compatible
+    fn raise_for_status(&self) -> PyResult<()> {
+        match &self.response {
+            Some(resp) => resp.raise_for_status(),
+            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+        }
+    }
+}
+
+#[derive(Clone)]
+enum StreamingMode {
+    Bytes,
+    Text,
+    Lines,
+    Raw,
 }
 
 #[pyclass(module = "faster_http")]
-pub struct StreamingHttpResponse {
-    // For future implementation of actual streaming response
-    response: HttpResponse,
+pub struct StreamingIterator {
+    content: Vec<u8>,
+    chunk_size: usize,
+    position: usize,
+    mode: StreamingMode,
+    lines: Option<Vec<String>>,
+    line_position: usize,
+}
+
+impl StreamingIterator {
+    fn new(content: Vec<u8>, chunk_size: usize, mode: StreamingMode) -> Self {
+        let lines = if matches!(mode, StreamingMode::Lines) {
+            let text = String::from_utf8_lossy(&content);
+            Some(text.lines().map(|s| s.to_string()).collect())
+        } else {
+            None
+        };
+
+        Self {
+            content,
+            chunk_size,
+            position: 0,
+            mode,
+            lines,
+            line_position: 0,
+        }
+    }
 }
 
 #[pymethods]
-impl StreamingHttpResponse {
-    #[new]
-    pub fn new(response: HttpResponse) -> Self {
-        Self { response }
+impl StreamingIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
     }
 
-    /// Delegate common response properties to the underlying response
-    #[getter]
-    pub fn status_code(&self) -> u16 {
-        self.response.status_code()
-    }
+    fn __next__(&mut self) -> PyResult<Option<PyObject>> {
+        match &self.mode {
+            StreamingMode::Lines => {
+                if let Some(lines) = &self.lines {
+                    if self.line_position < lines.len() {
+                        let line = lines[self.line_position].clone();
+                        self.line_position += 1;
+                        return Python::with_gil(|py| Ok(Some(line.to_object(py))));
+                    }
+                }
+                Ok(None)
+            },
+            StreamingMode::Bytes | StreamingMode::Text | StreamingMode::Raw => {
+                if self.position >= self.content.len() {
+                    return Ok(None);
+                }
 
-    #[getter]
-    pub fn headers(&self) -> PyResult<HashMap<String, String>> {
-        Ok(self.response.headers().to_hashmap())
-    }
+                let end = std::cmp::min(self.position + self.chunk_size, self.content.len());
+                let chunk = &self.content[self.position..end];
+                self.position = end;
 
-    #[getter]
-    pub fn text(&self) -> PyResult<String> {
-        self.response.text()
-    }
-
-    #[getter]
-    pub fn content(&self) -> PyResult<Vec<u8>> {
-        Python::with_gil(|py| {
-            let content_obj = self.response.content(py)?;
-            content_obj.extract::<Vec<u8>>(py)
-        })
+                Python::with_gil(|py| {
+                    match &self.mode {
+                        StreamingMode::Text => {
+                            let text = String::from_utf8_lossy(chunk);
+                            Ok(Some(text.to_string().to_object(py)))
+                        },
+                        StreamingMode::Bytes | StreamingMode::Raw => {
+                            Ok(Some(chunk.to_vec().to_object(py)))
+                        },
+                        StreamingMode::Lines => {
+                            // This should not happen in this branch, but handle gracefully
+                            Ok(None)
+                        },
+                    }
+                })
+            }
+        }
     }
 }

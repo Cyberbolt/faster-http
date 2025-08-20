@@ -134,6 +134,48 @@ class Client:
         """Send OPTIONS request."""
         return self.request("OPTIONS", url, **kwargs)
 
+    def send(self, request):
+        """
+        Send a pre-built Request object.
+        
+        Args:
+            request: A Request object built using httpx.Request() or faster_http.Request()
+        
+        Returns:
+            Response object
+        """
+        return self._rust_client.send(request)
+
+    def build_request(
+        self,
+        method: str,
+        url: str,
+        content: bytes | None = None,
+        data: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        stream: bool | None = None,
+    ):
+        """
+        Build a Request object without sending it.
+        
+        Returns:
+            Request object that can be passed to send()
+        """
+        return self._rust_client.build_request(
+            method=method,
+            url=url,
+            content=content,
+            data=data,
+            json=json,
+            files=files,
+            params=params,
+            headers=headers,
+            stream=stream,
+        )
+
     def stream(self, method: str, url: str, **kwargs):
         """Send streaming request."""
         return self._rust_client.stream(method, url, **kwargs)

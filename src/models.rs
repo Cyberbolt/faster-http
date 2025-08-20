@@ -327,11 +327,15 @@ impl HttpUrl {
             // If original URL didn't have trailing slash but cleaned version does, remove it
             if !self.url.ends_with('/') && cleaned.ends_with('/') {
                 // Only remove trailing slash if it's just the root path
-                let cleaned_url = url::Url::parse(&cleaned).unwrap();
-                if cleaned_url.path() == "/" {
-                    cleaned.trim_end_matches('/').to_string()
-                } else {
-                    cleaned
+                match url::Url::parse(&cleaned) {
+                    Ok(cleaned_url) => {
+                        if cleaned_url.path() == "/" {
+                            cleaned.trim_end_matches('/').to_string()
+                        } else {
+                            cleaned
+                        }
+                    }
+                    Err(_) => cleaned // Fallback to cleaned string if parsing fails
                 }
             } else {
                 cleaned
@@ -654,14 +658,14 @@ impl HttpNetRCAuth {
         // Check if the file actually exists, like httpx does
         if let Some(ref path) = file_path {
             if !std::path::Path::new(path).exists() {
-                return Err(create_file_error(&format!(
-                    "Could not find .netrc file at {}",
+                return Err(pyo3::exceptions::PyFileNotFoundError::new_err(format!(
+                    "[Errno 2] No such file or directory: '{}'",
                     path
                 )));
             }
         } else {
-            return Err(create_file_error(
-                "Could not find .netrc file"
+            return Err(pyo3::exceptions::PyFileNotFoundError::new_err(
+                "[Errno 2] No such file or directory: '~/.netrc'"
             ));
         }
 

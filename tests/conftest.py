@@ -18,18 +18,22 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 def stable_server():
     """Session-wide stable test server."""
     server = StableHTTPServer()
-    server.start()
-    yield server
-    server.stop()
+    try:
+        server.start()
+        yield server
+    finally:
+        server.stop()
 
 
 @pytest.fixture(scope="function")
 def server():
     """Function-scoped server for tests that need a fresh server."""
     server = StableHTTPServer()
-    server.start()
-    yield server
-    server.stop()
+    try:
+        server.start()
+        yield server
+    finally:
+        server.stop()
 
 
 @pytest.fixture

@@ -117,9 +117,9 @@ class TestEventHooksSystem:
         assert len(faster_client.event_hooks["response"]) == 2
         faster_client.close()
 
-    def test_request_hook_execution_comparison(self, stable_server):
+    def test_request_hook_execution_comparison(self):
         """Test request hook execution - httpx vs faster_http."""
-        url = stable_server.url("/get")
+        url = "https://httpbin.org/get"
 
         httpx_requests = []
         faster_requests = []
@@ -151,9 +151,9 @@ class TestEventHooksSystem:
         # Both should have captured the same request information
         assert httpx_requests[0] == faster_requests[0]
 
-    def test_response_hook_execution_comparison(self, stable_server):
+    def test_response_hook_execution_comparison(self):
         """Test response hook execution - httpx vs faster_http."""
-        url = stable_server.url("/get")
+        url = "https://httpbin.org/get"
 
         httpx_responses = []
         faster_responses = []
@@ -185,9 +185,9 @@ class TestEventHooksSystem:
         # Both should have captured the same response information
         assert httpx_responses[0] == faster_responses[0]
 
-    def test_multiple_hooks_execution_comparison(self, stable_server):
+    def test_multiple_hooks_execution_comparison(self):
         """Test multiple hooks execution - httpx vs faster_http."""
-        url = stable_server.url("/get")
+        url = "https://httpbin.org/get"
 
         httpx_hook_order = []
         faster_hook_order = []
@@ -221,9 +221,9 @@ class TestEventHooksSystem:
         # Both should execute hooks in the same order
         assert httpx_hook_order == faster_hook_order
 
-    def test_hook_error_handling_comparison(self, stable_server):
+    def test_hook_error_handling_comparison(self):
         """Test response hook with error handling - httpx vs faster_http."""
-        error_url = stable_server.url("/status/404")
+        error_url = "https://httpbin.org/status/404"
 
         def raise_on_4xx_5xx(response):
             response.raise_for_status()

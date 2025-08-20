@@ -12,6 +12,7 @@ use std::str::FromStr;
 use base64::Engine;
 
 // Temporary stub for streaming response during hyper migration
+#[allow(dead_code)]
 pub struct StreamingHttpResponse;
 
 // Removed unused JsonParseResult type alias
@@ -19,12 +20,14 @@ use crate::utils::{python_dict_to_form_string, python_dict_to_json_value, build_
 
 
 // Core function for sending requests (based on pre-built requests)
+// Currently not used but kept for potential future use
+#[allow(dead_code)]
 pub async fn send_request(
     client: &HyperHttpClient,
     request: &HttpRequest,
     _config: &ClientConfig,
 ) -> PyResult<HttpResponse> {
-    let start_time = Instant::now();
+    let _start_time = Instant::now();
     let url_str = request.url_str();
 
     // Parse URI
@@ -41,7 +44,7 @@ pub async fn send_request(
     let headers = Some(request.headers_map().clone());
 
     // Prepare body
-    let body = request.content_bytes().map(|b| Bytes::copy_from_slice(b));
+    let body = request.content_bytes().map(|b| Bytes::copy_from_slice(b.as_ref()));
 
     // Send request using hyper client
     client.request(method, uri, headers, body).await
@@ -54,9 +57,9 @@ pub async fn send_request_direct(
     url: &str,
     headers: &HashMap<String, String>,
     content: Option<&[u8]>,
-    config: &ClientConfig,
+    _config: &ClientConfig,
 ) -> PyResult<HttpResponse> {
-    let start_time = Instant::now();
+    let _start_time = Instant::now();
 
     // Parse URI
     let uri = Uri::from_str(url)
@@ -71,7 +74,7 @@ pub async fn send_request_direct(
     let headers = Some(headers.clone());
 
     // Prepare body
-    let body = content.map(|b| Bytes::copy_from_slice(b));
+    let body = content.map(Bytes::copy_from_slice);
 
     // Send request using hyper client
     client.request(method, uri, headers, body).await
@@ -91,7 +94,7 @@ pub async fn build_and_send_request(
     data: Option<HashMap<String, PyObject>>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
-    params: Option<HashMap<String, String>>,
+    params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
     base_url: &Option<String>,
@@ -101,7 +104,7 @@ pub async fn build_and_send_request(
     follow_redirects: bool,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    let start_time = Instant::now();
+    let _start_time = Instant::now();
 
     // Use client from configuration
     let client = if follow_redirects {
@@ -180,10 +183,22 @@ pub async fn build_and_send_request(
     let body = if let Some(content_bytes) = content {
         Some(Bytes::from(content_bytes))
     } else if let Some(files_data) = files {
-        // Handle file upload (multipart/form-data)
-        let (multipart_body, content_type) = build_multipart_body(Some(files_data), data)?;
-        final_headers.insert("Content-Type".to_string(), content_type);
-        Some(Bytes::from(multipart_body))
+        // Handle file upload (multipart/form-data) - only if files is not empty
+        if files_data.is_empty() {
+            // If files is empty, treat as regular form data
+            if let Some(form_data) = data {
+                let form_string = python_dict_to_form_string(form_data)?;
+                final_headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+                Some(Bytes::from(form_string))
+            } else {
+                None
+            }
+        } else {
+            // Files is not empty, use multipart
+            let (multipart_body, content_type) = build_multipart_body(Some(files_data), data)?;
+            final_headers.insert("Content-Type".to_string(), content_type);
+            Some(Bytes::from(multipart_body))
+        }
     } else if let Some(json_data) = json {
         let json_value = python_dict_to_json_value(json_data)?;
         let json_string = serde_json::to_string(&json_value)
@@ -199,14 +214,20 @@ pub async fn build_and_send_request(
         None
     };
 
-    // Send request using hyper client
-    client.request(method, uri, Some(final_headers), body).await
+    // Determine effective timeout: use provided timeout, fallback to default_timeout, then config default
+    let effective_timeout = timeout
+        .map(Duration::from_secs_f64)
+        .or(default_timeout);
+
+    // Send request using hyper client with dynamic timeout
+    client.request_with_timeout(method, uri, Some(final_headers), body, effective_timeout).await
 }
 
 
 // Core streaming request building and sending function - returns StreamingHttpResponse
 // Temporarily disabled during hyper migration - streaming requires additional implementation
 #[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
 pub async fn build_and_send_streaming_request(
     _config: &ClientConfig,
     _method: &str,

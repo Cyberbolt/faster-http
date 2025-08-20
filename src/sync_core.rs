@@ -3,26 +3,45 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 use crate::config::ClientConfig;
 use crate::response::HttpResponse;
-use crate::request::HttpRequest;
-use crate::error::RequestError;
 use crate::hyper_client::{HyperHttpClient, HyperClientConfig};
 use crate::core::{build_and_send_request, send_request_direct};
 use std::sync::OnceLock;
 use tokio::runtime::Runtime;
 use std::time::Duration;
 
-/// Global tokio runtime for synchronous operations
-static SYNC_RUNTIME: OnceLock<Runtime> = OnceLock::new();
-
-/// Get or create the global tokio runtime for sync operations
-fn get_sync_runtime() -> &'static Runtime {
-    SYNC_RUNTIME.get_or_init(|| {
+/// Safe runtime management for synchronous operations
+/// Returns a reference to the shared runtime when safe, or creates a temporary one
+fn get_shared_runtime() -> PyResult<&'static Runtime> {
+    use crate::error::RuntimeInitFailed;
+    
+    static SHARED_RUNTIME: OnceLock<Result<Runtime, String>> = OnceLock::new();
+    
+    let result = SHARED_RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
-            .thread_name("faster-http-sync")
+            .thread_name("faster-http-shared")
+            .worker_threads(2) // Limit threads to avoid resource conflicts
             .build()
-            .expect("Failed to create tokio runtime for sync operations")
-    })
+            .map_err(|e| format!("Failed to create shared runtime: {}", e))
+    });
+    
+    match result {
+        Ok(runtime) => Ok(runtime),
+        Err(msg) => Err(RuntimeInitFailed::new_err(msg.clone()))
+    }
+}
+
+/// Execute async operation in a runtime-safe manner with simplified logic
+/// Uses a straightforward approach without complex nested detection
+fn execute_in_runtime<F, T>(future: F) -> PyResult<T>
+where
+    F: std::future::Future<Output = PyResult<T>> + Send + 'static,
+    T: Send + 'static,
+{
+    // Simplified runtime management - use shared runtime for all operations
+    // This avoids complex nested runtime detection and thread spawning
+    let runtime = get_shared_runtime()?;
+    runtime.block_on(future)
 }
 
 #[pyclass(module = "faster_http")]
@@ -83,28 +102,29 @@ impl SyncHttpClient {
         data: Option<PyObject>,
         json: Option<PyObject>,
         files: Option<PyObject>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        let runtime = get_sync_runtime();
-        
-        // Create a clone of the client to move into the async block
-        let client = self.client.clone();
+        // Create a clone of the config to move into the async block
         let config = self.config.clone();
 
         // Convert timeout to Duration if provided
-        let timeout_duration = timeout.map(|t| Duration::from_secs_f64(t));
+        let timeout_duration = timeout.map(Duration::from_secs_f64);
 
-        // Execute the async operation synchronously
-        runtime.block_on(async move {
+        // Convert borrowed strings to owned strings for async block
+        let method_owned = method.to_string();
+        let url_owned = url.to_string();
+        
+        // Execute the async operation in a runtime-safe manner
+        execute_in_runtime(async move {
             build_and_send_request(
                 &config,
-                method,
-                url,
+                &method_owned,
+                &url_owned,
                 content,
                 data.and_then(|obj| {
                     Python::with_gil(|py| {
@@ -145,23 +165,26 @@ impl SyncHttpClient {
         headers: HashMap<String, String>,
         content: Option<Vec<u8>>,
     ) -> PyResult<HttpResponse> {
-        let runtime = get_sync_runtime();
-        
         // Create a clone of the client to move into the async block
         let client = self.client.clone();
         let config = self.config.clone();
 
-        // Execute the async operation synchronously
-        runtime.block_on(async move {
-            send_request_direct(&client, method, url, &headers, content.as_deref(), &config).await
+        // Convert borrowed strings to owned strings for async block
+        let method_owned = method.to_string();
+        let url_owned = url.to_string();
+        
+        // Execute the async operation in a runtime-safe manner
+        execute_in_runtime(async move {
+            send_request_direct(&client, &method_owned, &url_owned, &headers, content.as_deref(), &config).await
         })
     }
 
     /// Send a GET request
+    #[allow(clippy::too_many_arguments)]
     pub fn get(
         &self,
         url: &str,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         cookies: Option<HashMap<String, String>>,
         auth: Option<(String, String)>,
@@ -185,6 +208,7 @@ impl SyncHttpClient {
     }
 
     /// Send a POST request
+    #[allow(clippy::too_many_arguments)]
     pub fn post(
         &self,
         url: &str,
@@ -192,7 +216,7 @@ impl SyncHttpClient {
         data: Option<PyObject>,
         json: Option<PyObject>,
         files: Option<PyObject>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         cookies: Option<HashMap<String, String>>,
         auth: Option<(String, String)>,
@@ -216,6 +240,7 @@ impl SyncHttpClient {
     }
 
     /// Send a PUT request
+    #[allow(clippy::too_many_arguments)]
     pub fn put(
         &self,
         url: &str,
@@ -223,7 +248,7 @@ impl SyncHttpClient {
         data: Option<PyObject>,
         json: Option<PyObject>,
         files: Option<PyObject>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         cookies: Option<HashMap<String, String>>,
         auth: Option<(String, String)>,
@@ -247,6 +272,7 @@ impl SyncHttpClient {
     }
 
     /// Send a PATCH request
+    #[allow(clippy::too_many_arguments)]
     pub fn patch(
         &self,
         url: &str,
@@ -254,7 +280,7 @@ impl SyncHttpClient {
         data: Option<PyObject>,
         json: Option<PyObject>,
         files: Option<PyObject>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         cookies: Option<HashMap<String, String>>,
         auth: Option<(String, String)>,
@@ -278,10 +304,11 @@ impl SyncHttpClient {
     }
 
     /// Send a DELETE request
+    #[allow(clippy::too_many_arguments)]
     pub fn delete(
         &self,
         url: &str,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         cookies: Option<HashMap<String, String>>,
         auth: Option<(String, String)>,
@@ -305,10 +332,11 @@ impl SyncHttpClient {
     }
 
     /// Send a HEAD request
+    #[allow(clippy::too_many_arguments)]
     pub fn head(
         &self,
         url: &str,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         cookies: Option<HashMap<String, String>>,
         auth: Option<(String, String)>,
@@ -332,10 +360,11 @@ impl SyncHttpClient {
     }
 
     /// Send an OPTIONS request
+    #[allow(clippy::too_many_arguments)]
     pub fn options(
         &self,
         url: &str,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         cookies: Option<HashMap<String, String>>,
         auth: Option<(String, String)>,

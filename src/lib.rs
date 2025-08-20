@@ -9,6 +9,7 @@ mod async_client;
 mod auth;
 mod client;
 mod config;
+mod connection_pool; // High-performance connection pool implementation
 mod core;
 mod error;
 mod hooks;
@@ -33,6 +34,7 @@ pub use response::HttpResponse;
 pub use async_client::AsyncHttpClient;
 pub use client::HttpClient;
 pub use config::ClientConfig;
+pub use sync_core::SyncHttpClient;
 // Re-export API functions (request function is available via Python module, not Rust re-export)
 pub use api::{delete, get, head, options, patch, post, put, stream};
 pub use hooks::EventHooksProxy;
@@ -49,6 +51,7 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<HttpResponse>()?;
     m.add_class::<HttpClient>()?;
     m.add_class::<AsyncHttpClient>()?;
+    m.add_class::<SyncHttpClient>()?;
 
     // Add data model classes
     m.add_class::<HttpHeaders>()?;

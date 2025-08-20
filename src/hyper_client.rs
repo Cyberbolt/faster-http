@@ -1,16 +1,15 @@
-use crate::error::{map_hyper_util_error, create_timeout_error, ReadTimeout, RequestError};
+use crate::error::RequestError;
 use crate::response::HttpResponse;
+use crate::connection_pool::{HttpConnectionPool, PoolConfig};
 use hyper::body::Incoming;
-use hyper::{Method, Request, Response, Uri, Version};
-use hyper_util::client::legacy::Client;
-use hyper_util::rt::TokioExecutor;
-use http_body_util::{BodyExt, Empty, Full};
+use hyper::{Method, Response, Uri, Version};
+use http_body_util::BodyExt;
 use std::collections::HashMap;
 use std::time::Duration;
 use pyo3::prelude::*;
 use bytes::Bytes;
 use std::str::FromStr;
-use std::sync::Once;
+use std::sync::Arc;
 
 /// Configuration for the Hyper-based HTTP client
 #[derive(Clone, Debug)]
@@ -35,39 +34,35 @@ impl Default for HyperClientConfig {
 }
 
 /// A wrapper around hyper client that provides httpx-compatible functionality
+/// Now uses connection pooling for optimal performance and connection reuse
 #[derive(Clone)]
 pub struct HyperHttpClient {
-    client: Client<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>, http_body_util::Full<bytes::Bytes>>,
+    /// Connection pool for high-performance HTTP requests with connection reuse
+    pool: Arc<HttpConnectionPool>,
     config: HyperClientConfig,
 }
 
 impl HyperHttpClient {
     /// Create a new HyperHttpClient with the given configuration
+    /// Uses simple direct hyper client for debugging local connection issues
     pub fn new(config: HyperClientConfig) -> PyResult<Self> {
-        // Initialize the default crypto provider for rustls
-        static INIT: Once = Once::new();
-        INIT.call_once(|| {
-            rustls::crypto::ring::default_provider()
-                .install_default()
-                .expect("Failed to install default crypto provider");
-        });
+        // For debugging: create a simple connection pool config
+        let pool_config = PoolConfig {
+            max_idle_per_host: 1, // Minimal pooling for debugging
+            keep_alive_timeout: Duration::from_secs(30),
+            max_total_connections: 10,
+            connect_timeout: Duration::from_secs(5), // Shorter timeout
+            request_timeout: config.timeout.unwrap_or(Duration::from_secs(30)),
+            http2_only: config.http2_only,
+            http1_only: config.http1_only,
+        };
 
-        // Create HTTPS connector with rustls
-        let https = hyper_rustls::HttpsConnectorBuilder::new()
-            .with_webpki_roots()
-            .https_or_http()
-            .enable_http1()
-            .enable_http2()
-            .build();
-
-        // Create the hyper client
-        let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new())
-            .build(https);
-
-        Ok(Self { client, config })
+        let pool = crate::connection_pool::create_custom_pool(pool_config)?;
+        Ok(Self { pool, config })
     }
 
-    /// Create a simple HTTP request
+    /// Create a simple HTTP request using the connection pool
+    /// This method automatically reuses connections for maximum performance
     pub async fn request(
         &self,
         method: Method,
@@ -76,10 +71,24 @@ impl HyperHttpClient {
         body: Option<Bytes>,
     ) -> PyResult<HttpResponse> {
         let start_time = std::time::Instant::now();
-        self.request_internal(method, uri, headers, body, start_time).await
+        self.request_internal(method, uri, headers, body, start_time, None).await
+    }
+
+    /// Create a HTTP request with specified timeout
+    pub async fn request_with_timeout(
+        &self,
+        method: Method,
+        uri: Uri,
+        headers: Option<HashMap<String, String>>,
+        body: Option<Bytes>,
+        timeout: Option<Duration>,
+    ) -> PyResult<HttpResponse> {
+        let start_time = std::time::Instant::now();
+        self.request_internal(method, uri, headers, body, start_time, timeout).await
     }
 
     /// Internal request method that preserves start_time for redirect handling
+    /// Uses connection pool for optimal performance and connection reuse
     async fn request_internal(
         &self,
         method: Method,
@@ -87,42 +96,19 @@ impl HyperHttpClient {
         headers: Option<HashMap<String, String>>,
         body: Option<Bytes>,
         start_time: std::time::Instant,
+        timeout: Option<Duration>,
     ) -> PyResult<HttpResponse> {
         let url = uri.to_string();
         
-        // Build the request
-        // Clone needed values before moving them
+        // Clone needed values before moving them for redirect handling
         let method_clone = method.clone();
         let headers_clone = headers.clone();
         let body_clone = body.clone();
-        let uri_clone = uri.clone(); // Clone URI before moving it
+        let uri_clone = uri.clone();
         
-        let mut request_builder = Request::builder()
-            .method(method)
-            .uri(uri);
-
-        // Add headers
-        if let Some(ref headers_map) = headers {
-            for (key, value) in headers_map {
-                request_builder = request_builder.header(key, value);
-            }
-        }
-
-        // Build request with body - use Full for both cases to maintain type consistency
-        let body_data = body.clone().unwrap_or_default();
-        let request = request_builder
-            .body(Full::new(body_data))
-            .map_err(|e| RequestError::new_err(format!("Failed to build request: {}", e)))?;
-
-        // Send the request with timeout if configured
-        let response = if let Some(timeout) = self.config.timeout {
-            match tokio::time::timeout(timeout, self.client.request(request)).await {
-                Ok(result) => result.map_err(map_hyper_util_error)?,
-                Err(_) => return Err(create_timeout_error("read", "Request timeout")),
-            }
-        } else {
-            self.client.request(request).await.map_err(map_hyper_util_error)?
-        };
+        // Use connection pool to make the request with dynamic timeout
+        // This automatically handles connection reuse and Keep-Alive
+        let response = self.pool.request_with_timeout(method, uri, headers, body, timeout).await?;
 
         let elapsed = start_time.elapsed().as_secs_f64();
 
@@ -227,7 +213,7 @@ impl HyperHttpClient {
             .into_body()
             .collect()
             .await
-            .map_err(|e| ReadTimeout::new_err(format!("Failed to read response body: {}", e)))?
+            .map_err(|e| RequestError::new_err(format!("Failed to read response body: {}", e)))?
             .to_bytes();
 
         // Create HttpResponse using the proper constructor from response.rs
@@ -248,6 +234,7 @@ impl HyperHttpClient {
     }
 
     /// Handle redirect responses manually (since hyper doesn't handle redirects automatically)
+    #[allow(clippy::too_many_arguments)]
     async fn handle_redirects(
         &self,
         response: Response<Incoming>,
@@ -310,7 +297,7 @@ impl HyperHttpClient {
 
         // Determine the method for the redirect
         let redirect_method = match response.status().as_u16() {
-            301 | 302 | 303 => Method::GET, // Change to GET for these status codes
+            301..=303 => Method::GET, // Change to GET for these status codes
             307 | 308 => original_method.clone(),   // Keep original method
             _ => Method::GET,
         };
@@ -323,7 +310,8 @@ impl HyperHttpClient {
         };
 
         // Follow the redirect using internal request method that preserves original timing
-        Box::pin(self.request_internal(redirect_method, new_uri, original_headers.cloned(), redirect_body, start_time)).await
+        // Connection pool will handle connection reuse for redirect requests too
+        Box::pin(self.request_internal(redirect_method, new_uri, original_headers.cloned(), redirect_body, start_time, None)).await
     }
 
     /// Check if a status code indicates a redirect
@@ -359,9 +347,9 @@ impl HyperHttpClient {
         for (key, value) in headers {
             if key.to_lowercase() == "content-type" {
                 if let Some(charset_pos) = value.to_lowercase().find("charset=") {
-                    let charset = &value[charset_pos + 8..];
+                    let charset = value.get(charset_pos + 8..).unwrap_or("");
                     if let Some(end_pos) = charset.find(';') {
-                        return charset[..end_pos].trim().to_string();
+                        return charset.get(..end_pos).unwrap_or(charset).trim().to_string();
                     } else {
                         return charset.trim().to_string();
                     }

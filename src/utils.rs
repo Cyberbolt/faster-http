@@ -3,7 +3,37 @@ use pyo3::prelude::*;
 use serde_json::Value;
 use std::collections::HashMap;
 
-/// Build a URL with query parameters
+/// Convert Python object to string for URL parameters
+pub fn python_object_to_string(py: Python, obj: &PyObject) -> PyResult<String> {
+    if let Ok(s) = obj.extract::<String>(py) {
+        Ok(s)
+    } else if let Ok(i) = obj.extract::<i64>(py) {
+        Ok(i.to_string())
+    } else if let Ok(f) = obj.extract::<f64>(py) {
+        Ok(f.to_string())
+    } else if let Ok(b) = obj.extract::<bool>(py) {
+        Ok(b.to_string())
+    } else if obj.is_none(py) {
+        Ok("None".to_string())
+    } else {
+        // Use Python's str() representation as fallback
+        obj.call_method0(py, "__str__")?.extract::<String>(py)
+    }
+}
+
+/// Convert Python params dict to string params dict
+pub fn convert_params_to_strings(params: &HashMap<String, PyObject>) -> PyResult<HashMap<String, String>> {
+    Python::with_gil(|py| {
+        let mut string_params = HashMap::new();
+        for (key, value) in params {
+            let value_str = python_object_to_string(py, value)?;
+            string_params.insert(key.clone(), value_str);
+        }
+        Ok(string_params)
+    })
+}
+
+/// Build a URL with query parameters (legacy version for String params)
 pub fn build_url(
     base_path: &str,
     base_url: Option<&String>,
@@ -43,6 +73,22 @@ pub fn build_url(
     Ok(final_url)
 }
 
+/// Build a URL with query parameters (Python object version)
+pub fn build_url_with_python_params(
+    base_path: &str,
+    base_url: Option<&String>,
+    params: Option<&HashMap<String, PyObject>>,
+) -> PyResult<String> {
+    if let Some(python_params) = params {
+        let string_params = convert_params_to_strings(python_params)?;
+        build_url(base_path, base_url, Some(&string_params))
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+    } else {
+        build_url(base_path, base_url, None)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+    }
+}
+
 /// Build multipart form data from Python files and data
 pub fn build_multipart_body(
     files_data: Option<HashMap<String, PyObject>>,
@@ -71,14 +117,15 @@ pub fn build_multipart_body(
                 );
                 
                 // Convert Python value to string and write it
+                // NOTE: Check bool before i64 because bool is a subclass of int in Python
                 let value_str = if let Ok(s) = value.extract::<String>(py) {
                     s
+                } else if let Ok(b) = value.extract::<bool>(py) {
+                    if b { "true".to_string() } else { "false".to_string() }
                 } else if let Ok(i) = value.extract::<i64>(py) {
                     i.to_string()
                 } else if let Ok(f) = value.extract::<f64>(py) {
                     f.to_string()
-                } else if let Ok(b) = value.extract::<bool>(py) {
-                    b.to_string()
                 } else {
                     // Use Python's str() representation as fallback
                     value.call_method0(py, "__str__")?.extract::<String>(py)?
@@ -91,32 +138,55 @@ pub fn build_multipart_body(
         
         // Add file uploads if any
         if let Some(files) = files_data {
-            for (field_name, file_obj) in files {
+            for (field_name, file_spec) in files {
                 // Write boundary
                 body.extend_from_slice(boundary_bytes.as_bytes());
                 body.extend_from_slice(b"\r\n");
                 
-                // Get filename from file object if possible
-                let filename = if let Ok(name) = file_obj.getattr(py, "name") {
-                    if let Ok(name_str) = name.extract::<String>(py) {
-                        // Extract just the filename from full path
-                        std::path::Path::new(&name_str)
-                            .file_name()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("file")
-                            .to_string()
+                // Parse file specification - support multiple formats:
+                // 1. Direct file object: file_obj
+                // 2. Tuple with filename: (filename, file_obj)  
+                // 3. Tuple with content type: (filename, file_obj, content_type)
+                let (filename, file_obj, mime_type) = if let Ok(tuple) = file_spec.extract::<(String, PyObject, String)>(py) {
+                    // Format: (filename, file_obj, content_type)
+                    let (fname, fobj, ctype) = tuple;
+                    (fname, fobj, ctype)
+                } else if let Ok(tuple) = file_spec.extract::<(String, PyObject)>(py) {
+                    // Format: (filename, file_obj)
+                    let (fname, fobj) = tuple;
+                    let mime_type = mime_guess::from_path(&fname)
+                        .first_or_octet_stream()
+                        .as_ref()
+                        .to_string();
+                    (fname, fobj, mime_type)
+                } else {
+                    // Format: Direct file object
+                    let file_obj = file_spec.clone();
+                    
+                    // Get filename from file object if possible
+                    let filename = if let Ok(name) = file_obj.getattr(py, "name") {
+                        if let Ok(name_str) = name.extract::<String>(py) {
+                            // Extract just the filename from full path
+                            std::path::Path::new(&name_str)
+                                .file_name()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("file")
+                                .to_string()
+                        } else {
+                            "file".to_string()
+                        }
                     } else {
                         "file".to_string()
-                    }
-                } else {
-                    "file".to_string()
+                    };
+                    
+                    // Guess MIME type from filename
+                    let mime_type = mime_guess::from_path(&filename)
+                        .first_or_octet_stream()
+                        .as_ref()
+                        .to_string();
+                    
+                    (filename, file_obj, mime_type)
                 };
-                
-                // Guess MIME type from filename
-                let mime_type = mime_guess::from_path(&filename)
-                    .first_or_octet_stream()
-                    .as_ref()
-                    .to_string();
                 
                 // Write Content-Disposition and Content-Type headers
                 body.extend_from_slice(
@@ -144,7 +214,7 @@ pub fn build_multipart_body(
                     }
                 } else {
                     return Err(crate::error::RequestError::new_err(
-                        "File object must have a read() method"
+                        format!("File object must have a read() method. Got object type: {}", file_obj.as_ref(py).get_type().name()?)
                     ));
                 };
                 
@@ -167,6 +237,7 @@ pub fn build_multipart_body(
 }
 
 // Legacy function for compatibility - now redirects to new implementation
+#[allow(dead_code)]
 pub fn build_multipart_form(
     files_data: HashMap<String, PyObject>,
 ) -> PyResult<String> {
@@ -181,14 +252,15 @@ pub fn python_dict_to_form_string(data: HashMap<String, PyObject>) -> PyResult<S
         
         for (key, value) in data {
             // Convert Python value to string
+            // NOTE: Check bool before i64 because bool is a subclass of int in Python
             let value_str = if let Ok(s) = value.extract::<String>(py) {
                 s
+            } else if let Ok(b) = value.extract::<bool>(py) {
+                if b { "true".to_string() } else { "false".to_string() }
             } else if let Ok(i) = value.extract::<i64>(py) {
                 i.to_string()
             } else if let Ok(f) = value.extract::<f64>(py) {
                 f.to_string()
-            } else if let Ok(b) = value.extract::<bool>(py) {
-                b.to_string()
             } else {
                 // Use Python's str() representation as fallback
                 value.call_method0(py, "__str__")?.extract::<String>(py)?

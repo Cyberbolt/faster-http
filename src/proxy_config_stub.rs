@@ -1,5 +1,4 @@
 // Temporary stub for proxy configuration during hyper migration
-use std::collections::HashMap;
 use pyo3::prelude::*;
 
 #[derive(Clone, Debug)]

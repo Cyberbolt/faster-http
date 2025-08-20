@@ -386,8 +386,8 @@ impl HttpResponse {
                 if let Some(rel_start) = link_part.find("rel=") {
                     if let Some(url_end) = link_part.find('>') {
                         if let Some(url_start) = link_part.find('<') {
-                            let url = link_part[url_start + 1..url_end].to_string();
-                            let rel_part = &link_part[rel_start + 4..];
+                            let url = link_part.get(url_start + 1..url_end).unwrap_or("").to_string();
+                            let rel_part = link_part.get(rel_start + 4..).unwrap_or("");
                             let rel = rel_part
                                 .split(';')
                                 .next()
@@ -443,7 +443,7 @@ aiter_bytes_impl(data, chunk_size)
             py.run(&code, None, Some(locals))?;
             Ok(locals
                 .get_item("aiter_bytes_impl")?
-                .unwrap()
+                .ok_or_else(|| crate::error::InternalError::new_err("Failed to get aiter_bytes_impl from locals"))?
                 .call1((py_bytes, chunk_size))?
                 .to_object(py))
         })
@@ -469,7 +469,7 @@ aiter_text_impl(text, chunk_size)
             py.run(&code, None, Some(locals))?;
             Ok(locals
                 .get_item("aiter_text_impl")?
-                .unwrap()
+                .ok_or_else(|| crate::error::InternalError::new_err("Failed to get aiter_text_impl from locals"))?
                 .call1((text, chunk_size))?
                 .to_object(py))
         })
@@ -496,7 +496,7 @@ aiter_lines_impl(lines)
             py.run(&code, None, Some(locals))?;
             Ok(locals
                 .get_item("aiter_lines_impl")?
-                .unwrap()
+                .ok_or_else(|| crate::error::InternalError::new_err("Failed to get aiter_lines_impl from locals"))?
                 .call1((py_lines,))?
                 .to_object(py))
         })
@@ -530,6 +530,7 @@ aiter_lines_impl(lines)
 // ==================== Utility functions ====================
 
 // Parse cookies from headers
+#[allow(dead_code)]
 pub fn parse_cookies_from_headers(headers: &HashMap<String, String>) -> HashMap<String, String> {
     let mut cookies = HashMap::new();
 
@@ -552,11 +553,12 @@ pub fn parse_cookies_from_headers(headers: &HashMap<String, String>) -> HashMap<
 }
 
 // Detect encoding - production implementation
+#[allow(dead_code)]
 pub fn detect_encoding(headers: &HashMap<String, String>) -> Option<String> {
     // 1. First check Content-Type header
     if let Some(content_type) = headers.get("content-type") {
         if let Some(charset_start) = content_type.to_lowercase().find("charset=") {
-            let charset = &content_type[charset_start + 8..];
+            let charset = content_type.get(charset_start + 8..).unwrap_or("");
             let charset = charset.split(';').next().unwrap_or(charset);
             let charset = charset.trim().trim_matches('"').trim_matches('\'');
 
@@ -573,6 +575,7 @@ pub fn detect_encoding(headers: &HashMap<String, String>) -> Option<String> {
 }
 
 // Normalize encoding name
+#[allow(dead_code)]
 fn normalize_encoding_name(encoding: &str) -> String {
     let normalized = encoding.to_lowercase().replace(['_', '-'], "");
 
@@ -586,6 +589,7 @@ fn normalize_encoding_name(encoding: &str) -> String {
 }
 
 // Detect HTTP version - updated for hyper
+#[allow(dead_code)]
 pub fn detect_http_version(version: &hyper::Version) -> String {
     match *version {
         hyper::Version::HTTP_09 => "HTTP/0.9".to_string(),

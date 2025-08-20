@@ -1,5 +1,4 @@
 use crate::auth::{extract_auth_from_object, AuthType};
-use crate::error::RequestError;
 use crate::hooks::EventHooks;
 use crate::hyper_client::{HyperHttpClient, HyperClientConfig};
 use crate::proxy_config_stub::ProxySystem;
@@ -29,7 +28,7 @@ pub struct ClientConfig {
     pub limits: Option<crate::models::HttpLimits>, // Connection pool limits
     pub max_redirects: i32,                  // Maximum number of redirects to follow
     pub default_encoding: String,            // Default character encoding
-    pub default_params: HashMap<String, String>, // Default query parameters
+    pub default_params: HashMap<String, PyObject>, // Default query parameters
     // Pre-built clients to support efficient redirect control
     pub redirect_client: HyperHttpClient,
     pub no_redirect_client: HyperHttpClient,
@@ -57,7 +56,7 @@ impl ClientConfig {
         limits: Option<PyObject>,                // Connection pool limits
         max_redirects: Option<i32>,              // Maximum number of redirects
         default_encoding: Option<String>,        // Default character encoding
-        params: Option<HashMap<String, String>>, // Default query parameters
+        params: Option<HashMap<String, PyObject>>, // Default query parameters
     ) -> PyResult<Self> {
         let (auth_type, auth_object) = if let Some(auth_obj) = auth {
             Python::with_gil(|py| -> PyResult<(Option<AuthType>, Option<PyObject>)> {

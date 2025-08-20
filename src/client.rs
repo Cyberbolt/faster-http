@@ -2,11 +2,12 @@ use pyo3::prelude::*;
 // PyCell import removed as it's not used in this file
 use crate::auth::extract_auth;
 use crate::config::ClientConfig;
-use crate::error::RequestError;
+use crate::error::{RequestError, InternalError};
+use crate::hooks::EventHooksProxy;
 use crate::request::HttpRequest;
 use crate::response::HttpResponse;
 use crate::sync_core::SyncHttpClient;
-use crate::utils::build_url;
+use crate::utils::{build_url, build_url_with_python_params};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -94,7 +95,7 @@ impl HttpClient {
         limits: Option<PyObject>,
         max_redirects: Option<i32>,
         default_encoding: Option<String>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
     ) -> PyResult<Self> {
         // Extract headers from PyObject (dict or Headers object)
         let extracted_headers = extract_headers_from_object(headers)?;
@@ -139,7 +140,7 @@ impl HttpClient {
         &self,
         method: &str,
         url: &str,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         content: Option<Vec<u8>>,
         data: Option<PyObject>,
@@ -154,8 +155,11 @@ impl HttpClient {
         }
 
         // Use centralized URL building with merged params
-        let final_url = build_url(url, self.config.base_url.as_ref(), Some(&final_params))
-            .map_err(RequestError::new_err)?;
+        let final_url = crate::utils::build_url_with_python_params(
+            url, 
+            self.config.base_url.as_ref(), 
+            Some(&final_params)
+        )?;
 
         // Simple header merging
         let mut final_headers = self.config.default_headers.clone();
@@ -222,13 +226,10 @@ impl HttpClient {
         Ok(())
     }
 
-    // Expose event_hooks for httpx compatibility - return dict like httpx
+    // Expose event_hooks for httpx compatibility - return EventHooksProxy for dict-like interface
     #[getter]
-    pub fn event_hooks(&self) -> PyResult<PyObject> {
-        Python::with_gil(|py| {
-            let hooks = self.config.event_hooks.lock().unwrap();
-            hooks.to_python_dict(py)
-        })
+    pub fn event_hooks(&self) -> PyResult<EventHooksProxy> {
+        Ok(EventHooksProxy::new(self.config.event_hooks.clone()))
     }
 
     // Unified request method that handles all logic in Rust layer
@@ -241,7 +242,7 @@ impl HttpClient {
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -252,10 +253,18 @@ impl HttpClient {
 
         // Build complete request parameters in Rust (moved from Python layer)
         let final_url = self.build_final_url(url, params.as_ref())?;
-        let final_headers = self.merge_headers(headers);
+        let mut final_headers = self.merge_headers(headers);
         let final_cookies = self.merge_cookies(cookies);
         let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
         let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
+
+        // Add authentication headers before creating request object for hooks
+        if let Some((username, password)) = &auth_option {
+            use base64::Engine;
+            let credentials = format!("{}:{}", username, password);
+            let encoded = base64::engine::general_purpose::STANDARD.encode(credentials.as_bytes());
+            final_headers.insert("Authorization".to_string(), format!("Basic {}", encoded));
+        }
 
         // Create lightweight request object for hooks if needed
         let request_for_hooks = if self.has_hooks() {
@@ -324,7 +333,7 @@ impl HttpClient {
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -351,7 +360,7 @@ impl HttpClient {
     pub fn get(
         &self,
         url: &str,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -382,7 +391,7 @@ impl HttpClient {
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -413,7 +422,7 @@ impl HttpClient {
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -444,7 +453,7 @@ impl HttpClient {
         data: Option<HashMap<String, PyObject>>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -471,7 +480,7 @@ impl HttpClient {
     pub fn delete(
         &self,
         url: &str,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -498,7 +507,7 @@ impl HttpClient {
     pub fn head(
         &self,
         url: &str,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -525,7 +534,7 @@ impl HttpClient {
     pub fn options(
         &self,
         url: &str,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
         auth: Option<(String, String)>,
@@ -563,7 +572,7 @@ impl HttpClient {
         _auth: Option<(String, String)>,
         _follow_redirects: Option<bool>,
         _cookies: Option<HashMap<String, String>>,
-    ) -> PyResult<crate::streaming_stub::StreamingHttpResponse> {
+    ) -> PyResult<crate::streaming_stub::StreamingClient> {
         // Streaming is not supported in the synchronous client implementation
         // For streaming functionality, use the async client instead
         Err(RequestError::new_err(
@@ -588,7 +597,7 @@ impl HttpClient {
     }
 
     #[getter]
-    pub fn params(&self) -> HashMap<String, String> {
+    pub fn params(&self) -> HashMap<String, PyObject> {
         self.config.default_params.clone()
     }
 
@@ -608,7 +617,7 @@ impl HttpClient {
     }
 
     // Helper method to build final URL with base_url and params
-    fn build_final_url(&self, url: &str, params: Option<&HashMap<String, String>>) -> PyResult<String> {
+    fn build_final_url(&self, url: &str, params: Option<&HashMap<String, PyObject>>) -> PyResult<String> {
         use crate::utils::build_url;
         
         // Merge default params with request params
@@ -624,8 +633,11 @@ impl HttpClient {
             _ => None,
         };
 
-        build_url(url, self.config.base_url.as_ref(), merged_params.as_ref())
-            .map_err(RequestError::new_err)
+        crate::utils::build_url_with_python_params(
+            url, 
+            self.config.base_url.as_ref(), 
+            merged_params.as_ref()
+        )
     }
 
     // Helper method to merge headers
@@ -654,13 +666,16 @@ impl HttpClient {
 
     // Helper method to check if hooks are configured
     fn has_hooks(&self) -> bool {
-        let hooks = self.config.event_hooks.lock().unwrap();
-        hooks.has_hooks()
+        match self.config.event_hooks.lock() {
+            Ok(hooks) => hooks.has_hooks(),
+            Err(_) => false  // If lock fails, assume no hooks are available
+        }
     }
 
     // Helper method to execute request hooks
     fn execute_request_hooks(&self, request: &HttpRequest) -> PyResult<()> {
-        let hooks = self.config.event_hooks.lock().unwrap();
+        let hooks = self.config.event_hooks.lock()
+            .map_err(|_| InternalError::new_err("Failed to acquire event hooks lock"))?;
         if hooks.has_request_hooks() {
             Python::with_gil(|py| {
                 hooks.execute_request_hooks(py, request)
@@ -671,7 +686,8 @@ impl HttpClient {
 
     // Helper method to execute response hooks
     fn execute_response_hooks(&self, response: &HttpResponse) -> PyResult<()> {
-        let hooks = self.config.event_hooks.lock().unwrap();
+        let hooks = self.config.event_hooks.lock()
+            .map_err(|_| InternalError::new_err("Failed to acquire event hooks lock"))?;
         if hooks.has_response_hooks() {
             Python::with_gil(|py| {
                 hooks.execute_response_hooks(py, response)

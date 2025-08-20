@@ -4,6 +4,7 @@ use crate::streaming_stub::StreamingClient;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 
+
 // Unified synchronous request execution
 #[allow(clippy::too_many_arguments)]
 fn execute_request_with_sync_client(
@@ -14,22 +15,22 @@ fn execute_request_with_sync_client(
     data: Option<HashMap<String, PyObject>>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
-    params: Option<HashMap<String, String>>,
+    params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
     auth_tuple: Option<(String, String)>,
     follow_redirects: bool,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
-    // Create synchronous client for this request
-    let sync_client = SyncHttpClient::new()?;
+    // Use the provided config to create a client with proper timeout settings
+    let sync_client = SyncHttpClient::new_with_config(config.clone())?;
     
     // Convert HashMap data to PyObject for sync_client
     let data_obj = data.as_ref().map(|d| Python::with_gil(|py| d.to_object(py)));
     let json_obj = json.as_ref().map(|j| Python::with_gil(|py| j.to_object(py)));
     let files_obj = files.as_ref().map(|f| Python::with_gil(|py| f.to_object(py)));
     
-    // Execute request using synchronous client
+    // Execute request using client with proper timeout configuration
     sync_client.send_request(
         method,
         url,
@@ -138,7 +139,7 @@ fn create_ephemeral_config(
 #[pyfunction]
 pub fn get(
     url: &str,
-    params: Option<HashMap<String, String>>,
+    params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
     auth: Option<PyObject>,
@@ -177,7 +178,7 @@ pub fn post(
     data: Option<HashMap<String, PyObject>>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
-    params: Option<HashMap<String, String>>,
+    params: Option<HashMap<String, PyObject>>,
     headers: Option<PyObject>,
     timeout: Option<f64>,
     auth: Option<PyObject>,
@@ -217,7 +218,7 @@ pub fn put(
     data: Option<HashMap<String, PyObject>>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
-    params: Option<HashMap<String, String>>,
+    params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
     auth: Option<PyObject>,
@@ -256,7 +257,7 @@ pub fn patch(
     data: Option<HashMap<String, PyObject>>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
-    params: Option<HashMap<String, String>>,
+    params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
     auth: Option<PyObject>,
@@ -290,7 +291,7 @@ pub fn patch(
 #[pyfunction]
 pub fn delete(
     url: &str,
-    params: Option<HashMap<String, String>>,
+    params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
     auth: Option<PyObject>,
@@ -324,7 +325,7 @@ pub fn delete(
 #[pyfunction]
 pub fn head(
     url: &str,
-    params: Option<HashMap<String, String>>,
+    params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
     auth: Option<PyObject>,
@@ -358,7 +359,7 @@ pub fn head(
 #[pyfunction]
 pub fn options(
     url: &str,
-    params: Option<HashMap<String, String>>,
+    params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
     auth: Option<PyObject>,
@@ -399,7 +400,7 @@ pub fn request(
     data: Option<HashMap<String, PyObject>>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
-    params: Option<HashMap<String, String>>,
+    params: Option<HashMap<String, PyObject>>,
     headers: Option<PyObject>,
     timeout: Option<f64>,
     auth: Option<PyObject>,
@@ -441,7 +442,7 @@ pub fn stream(
     data: Option<HashMap<String, PyObject>>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
-    params: Option<HashMap<String, String>>,
+    params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
     timeout: Option<f64>,
     auth: Option<PyObject>,

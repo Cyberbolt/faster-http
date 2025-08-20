@@ -353,20 +353,34 @@ class StableHTTPServer:
             self.thread.start()
             self.running = True
 
-            # Wait for server to start
-            max_retries = 10
-            for _ in range(max_retries):
+            # Wait for server to start with better error handling
+            max_retries = 50  # Increased retries
+            server_ready = False
+
+            for _attempt in range(max_retries):
                 try:
                     # Test if server is responding using the client address
                     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.settimeout(1)
+                    sock.settimeout(0.5)
                     result = sock.connect_ex((self.client_host, self.port))
                     sock.close()
                     if result == 0:
+                        server_ready = True
                         break
                 except Exception:
                     pass
-                time.sleep(0.1)
+                time.sleep(0.02)  # Shorter sleep interval
+
+            if not server_ready:
+                # If server failed to start, clean up
+                self.running = False
+                if self.thread and self.thread.is_alive():
+                    try:
+                        self.server.shutdown()
+                        self.server.server_close()
+                    except Exception:
+                        pass
+                raise RuntimeError(f"Server failed to start after {max_retries} attempts on {self.client_host}:{self.port}")
 
     def _run_server(self):
         """Run the server, handling shutdown gracefully."""
@@ -377,13 +391,24 @@ class StableHTTPServer:
             pass
 
     def stop(self):
-        """Stop the server."""
+        """Stop the server gracefully."""
         if self.running:
             self.running = False
-            self.server.shutdown()
-            self.server.server_close()
+            try:
+                # Signal server to shutdown
+                self.server.shutdown()
+            except Exception:
+                pass
+
+            # Wait for thread to finish
             if self.thread and self.thread.is_alive():
-                self.thread.join(timeout=1)
+                self.thread.join(timeout=2)  # Increased timeout
+
+            try:
+                # Close the server socket
+                self.server.server_close()
+            except Exception:
+                pass
 
     def __enter__(self):
         self.start()

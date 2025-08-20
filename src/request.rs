@@ -10,7 +10,7 @@ pub struct HttpRequest {
     url: String,
     headers: HashMap<String, String>,
     content: Option<Bytes>,
-    params: HashMap<String, String>,
+    params: HashMap<String, PyObject>,
     cookies: HashMap<String, String>,
     data: Option<PyObject>,  // Form data
     files: Option<PyObject>, // File uploads
@@ -27,7 +27,7 @@ impl HttpRequest {
         url: String,
         headers: Option<PyObject>,
         content: Option<Vec<u8>>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         cookies: Option<HashMap<String, String>>,
         data: Option<PyObject>,
         files: Option<PyObject>,
@@ -121,12 +121,9 @@ impl HttpRequest {
     }
 
     #[getter]
-    pub fn url(&self) -> crate::models::HttpUrl {
+    pub fn url(&self) -> PyResult<crate::models::HttpUrl> {
         // Return URL object for httpx compatibility
-        crate::models::HttpUrl::new(self.url.clone()).unwrap_or_else(|_| {
-            // Fallback if URL parsing fails
-            crate::models::HttpUrl::new("http://invalid".to_string()).unwrap()
-        })
+        crate::models::HttpUrl::new(self.url.clone())
     }
 
     #[getter]
@@ -202,7 +199,7 @@ impl HttpRequest {
         self.content.as_ref().map(|b| b.to_vec())
     }
     
-    pub fn get_params(&self) -> &HashMap<String, String> {
+    pub fn get_params(&self) -> &HashMap<String, PyObject> {
         &self.params
     }
     
@@ -229,7 +226,7 @@ impl HttpRequest {
         url: String,
         headers: HashMap<String, String>,
         content: Option<Vec<u8>>,
-        params: Option<HashMap<String, String>>,
+        params: Option<HashMap<String, PyObject>>,
         cookies: Option<HashMap<String, String>>,
         data: Option<PyObject>,
         files: Option<PyObject>,
@@ -267,7 +264,7 @@ impl HttpRequest {
         self.content.as_ref()
     }
 
-    pub fn params_internal(&self) -> &HashMap<String, String> {
+    pub fn params_internal(&self) -> &HashMap<String, PyObject> {
         &self.params
     }
 
