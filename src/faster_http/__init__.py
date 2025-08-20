@@ -34,6 +34,7 @@ from ._core import (
     ReadTimeout,
     RemoteProtocolError,
     RequestError,
+    SSLError,
     StreamError,
     Timeout,
     TimeoutException,
@@ -76,7 +77,7 @@ from .proxy import Proxy
 # httpx-compatible exception aliases for better compatibility
 RequestTimeout = TimeoutException  # httpx uses RequestTimeout
 ConnectionError = ConnectError     # httpx uses ConnectionError
-SSLError = ConnectError           # Temporary alias, should be specific SSL error
+# SSLError now imported directly from _core with proper implementation
 
 
 # Note: Transport and authentication classes are implemented in Rust

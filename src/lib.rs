@@ -90,6 +90,9 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add("ConnectError", py.get_type::<ConnectError>())?;
     m.add("ConnectTimeout", py.get_type::<ConnectTimeout>())?;
 
+    // SSL exceptions
+    m.add("SSLError", py.get_type::<SSLError>())?;
+
     // Timeout exceptions
     m.add("TimeoutException", py.get_type::<TimeoutException>())?;
     m.add("ReadTimeout", py.get_type::<ReadTimeout>())?;

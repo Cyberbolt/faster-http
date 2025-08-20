@@ -8,6 +8,9 @@ pyo3::create_exception!(faster_http, HTTPError, PyException);
 pyo3::create_exception!(faster_http, ConnectError, HTTPError);
 pyo3::create_exception!(faster_http, ConnectTimeout, ConnectError);
 
+// SSL related exceptions
+pyo3::create_exception!(faster_http, SSLError, ConnectError);
+
 // Timeout exceptions
 pyo3::create_exception!(faster_http, TimeoutException, HTTPError);
 pyo3::create_exception!(faster_http, ReadTimeout, TimeoutException);
@@ -69,6 +72,8 @@ pub fn map_hyper_error(error: hyper::Error) -> PyErr {
 
     if error.is_timeout() {
         ReadTimeout::new_err(format!("Request timeout: {}", error_msg))
+    } else if error_msg.contains("tls") || error_msg.contains("ssl") || error_msg.contains("certificate") {
+        SSLError::new_err(format!("SSL error: {}", error_msg))
     } else if error_msg.contains("connection") || error_msg.contains("connect") {
         ConnectError::new_err(format!("Connection error: {}", error_msg))
     } else if error.is_closed() || error.is_incomplete_message() {
@@ -103,6 +108,8 @@ pub fn map_hyper_util_error(error: hyper_util::client::legacy::Error) -> PyErr {
         } else {
             ReadTimeout::new_err(format!("Request timeout: {}", error_msg))
         }
+    } else if error_msg_lower.contains("tls") || error_msg_lower.contains("ssl") || error_msg_lower.contains("certificate") {
+        SSLError::new_err(format!("SSL error: {}", error_msg))
     } else if error_msg_lower.contains("connection") || error_msg_lower.contains("connect") {
         ConnectError::new_err(format!("Connection error: {}", error_msg))
     } else if error_msg_lower.contains("redirect") {
@@ -195,6 +202,11 @@ pub fn create_connection_error(message: &str, is_timeout: bool) -> PyErr {
     } else {
         ConnectError::new_err(format!("Connection error: {}", message))
     }
+}
+
+/// Create SSL error for SSL/TLS related issues
+pub fn create_ssl_error(message: &str) -> PyErr {
+    SSLError::new_err(format!("SSL error: {}", message))
 }
 
 /// Map std::io::Error to appropriate exception

@@ -182,9 +182,6 @@ impl HttpConnectionPool {
             stats.total_requests += 1;
         }
 
-        // Clone URI for debug logging since it will be moved into request
-        let uri_debug = uri.to_string();
-        
         // Build the request
         let mut request_builder = hyper::Request::builder()
             .method(method)
@@ -213,23 +210,15 @@ impl HttpConnectionPool {
         // Handle different client types
         let response = match &self.client {
             HttpClient::Http(client) => {
-                // Add debug logging to understand where the request gets stuck
-                eprintln!("DEBUG: Starting HTTP request to {}", uri_debug);
-                
                 let request_future = client.request(request);
-                eprintln!("DEBUG: Created request future");
-                
                 let result = tokio::time::timeout(timeout_duration, request_future).await;
-                eprintln!("DEBUG: Timeout result: {:?}", result.is_ok());
                 
                 result
                     .map_err(|_| {
-                        eprintln!("DEBUG: Request timed out after {}s", timeout_duration.as_secs_f64());
                         // Use proper timeout error instead of generic RequestError
                         crate::error::ReadTimeout::new_err(format!("Request timeout after {}s: deadline has elapsed", timeout_duration.as_secs_f64()))
                     })?
                     .map_err(|e| {
-                        eprintln!("DEBUG: Hyper client error: {}", e);
                         // Map hyper client errors using our error mapping functions
                         crate::error::map_hyper_util_error(e)
                     })?
