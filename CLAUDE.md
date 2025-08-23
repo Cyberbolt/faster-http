@@ -6,7 +6,13 @@
 
 - 如果一件事确实超过了你的能力范围：能用 context7 查询文档解决的问题，就先查文档；还是无法解决的，就查询互联网
 
+## 开发规范
+
+- 需要编写生产级别的代码，不能偷懒
+
 - 使用 uv 来管理项目，用 `uv run -m` 替代 `python -m`，用 `uv add` 来添加相关依赖。如果你不清楚 uv 的使用方法，可以用 context7 查询
+
+- 如果改了 Python 代码，应该用 ruff 来辅助判断有没有问题；如果修改了 Rust 代码，应该及时运行 `uv run maturin develop --release` 重新编译
 
 - 你如果只想临时执行一段代码来验证你的想法，应该用 `uv run python -c` 来执行，千万不要污染项目根目录的文件
 
@@ -18,11 +24,11 @@ Rust 部分，应该把 Python 部分的输入转为 hyper 的输入，然后用
 
 - Python 调用 Rust 应该尽可能高效，追求极致性能
 
-- CI/CD 中不应该跑 benchmark
+- CI/CD 中不应该跑 .benchmarks
 
 - 禁止运行任何无限阻塞的任务（如 server 等），如果必须运行，请用 timeout 来限制时间
 
-## 测试说明
+## 测试规范
 - 测试代码应该覆盖该项目的全部功能
 
 - 测试编写时应该先用 httpx 跑，然后用 faster-http 跑，这样才更好对比。如果发现 faster-http 的接口不兼容 httpx，应该及时更改该项目的源码，然后再测试。faster-http 不应该实现 httpx 没有的接口。测试代码不应该依赖于任何外部网站(因为外部网站不稳定还可能报错)，而是能内部直接跑通全部测试
@@ -45,13 +51,13 @@ Rust 部分，应该把 Python 部分的输入转为 hyper 的输入，然后用
 
 - 测试必须保证 100% 通过率，如果通过率不是 100%，不是代码实现的问题，就是测试代码的问题，肯定是两者其一，请及时排查原因并修复
 
-- 性能测试在 benchmark 中，不应该放在 tests 中
+- 性能测试在 .benchmarks 中，不应该放在 tests 中
 
 ## 性能测试说明
 
 性能测试示例运行命令
 ```bash
-sh scripts/auto_taskset.sh "timeout 60s uv run -m benchmark.faster_http_test"
+sh scripts/auto_taskset.sh "timeout 60s uv run -m .benchmarks.faster_http_test"
 ```
 
 说明：因为有的库会利用多核 CPU，用 scripts/auto_taskset.sh 加以限制才公平。同时要避免阻塞，所以一定要加上 timeout
