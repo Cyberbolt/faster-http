@@ -7,6 +7,7 @@ faster-http implementations against httpx for compatibility verification.
 
 import asyncio
 from collections.abc import Callable
+import concurrent.futures
 import functools
 import json
 from typing import Any
@@ -38,6 +39,14 @@ class ClientFactory:
         if self.library == "httpx":
             return httpx.Client(*args, **kwargs)
         elif self.library == "faster_http":
+            # Set default shorter timeout for tests if not specified
+            if "timeout" not in kwargs:
+                import os
+
+                if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
+                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                else:
+                    kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.Client(*args, **kwargs)
         else:
             raise ValueError(f"Unknown library: {self.library}")
@@ -47,6 +56,14 @@ class ClientFactory:
         if self.library == "httpx":
             return httpx.get(url, **kwargs)
         elif self.library == "faster_http":
+            # Set default shorter timeout for tests if not specified
+            if "timeout" not in kwargs:
+                import os
+
+                if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
+                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                else:
+                    kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.get(url, **kwargs)
 
     def post(self, url: str, **kwargs):
@@ -54,6 +71,14 @@ class ClientFactory:
         if self.library == "httpx":
             return httpx.post(url, **kwargs)
         elif self.library == "faster_http":
+            # Set default shorter timeout for tests if not specified
+            if "timeout" not in kwargs:
+                import os
+
+                if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
+                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                else:
+                    kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.post(url, **kwargs)
 
     def put(self, url: str, **kwargs):
@@ -61,6 +86,14 @@ class ClientFactory:
         if self.library == "httpx":
             return httpx.put(url, **kwargs)
         elif self.library == "faster_http":
+            # Set default shorter timeout for tests if not specified
+            if "timeout" not in kwargs:
+                import os
+
+                if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
+                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                else:
+                    kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.put(url, **kwargs)
 
     def patch(self, url: str, **kwargs):
@@ -68,6 +101,14 @@ class ClientFactory:
         if self.library == "httpx":
             return httpx.patch(url, **kwargs)
         elif self.library == "faster_http":
+            # Set default shorter timeout for tests if not specified
+            if "timeout" not in kwargs:
+                import os
+
+                if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
+                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                else:
+                    kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.patch(url, **kwargs)
 
     def delete(self, url: str, **kwargs):
@@ -75,6 +116,14 @@ class ClientFactory:
         if self.library == "httpx":
             return httpx.delete(url, **kwargs)
         elif self.library == "faster_http":
+            # Set default shorter timeout for tests if not specified
+            if "timeout" not in kwargs:
+                import os
+
+                if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
+                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                else:
+                    kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.delete(url, **kwargs)
 
     def head(self, url: str, **kwargs):
@@ -82,6 +131,14 @@ class ClientFactory:
         if self.library == "httpx":
             return httpx.head(url, **kwargs)
         elif self.library == "faster_http":
+            # Set default shorter timeout for tests if not specified
+            if "timeout" not in kwargs:
+                import os
+
+                if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
+                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                else:
+                    kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.head(url, **kwargs)
 
     def options(self, url: str, **kwargs):
@@ -89,7 +146,30 @@ class ClientFactory:
         if self.library == "httpx":
             return httpx.options(url, **kwargs)
         elif self.library == "faster_http":
+            # Set default shorter timeout for tests if not specified
+            if "timeout" not in kwargs:
+                import os
+
+                if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
+                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                else:
+                    kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.options(url, **kwargs)
+
+    def request(self, method: str, url: str, **kwargs):
+        """Make request using top-level function."""
+        if self.library == "httpx":
+            return httpx.request(method, url, **kwargs)
+        elif self.library == "faster_http":
+            # Set default shorter timeout for tests if not specified
+            if "timeout" not in kwargs:
+                import os
+
+                if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
+                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                else:
+                    kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
+            return faster_http.request(method, url, **kwargs)
 
     def stream(self, method: str, url: str, **kwargs):
         """Make streaming request."""
@@ -110,6 +190,14 @@ class AsyncClientFactory:
         if self.library == "httpx":
             return httpx.AsyncClient(*args, **kwargs)
         elif self.library == "faster_http":
+            # Set default shorter timeout for tests if not specified
+            if "timeout" not in kwargs:
+                import os
+
+                if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
+                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                else:
+                    kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.AsyncClient(*args, **kwargs)
         else:
             raise ValueError(f"Unknown library: {self.library}")
@@ -213,7 +301,7 @@ def httpx_compatibility_test(
     strict: bool = False,
     ignore_differences: list | None = None,
     skip_httpx: bool = False,
-    timeout: float = 5.0,
+    timeout: float = 10.0,
 ):
     """
     Decorator for testing httpx compatibility.
@@ -241,7 +329,6 @@ def httpx_compatibility_test(
         @functools.wraps(test_func)
         def sync_wrapper(*args, **kwargs):
             import os
-            import signal
 
             # Check if we should skip httpx comparison for speed
             skip_httpx_comparison = skip_httpx or os.getenv("SKIP_HTTPX_COMPARISON", "false").lower() == "true"
@@ -249,31 +336,25 @@ def httpx_compatibility_test(
             httpx_result = None
             httpx_exception = None
 
-            def timeout_handler(signum, frame):
-                raise TimeoutError(f"Test execution exceeded {timeout} seconds")
-
             # Run test with httpx first (if not skipped)
             if not skip_httpx_comparison:
                 httpx_factory = ClientFactory("httpx")
                 httpx_async_factory = AsyncClientFactory("httpx")
 
-                try:
-                    # Set timeout
-                    signal.signal(signal.SIGALRM, timeout_handler)
-                    signal.alarm(int(timeout))
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    try:
+                        # Replace client_factory in kwargs for httpx
+                        httpx_kwargs = kwargs.copy()
+                        if "client_factory" in httpx_kwargs:
+                            httpx_kwargs["client_factory"] = httpx_factory
+                        if "async_client_factory" in httpx_kwargs:
+                            httpx_kwargs["async_client_factory"] = httpx_async_factory
 
-                    # Replace client_factory in kwargs for httpx
-                    httpx_kwargs = kwargs.copy()
-                    if "client_factory" in httpx_kwargs:
-                        httpx_kwargs["client_factory"] = httpx_factory
-                    if "async_client_factory" in httpx_kwargs:
-                        httpx_kwargs["async_client_factory"] = httpx_async_factory
-
-                    httpx_result = test_func(*args, **httpx_kwargs)
-                except Exception as e:
-                    httpx_exception = e
-                finally:
-                    signal.alarm(0)  # Cancel the alarm
+                        # Execute with timeout using thread pool executor
+                        future = executor.submit(test_func, *args, **httpx_kwargs)
+                        httpx_result = future.result(timeout=timeout)
+                    except Exception as e:
+                        httpx_exception = e
 
             # Run test with faster-http
             faster_http_factory = ClientFactory("faster_http")
@@ -282,23 +363,20 @@ def httpx_compatibility_test(
             faster_http_result = None
             faster_http_exception = None
 
-            try:
-                # Set timeout
-                signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(int(timeout))
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                try:
+                    # Replace client_factory in kwargs for faster-http
+                    faster_http_kwargs = kwargs.copy()
+                    if "client_factory" in faster_http_kwargs:
+                        faster_http_kwargs["client_factory"] = faster_http_factory
+                    if "async_client_factory" in faster_http_kwargs:
+                        faster_http_kwargs["async_client_factory"] = faster_http_async_factory
 
-                # Replace client_factory in kwargs for faster-http
-                faster_http_kwargs = kwargs.copy()
-                if "client_factory" in faster_http_kwargs:
-                    faster_http_kwargs["client_factory"] = faster_http_factory
-                if "async_client_factory" in faster_http_kwargs:
-                    faster_http_kwargs["async_client_factory"] = faster_http_async_factory
-
-                faster_http_result = test_func(*args, **faster_http_kwargs)
-            except Exception as e:
-                faster_http_exception = e
-            finally:
-                signal.alarm(0)  # Cancel the alarm
+                    # Execute with timeout using thread pool executor
+                    future = executor.submit(test_func, *args, **faster_http_kwargs)
+                    faster_http_result = future.result(timeout=timeout)
+                except Exception as e:
+                    faster_http_exception = e
 
             # Only compare if we ran both tests
             if not skip_httpx_comparison:

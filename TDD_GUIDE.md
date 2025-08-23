@@ -27,7 +27,7 @@ class TestNewFeature:
     @tdd_test
     def test_new_functionality(self, tdd_client):
         # 测试尚未实现的功能
-        response = tdd_client.get("http://nginx:21000/get")
+        response = tdd_client.get("http://mock-server/get")
         assert hasattr(response, 'new_attribute')  # 这会失败
 ```
 
@@ -82,7 +82,7 @@ class TestMyNewFeature:
         """TDD: 新功能测试."""
         # 第一阶段：编写失败测试（Red）
         client = tdd_client()
-        response = client.get("http://nginx:21000/get", timeout=5.0)
+        response = client.get("http://mock-server/get", timeout=5.0)
         
         # 测试期望的行为
         assert response.status_code == 200
@@ -95,7 +95,7 @@ class TestMyNewFeature:
 2. **简化架构**: 移除了复杂的httpx比较装饰器 
 3. **专注TDD**: 专为Red-Green-Refactor循环优化
 4. **稳定可靠**: 无signal处理或复杂超时机制
-5. **本地测试**: 完全使用内部测试服务器（nginx:21000）
+5. **本地测试**: 使用Mock响应，无需外部服务器
 
 ## 🔧 框架组件
 

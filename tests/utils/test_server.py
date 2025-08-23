@@ -18,7 +18,7 @@ import urllib.parse
 import pytest
 
 
-class TestHTTPHandler(BaseHTTPRequestHandler):
+class HTTPTestHandler(BaseHTTPRequestHandler):
     """HTTP request handler for test server."""
 
     def log_message(self, format, *args):
@@ -398,7 +398,7 @@ class TestHTTPHandler(BaseHTTPRequestHandler):
         self._send_response(404, content=content)
 
 
-class TestServer:
+class HTTPTestServer:
     """Test HTTP server for testing HTTP client libraries."""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 0):
@@ -421,7 +421,7 @@ class TestServer:
             return
 
         try:
-            self.server = HTTPServer((self.host, self.port), TestHTTPHandler)
+            self.server = HTTPServer((self.host, self.port), HTTPTestHandler)
 
             # Set socket options for better reliability
             self.server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -492,7 +492,7 @@ def test_server():
     global _test_server_instance
 
     if _test_server_instance is None:
-        _test_server_instance = TestServer()
+        _test_server_instance = HTTPTestServer()
         _test_server_instance.start()
 
     yield _test_server_instance
@@ -506,7 +506,7 @@ def test_server():
 @pytest.fixture
 def local_server():
     """Pytest fixture providing a local test server for individual tests."""
-    server = TestServer()
+    server = HTTPTestServer()
     server.start()
     yield server
     server.stop()

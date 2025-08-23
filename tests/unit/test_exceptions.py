@@ -40,7 +40,7 @@ class TestExceptions:
         import faster_http
 
         with pytest.raises(faster_http.ConnectError):
-            client_factory.get("http://invalid-host-that-does-not-exist.com")
+            client_factory.get("http://invalid-host-that-does-not-exist.local")
 
     @httpx_compatibility_test
     def test_timeout_error(self, client_factory):

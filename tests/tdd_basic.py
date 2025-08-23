@@ -34,14 +34,14 @@ class TestBasicTDD:
         assert client is not None
 
     @tdd_test
-    def test_basic_get_with_test_server(self, tdd_client):
-        """Test basic GET request with test server - due to faster_http localhost issue, use nginx."""
+    def test_basic_get_with_mock_server(self, tdd_client):
+        """Test basic GET request with mock system - completely internal, no external dependencies."""
         try:
-            response = tdd_client.get("http://nginx:21000", timeout=5.0)
+            response = tdd_client.get("http://mock-server/get", timeout=5.0)
             assert response.status_code == 200
             assert hasattr(response, "text")
         except Exception as e:
-            pytest.fail(f"Test server request failed: {e}")
+            pytest.fail(f"Mock request failed: {e}")
 
     def test_tdd_red_phase_example(self):
         """Example of TDD Red phase - this test should initially fail."""

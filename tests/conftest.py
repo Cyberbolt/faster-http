@@ -21,7 +21,7 @@ sys.path.insert(0, str(project_root / "src"))
 from tests.utils.httpx_comparison import AsyncClientFactory, ClientFactory  # noqa: E402
 from tests.utils.tdd_framework import SimpleAsyncClientFactory, SimpleClientFactory  # noqa: E402
 from tests.utils.tdd_helpers import AssertionHelpers, DataGenerator, ErrorSimulator, PerformanceMeasurer  # noqa: E402
-from tests.utils.test_server import TestServer  # noqa: E402
+from tests.utils.test_server import HTTPTestServer  # noqa: E402
 
 # ============================================================================
 # Session-scoped fixtures
@@ -39,7 +39,7 @@ def event_loop():
 @pytest.fixture(scope="session")
 def test_server():
     """Session-wide test server for all tests."""
-    server = TestServer()
+    server = HTTPTestServer()
     server.start()
     yield server
     server.stop()
@@ -53,7 +53,7 @@ def test_server():
 @pytest.fixture(scope="module")
 def module_server():
     """Module-scoped test server."""
-    server = TestServer()
+    server = HTTPTestServer()
     server.start()
     yield server
     server.stop()
@@ -67,7 +67,7 @@ def module_server():
 @pytest.fixture
 def local_server():
     """Local test server for individual tests."""
-    server = TestServer()
+    server = HTTPTestServer()
     server.start()
     yield server
     server.stop()
@@ -249,6 +249,7 @@ def auth_credentials():
 @pytest.fixture
 def sample_urls(test_server):
     """Sample URLs for testing."""
+    # Create sample URLs directly from test server
     base = test_server.base_url
     return {
         "get": f"{base}/get",

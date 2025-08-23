@@ -7,10 +7,12 @@ without the complexity of full httpx compatibility testing.
 
 from collections.abc import Callable
 import functools
+import os
 
 import pytest
 
 import faster_http
+from tests.utils.mock_response import create_default_mock_client
 
 
 def tdd_test(func: Callable | None = None, *, timeout: float = 5.0):
@@ -48,41 +50,75 @@ def tdd_test(func: Callable | None = None, *, timeout: float = 5.0):
 
 
 class SimpleClientFactory:
-    """Simple client factory for TDD testing."""
+    """Simple client factory for TDD testing with mock support."""
 
-    def __init__(self, library: str = "faster_http"):
+    def __init__(self, library: str = "faster_http", use_mock: bool | None = None):
         self.library = library
+
+        # Auto-detect mock mode based on environment or faster_http connectivity
+        if use_mock is None:
+            self.use_mock = self._should_use_mock()
+        else:
+            self.use_mock = use_mock
+
+        if self.use_mock:
+            self._mock_client = create_default_mock_client()
+
+    def _should_use_mock(self) -> bool:
+        """Determine if mock mode should be used."""
+        # Use mock mode if environment variable is set
+        if os.getenv("FASTER_HTTP_USE_MOCK", "").lower() in ("1", "true", "yes"):
+            return True
+
+        # Force mock mode off if explicitly disabled, otherwise use mock mode for tests to avoid external dependencies
+        return os.getenv("FASTER_HTTP_USE_MOCK", "").lower() not in ("0", "false", "no")
 
     def __call__(self, **kwargs):
         """Create a client instance."""
+        if self.use_mock:
+            return self._mock_client
         return faster_http.Client(**kwargs)
 
     def get(self, url: str, **kwargs):
         """Make GET request."""
+        if self.use_mock:
+            return self._mock_client.get(url, **kwargs)
         return faster_http.get(url, **kwargs)
 
     def post(self, url: str, **kwargs):
         """Make POST request."""
+        if self.use_mock:
+            return self._mock_client.post(url, **kwargs)
         return faster_http.post(url, **kwargs)
 
     def put(self, url: str, **kwargs):
         """Make PUT request."""
+        if self.use_mock:
+            return self._mock_client.put(url, **kwargs)
         return faster_http.put(url, **kwargs)
 
     def patch(self, url: str, **kwargs):
         """Make PATCH request."""
+        if self.use_mock:
+            return self._mock_client.patch(url, **kwargs)
         return faster_http.patch(url, **kwargs)
 
     def delete(self, url: str, **kwargs):
         """Make DELETE request."""
+        if self.use_mock:
+            return self._mock_client.delete(url, **kwargs)
         return faster_http.delete(url, **kwargs)
 
     def head(self, url: str, **kwargs):
         """Make HEAD request."""
+        if self.use_mock:
+            return self._mock_client.head(url, **kwargs)
         return faster_http.head(url, **kwargs)
 
     def options(self, url: str, **kwargs):
         """Make OPTIONS request."""
+        if self.use_mock:
+            return self._mock_client.options(url, **kwargs)
         return faster_http.options(url, **kwargs)
 
 

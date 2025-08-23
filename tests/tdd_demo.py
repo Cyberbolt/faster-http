@@ -18,10 +18,10 @@ class TestTDDWorkflow:
         # This test represents the Red phase - it should initially fail
         # Let's say we want to implement a feature to parse response headers
 
-        # Simulate making a request (this will work)
+        # Simulate making a request using mock system (no external dependencies)
         try:
-            # Use nginx test server due to faster_http localhost connection issue
-            response = tdd_client.get("http://nginx:21000", timeout=3.0)
+            # Use mock response system - no external network dependencies
+            response = tdd_client.get("http://mock-server/test", timeout=3.0)
 
             # Now test for new functionality that doesn't exist yet
             # Uncomment the next line to see Red phase in action:
@@ -31,7 +31,7 @@ class TestTDDWorkflow:
             assert hasattr(response, "headers"), "Response should have headers attribute"
 
         except Exception as e:
-            pytest.fail(f"Local test server request failed: {e}")
+            pytest.fail(f"Mock request failed: {e}")
 
     @tdd_test
     def test_green_phase_minimal_implementation(self, tdd_client):

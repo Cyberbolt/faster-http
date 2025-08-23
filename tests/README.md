@@ -89,7 +89,7 @@ class TestNewFeature(TDDTestCase):
         self.fail_first_run()
         
         # After removing fail_first_run(), implement actual test
-        # response = faster_http.get("http://example.com/new-endpoint")
+        # response = faster_http.get("http://mock-server/new-endpoint")
         # assert response.status_code == 200
 ```
 

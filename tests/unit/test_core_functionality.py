@@ -11,6 +11,7 @@ import pytest
 
 import faster_http
 from tests.utils.httpx_comparison import httpx_compatibility_test
+from tests.utils.response_adapter import verify_json_response
 from tests.utils.tdd_helpers import AssertionHelpers, DataGenerator, TDDTestCase
 
 
@@ -39,26 +40,14 @@ class TestBasicHTTPMethods(TDDTestCase):
         url = f"{self.base_url}/get"
         response = client_factory.get(url)
 
-        # Verify basic response structure
-        assert response.status_code == 200
-        assert hasattr(response, "headers")
-        assert hasattr(response, "content")
-        assert hasattr(response, "text")
-        assert hasattr(response, "url")
-
-        # Verify response content
-        json_data = response.json()
-        assert "url" in json_data
-        assert json_data["url"] == url
-        assert "method" in json_data
-        assert json_data["method"] == "GET"
+        # Verify response structure and content using adapter
+        json_data = verify_json_response(response, "GET", url)
 
         # Test GET with query parameters
         params = {"param1": "value1", "param2": "value2"}
         response = client_factory.get(url, params=params)
-        assert response.status_code == 200
 
-        json_data = response.json()
+        json_data = verify_json_response(response, "GET", url)
         assert "args" in json_data
         assert json_data["args"]["param1"] == "value1"
         assert json_data["args"]["param2"] == "value2"
