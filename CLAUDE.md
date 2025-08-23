@@ -25,6 +25,7 @@
 
 ### 与 httpx 的区别
 - httpx 会自动读取环境变量中的 proxy，但是 faster-http 不会
+- httpx 会受 Python GIL 的影响，但是 faster-http 即便在 Python 单线程中，也会在 Rust 端自动利用多核 CPU
 
 ## 文档依赖
 

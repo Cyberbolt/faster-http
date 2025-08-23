@@ -74,11 +74,11 @@ async def test(
 ) -> float:
     test_duration = duration  # seconds
     concurrency = concurrency
-    print(f"Starting single-core test for {test_duration}s with a concurrency of {concurrency}...")
+    print(f"Starting test for {test_duration}s with a concurrency of {concurrency}...")
 
     success, failed, duration = await run_test(test_duration, concurrency)
 
-    print("\n--- Single-Core Test Results ---")
+    print("\n--- Test Results ---")
     print(f"Test ran for: {duration:.2f} seconds")
     print(f"Successful requests: {success}")
     print(f"Failed requests: {failed}")
