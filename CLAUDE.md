@@ -24,8 +24,8 @@
 - 减少不必要的数据转换和内存拷贝
 
 ## 文档依赖
-- 开发标准：@.prompts/development-standards.md  
-- 文档规范：@.prompts/documentation-standards.md
+- 开发标准(软件开发工程师 必读)：@.prompts/development-standards.md  
+- 文档规范(技术文档工程师 必读)：@.prompts/documentation-standards.md
 
 ## 技术栈文档查询
 - **httpx**：不确定时使用 context7 查询 + 实际验证
