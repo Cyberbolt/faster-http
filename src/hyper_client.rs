@@ -51,7 +51,7 @@ impl HyperHttpClient {
             max_idle_per_host: 1, // Minimal pooling for debugging
             keep_alive_timeout: Duration::from_secs(30),
             max_total_connections: 10,
-            connect_timeout: Duration::from_secs(5), // Shorter timeout
+            connect_timeout: Duration::from_secs(60), // Use same timeout as default PoolConfig
             request_timeout: config.timeout.unwrap_or(Duration::from_secs(30)),
             http2_only: config.http2_only,
             http1_only: config.http1_only,

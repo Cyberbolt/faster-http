@@ -101,6 +101,7 @@ impl HttpConnectionPool {
         let create_http_connector = || {
             let mut connector = HttpConnector::new();
             connector.enforce_http(false);
+            connector.set_connect_timeout(Some(config.connect_timeout)); // Use configurable timeout for all connections
             connector
         };
         
