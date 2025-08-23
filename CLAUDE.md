@@ -54,7 +54,7 @@
 - 所有长时间运行的任务必须添加 `timeout` 限制
 
 ##### CI/CD 配置
-- `.benchmarks` 目录不参与 CI/CD 流程
+- `benchmarks` 目录不参与 CI/CD 流程
 
 #### 测试规范
 
@@ -88,13 +88,13 @@
 #### 性能测试规范
 
 ##### 测试环境
-- 性能测试代码位于 `.benchmarks/` 目录
+- 性能测试代码位于 `benchmarks/` 目录
 - 测试服务地址：`http://nginx:21000`（已预配置，请勿修改）
 - **普通功能测试禁止访问此服务**
 
 ##### 执行命令
 ```bash
-sh scripts/auto_taskset.sh "timeout 60s uv run .benchmarks/faster_http_test.py"
+sh scripts/auto_taskset.sh "timeout 60s uv run benchmarks/faster_http_test.py"
 ```
 
 ##### 执行要求
