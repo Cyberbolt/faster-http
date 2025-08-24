@@ -8,6 +8,7 @@ use crate::core::{build_and_send_request, send_request_direct};
 use std::sync::OnceLock;
 use tokio::runtime::Runtime;
 use std::time::Duration;
+use pyo3_asyncio;
 
 /// Safe runtime management for synchronous operations
 /// Returns a reference to the shared runtime when safe, or creates a temporary one
@@ -32,14 +33,14 @@ fn get_shared_runtime() -> PyResult<&'static Runtime> {
 }
 
 /// Execute async operation in a runtime-safe manner with simplified logic
-/// Uses a straightforward approach without complex nested detection
-fn execute_in_runtime<F, T>(future: F) -> PyResult<T>
+/// Uses the global shared runtime to avoid context issues
+pub fn execute_in_runtime<F, T>(future: F) -> PyResult<T>
 where
     F: std::future::Future<Output = PyResult<T>> + Send + 'static,
     T: Send + 'static,
 {
-    // Simplified runtime management - use shared runtime for all operations
-    // This avoids complex nested runtime detection and thread spawning
+    // Use the global shared runtime to maintain connection pool state
+    // This ensures the same runtime context as the connection pool
     let runtime = get_shared_runtime()?;
     runtime.block_on(future)
 }

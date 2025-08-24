@@ -12,6 +12,12 @@ use std::time::{Duration, Instant};
 use pyo3::prelude::*;
 use crate::error::RequestError;
 use hyper_util::rt::TokioExecutor;
+use tower_service::Service;
+use std::task::{Context, Poll};
+use std::future::Future;
+use std::pin::Pin;
+use std::net::{SocketAddr, Ipv4Addr, Ipv6Addr};
+use hyper_util::client::legacy::connect::dns::{Name, GaiResolver};
 
 /// Configuration for the connection pool
 #[derive(Clone, Debug)]
@@ -42,29 +48,38 @@ impl Default for PoolConfig {
             max_idle_per_host: 10,
             keep_alive_timeout: Duration::from_secs(90),
             max_total_connections: 100,
-            connect_timeout: Duration::from_secs(60),
-            request_timeout: Duration::from_secs(120),
+            connect_timeout: Duration::from_secs(5),  // Shorter timeout for faster debugging
+            request_timeout: Duration::from_secs(10), // Shorter timeout for faster debugging
             http2_only: false,
             http1_only: false,
         }
     }
 }
 
-/// Enum to handle different connector types during debugging
+/// Enum to handle different connector types for smart client selection
 #[derive(Clone)]
 pub enum HttpClient {
     /// HTTPS-capable client (production)
     Https(Client<HttpsConnector<HttpConnector>, Full<Bytes>>),
-    /// HTTP-only client (debugging local connections)
+    /// HTTP-only client (localhost and debugging)
     Http(Client<HttpConnector, Full<Bytes>>),
+}
+
+/// Smart client container that holds both HTTP and HTTPS clients
+#[derive(Clone)]
+pub struct SmartHttpClient {
+    /// HTTP-only client for localhost and plain HTTP
+    http_client: Client<HttpConnector, Full<Bytes>>,
+    /// HTTPS-capable client for remote hosts
+    https_client: Client<HttpsConnector<HttpConnector>, Full<Bytes>>,
 }
 
 /// A high-performance HTTP connection pool that reuses connections
 /// This enables Keep-Alive and connection reuse for maximum performance
 #[derive(Clone)]
 pub struct HttpConnectionPool {
-    /// The underlying hyper client with connection pooling
-    client: HttpClient,
+    /// Smart client container with both HTTP and HTTPS clients
+    client: SmartHttpClient,
     /// Pool configuration
     #[allow(dead_code)]
     config: PoolConfig,
@@ -97,14 +112,30 @@ impl HttpConnectionPool {
                 .ok(); // Ignore error if already installed
         });
 
-        // Helper function to create HTTP connector
-        let create_http_connector = || {
+        // Create HTTP-only connector for localhost connections
+        let create_http_only_connector = || {
             let mut connector = HttpConnector::new();
-            connector.enforce_http(false);
-            connector.set_connect_timeout(Some(config.connect_timeout)); // Use configurable timeout for all connections
+            connector.enforce_http(true);  // CRITICAL: Force HTTP-only for localhost
+            connector.set_connect_timeout(Some(config.connect_timeout));
+            connector.set_local_address(None);  // Let system choose local address
+            connector.set_nodelay(true);  // Disable Nagle's algorithm for lower latency
+            connector.set_keepalive(None);  // Disable keepalive at TCP level for localhost
             connector
         };
-        
+
+        // Create HTTP connector for HTTPS wrapper (allows both HTTP and HTTPS)
+        let create_https_base_connector = || {
+            let mut connector = HttpConnector::new();
+            connector.enforce_http(false);  // Allow both HTTP and HTTPS
+            connector.set_connect_timeout(Some(config.connect_timeout));
+            connector
+        };
+
+        // Create HTTP-only client (for localhost and plain HTTP)
+        let http_client = Client::builder(TokioExecutor::new())
+            .http2_only(false)  // Allow HTTP/1.1
+            .build(create_http_only_connector());
+
         // Create HTTPS connector with rustls - with proper error handling and fallback
         let https_connector = match hyper_rustls::HttpsConnectorBuilder::new()
             .with_native_roots() 
@@ -115,26 +146,28 @@ impl HttpConnectionPool {
                     .https_or_http()
                     .enable_http1()
                     .enable_http2()
-                    .wrap_connector(create_http_connector())
+                    .wrap_connector(create_https_base_connector())
             }
             Err(_) => {
                 // Fallback: Use webpki roots if native roots fail
-                // Note: with_webpki_roots() doesn't return Result, it always succeeds
                 hyper_rustls::HttpsConnectorBuilder::new()
                     .with_webpki_roots()
                     .https_or_http()
                     .enable_http1()
                     .enable_http2()
-                    .wrap_connector(create_http_connector())
+                    .wrap_connector(create_https_base_connector())
             }
         };
         
         // Create HTTPS-capable client
-        let client = Client::builder(TokioExecutor::new())
+        let https_client = Client::builder(TokioExecutor::new())
             .build(https_connector);
 
         Ok(Self {
-            client: HttpClient::Https(client), // Use HTTPS-capable client
+            client: SmartHttpClient {
+                http_client,
+                https_client,
+            },
             config,
             stats: Arc::new(RwLock::new(PoolStats::default())),
         })
@@ -175,6 +208,22 @@ impl HttpConnectionPool {
             ));
         }
 
+        // SMART CLIENT SELECTION: Choose HTTP or HTTPS client based on URI
+        let is_localhost = match uri.host() {
+            Some(host) => {
+                host == "localhost" || 
+                host == "127.0.0.1" || 
+                host == "::1" ||
+                host.starts_with("127.") ||  // Any 127.x.x.x address
+                host == "0.0.0.0"
+            }
+            None => false,
+        };
+        let is_http = uri.scheme_str() == Some("http");
+        
+        // Use HTTP-only client for localhost HTTP connections to avoid HttpsConnector issues
+        let use_http_client = is_localhost && is_http;
+
         // Update statistics
         {
             let mut stats = self.stats.write().map_err(|_| {
@@ -185,8 +234,8 @@ impl HttpConnectionPool {
 
         // Build the request
         let mut request_builder = hyper::Request::builder()
-            .method(method)
-            .uri(uri);
+            .method(method.clone())
+            .uri(uri.clone());
 
         // Add headers
         if let Some(ref headers_map) = headers {
@@ -195,8 +244,14 @@ impl HttpConnectionPool {
             }
         }
 
-        // Add Connection: keep-alive header to enable connection reuse
-        request_builder = request_builder.header("Connection", "keep-alive");
+        // Add appropriate Connection header based on client type
+        if use_http_client {
+            // For localhost HTTP, use Connection: close to avoid keep-alive issues
+            request_builder = request_builder.header("Connection", "close");
+        } else {
+            // For remote HTTPS, use keep-alive for connection reuse
+            request_builder = request_builder.header("Connection", "keep-alive");
+        }
 
         // Build request with body
         let body_data = body.unwrap_or_default();
@@ -204,43 +259,38 @@ impl HttpConnectionPool {
             .body(Full::new(body_data))
             .map_err(|e| RequestError::new_err(format!("Failed to build request: {}", e)))?;
 
-        // Send request using the connection pool with timeout
-        // The pool will automatically reuse connections for the same host
+        // Send request using the appropriate client with timeout
         let timeout_duration = timeout.unwrap_or(self.config.request_timeout);
         
-        // Handle different client types
-        let response = match &self.client {
-            HttpClient::Http(client) => {
-                let request_future = client.request(request);
-                let result = tokio::time::timeout(timeout_duration, request_future).await;
-                
-                result
-                    .map_err(|_| {
-                        // Use proper timeout error instead of generic RequestError
-                        crate::error::ReadTimeout::new_err(format!("Request timeout after {}s: deadline has elapsed", timeout_duration.as_secs_f64()))
-                    })?
-                    .map_err(|e| {
-                        // Map hyper client errors using our error mapping functions
-                        crate::error::map_hyper_util_error(e)
-                    })?
-            }
-            HttpClient::Https(client) => {
-                tokio::time::timeout(timeout_duration, client.request(request))
-                    .await
-                    .map_err(|_| {
-                        // Use proper timeout error instead of generic RequestError
-                        crate::error::ReadTimeout::new_err(format!("Request timeout after {}s: deadline has elapsed", timeout_duration.as_secs_f64()))
-                    })?
-                    .map_err(|e| {
-                        // Map hyper client errors using our error mapping functions
-                        crate::error::map_hyper_util_error(e)
-                    })?
-            }
+        let response = if use_http_client {
+            // Use HTTP-only client for localhost HTTP
+            tokio::time::timeout(timeout_duration, self.client.http_client.request(request))
+                .await
+                .map_err(|_| {
+                    crate::error::ReadTimeout::new_err(format!(
+                        "Request timeout after {}s: deadline has elapsed", 
+                        timeout_duration.as_secs_f64()
+                    ))
+                })?
+                .map_err(|e| {
+                    crate::error::map_hyper_util_error(e)
+                })?
+        } else {
+            // Use HTTPS-capable client for all other requests
+            tokio::time::timeout(timeout_duration, self.client.https_client.request(request))
+                .await
+                .map_err(|_| {
+                    crate::error::ReadTimeout::new_err(format!(
+                        "Request timeout after {}s: deadline has elapsed", 
+                        timeout_duration.as_secs_f64()
+                    ))
+                })?
+                .map_err(|e| {
+                    crate::error::map_hyper_util_error(e)
+                })?
         };
 
         // Update connection reuse statistics
-        // Note: In a real implementation, we would track this more accurately
-        // by monitoring the underlying connection pool
         {
             let mut stats = self.stats.write().map_err(|_| {
                 RequestError::new_err("Failed to acquire stats lock")
@@ -268,10 +318,7 @@ impl HttpConnectionPool {
     /// Get connection pool type information
     #[allow(dead_code)]
     pub fn get_client_type(&self) -> &str {
-        match &self.client {
-            HttpClient::Http(_) => "HTTP-only",
-            HttpClient::Https(_) => "HTTPS-capable",
-        }
+        "Smart Client (HTTP + HTTPS)"
     }
 
     /// Check if connection pooling is working by measuring consecutive request times

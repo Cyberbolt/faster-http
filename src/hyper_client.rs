@@ -26,7 +26,7 @@ impl Default for HyperClientConfig {
         Self {
             follow_redirects: true,
             max_redirects: 20,
-            timeout: Some(Duration::from_secs(30)),
+            timeout: Some(Duration::from_secs(5)), // Shorter timeout for debugging
             http1_only: false,
             http2_only: false,
         }
@@ -52,7 +52,7 @@ impl HyperHttpClient {
             keep_alive_timeout: Duration::from_secs(30),
             max_total_connections: 10,
             connect_timeout: Duration::from_secs(60), // Use same timeout as default PoolConfig
-            request_timeout: config.timeout.unwrap_or(Duration::from_secs(30)),
+            request_timeout: config.timeout.unwrap_or(Duration::from_secs(5)), // Shorter timeout for debugging
             http2_only: config.http2_only,
             http1_only: config.http1_only,
         };

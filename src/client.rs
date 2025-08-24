@@ -299,21 +299,35 @@ impl HttpClient {
         let json_obj = json.as_ref().map(|j| Python::with_gil(|py| j.to_object(py)));
         let files_obj = files.as_ref().map(|f| Python::with_gil(|py| f.to_object(py)));
 
-        // Execute the actual HTTP request using synchronous client
-        let response = self.sync_client.send_request(
-            method,
-            &final_url,
-            content,
-            data_obj,
-            json_obj,
-            files_obj,
-            None, // params already merged into URL
-            Some(final_headers),
-            timeout,
-            auth_option,
-            Some(follow_redirects),
-            final_cookies,
-        )?;
+        // Execute the actual HTTP request using the same path as AsyncHttpClient
+        // Use build_and_send_request to ensure identical logic
+        let config_clone = self.config.clone();
+        let method_owned = method.to_string();
+        let final_url_owned = final_url.clone();
+        let base_url_clone = self.config.base_url.clone();
+        let default_headers_clone = self.config.default_headers.clone();
+        let default_timeout = self.config.default_timeout.or(timeout.map(std::time::Duration::from_secs_f64));
+        
+        let response = crate::sync_core::execute_in_runtime(async move {
+            crate::core::build_and_send_request(
+                &config_clone,
+                &method_owned,
+                &final_url_owned,
+                content,
+                data,
+                json,
+                files,
+                None, // params already merged into URL
+                Some(final_headers),
+                timeout,
+                &base_url_clone,
+                &default_headers_clone,
+                default_timeout,
+                auth_option,
+                follow_redirects,
+                final_cookies,
+            ).await
+        })?;
 
         // Execute response hooks in Rust layer
         if self.has_hooks() {
