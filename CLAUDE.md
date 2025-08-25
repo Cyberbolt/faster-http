@@ -122,8 +122,13 @@
 - **普通功能测试禁止访问此服务**
 
 ##### 执行命令
+异步执行：
 ```bash
 sh scripts/auto_taskset.sh "timeout 60s uv run benchmarks/faster_http_test.py"
+```
+同步执行：
+```bash
+sh scripts/auto_taskset.sh "timeout 60s uv run benchmarks/faster_http_test.py --mode sync"
 ```
 
 ##### 执行要求

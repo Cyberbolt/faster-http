@@ -1,13 +1,11 @@
 use pyo3::prelude::*;
-use crate::auth::extract_auth;
 use crate::config::ClientConfig;
 use crate::error::RequestError;
 use crate::hooks::EventHooksProxy;
 use crate::request::HttpRequest;
 use crate::response::HttpResponse;
-use crate::runtime::get_global_runtime;
-use crate::core::send_request_direct;
-use crate::hyper_client::HyperHttpClient;
+// Removed async-related imports as we use synchronous ureq client
+use crate::ureq_client::{UreqHttpClient, UreqClientConfig};
 // Removed unused utility imports
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -67,7 +65,7 @@ fn extract_cookies_from_object(
 // Synchronous HTTP client - simplified to match AsyncClient architecture
 #[pyclass(module = "faster_http")]
 pub struct HttpClient {
-    client: HyperHttpClient,  // Pre-built client, same as AsyncClient
+    client: UreqHttpClient,  // Use ureq for true synchronous operations
     config: ClientConfig,
     is_closed: AtomicBool,
 }
@@ -127,8 +125,13 @@ impl HttpClient {
             params,
         )?;
         
-        // CRITICAL FIX: Pre-build client like AsyncClient to avoid per-request rebuilding
-        let client = config.build_client(None)?;
+        // Build ureq-based synchronous client
+        let ureq_config = UreqClientConfig {
+            timeout: config.default_timeout,
+            follow_redirects: config.follow_redirects,
+            max_redirects: if config.max_redirects >= 0 { config.max_redirects as u32 } else { 20 },
+        };
+        let client = UreqHttpClient::new(ureq_config)?;
 
         Ok(HttpClient {
             client,
@@ -189,54 +192,18 @@ impl HttpClient {
         ))
     }
 
-    // Send pre-built request - now using simple direct approach like AsyncClient
+    // Send pre-built request - using synchronous ureq client directly
     pub fn send(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
         self.check_not_closed()?;
         
-        // CRITICAL FIX: Use pre-built client like AsyncClient (no per-request rebuilding)
-        let client = self.client.clone();
-        let config = self.config.clone();
-        // Extract minimal data needed, avoid unnecessary cloning (same as AsyncClient)
-        let method = request.get_method().to_string();
-        let url = request.get_url().to_string();
-        let headers = request.get_headers().clone();
-        let content_bytes = request.get_content().map(|b| b.to_vec());
+        // Extract request data
+        let method = request.get_method();
+        let url = request.get_url();
+        let headers = Some(request.get_headers().clone());
+        let content_bytes = request.get_content().map(|b| bytes::Bytes::from(b.to_vec()));
         
-        // EXPERIMENTAL: Try different async execution strategy to match AsyncClient success
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            // We're already in a tokio context, spawn a task  
-            std::thread::spawn(move || {
-                handle.block_on(async move {
-                    send_request_direct(
-                        &client,
-                        &method,
-                        &url,
-                        &headers,
-                        content_bytes.as_deref(),
-                        &config,
-                        None,  // TODO: Extract timeout from HttpRequest, use config default for now
-                    )
-                    .await
-                })
-            }).join().map_err(|_| RequestError::new_err("Thread join failed"))?
-        } else {
-            // No current tokio context, create new runtime
-            let runtime = tokio::runtime::Runtime::new()
-                .map_err(|e| RequestError::new_err(format!("Failed to create runtime: {}", e)))?;
-            
-            runtime.block_on(async move {
-                send_request_direct(
-                    &client,
-                    &method,
-                    &url,
-                    &headers,
-                    content_bytes.as_deref(),
-                    &config,
-                    None,  // TODO: Extract timeout from HttpRequest, use config default for now
-                )
-                .await
-            })
-        }
+        // Use ureq client directly (synchronous operation)
+        self.client.request(method, url, headers, content_bytes, None)
     }
 
     fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -285,55 +252,20 @@ impl HttpClient {
     ) -> PyResult<HttpResponse> {
         self.check_not_closed()?;
 
-        // SIMPLIFIED: Use the same direct approach as AsyncClient's send() method
-        // This bypasses the complex build_and_send_request logic that might be causing issues
-        
-        // CRITICAL FIX: Use pre-built client like AsyncClient (no per-request rebuilding)
-        let client = self.client.clone();
-        let config = self.config.clone();
-        
-        // For simple requests, use only basic parameters like AsyncClient
-        let method_owned = method.to_string();
-        let url_owned = url.to_string();
-        let headers_owned = headers.unwrap_or_default();
-        let content_bytes = content;
-        
-        // EXPERIMENTAL: Try different async execution strategy to match AsyncClient success
-        // Use handle() instead of block_on() to avoid potential runtime context issues
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            // We're already in a tokio context, spawn a task
-            std::thread::spawn(move || {
-                handle.block_on(async move {
-                    send_request_direct(
-                        &client,
-                        &method_owned,
-                        &url_owned,
-                        &headers_owned,
-                        content_bytes.as_deref(),
-                        &config,
-                        timeout,  // CRITICAL FIX: Pass request-level timeout
-                    )
-                    .await
-                })
-            }).join().map_err(|_| RequestError::new_err("Thread join failed"))?
-        } else {
-            // No current tokio context, create new runtime
-            let runtime = tokio::runtime::Runtime::new()
-                .map_err(|e| RequestError::new_err(format!("Failed to create runtime: {}", e)))?;
-            
-            runtime.block_on(async move {
-                send_request_direct(
-                    &client,
-                    &method_owned,
-                    &url_owned,
-                    &headers_owned,
-                    content_bytes.as_deref(),
-                    &config,
-                    timeout,  // CRITICAL FIX: Pass request-level timeout
-                )
-                .await
-            })
-        }
+        // Use ureq client's full request method (follow_redirects is handled by ureq config)
+        self.client.send_request_full(
+            method,
+            url,
+            content,
+            data,
+            json,
+            files,
+            params,
+            headers,
+            timeout,
+            auth,
+            cookies,
+        )
     }
 
     // Public request method for httpx compatibility
@@ -583,7 +515,7 @@ impl HttpClient {
         _headers: Option<HashMap<String, String>>,
         _timeout: Option<f64>,
         _auth: Option<(String, String)>,
-        _follow_redirects: Option<bool>,
+        follow_redirects: Option<bool>,
         _cookies: Option<HashMap<String, String>>,
     ) -> PyResult<crate::streaming_stub::StreamingClient> {
         // Streaming is not supported in the synchronous client implementation
