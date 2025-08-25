@@ -1,18 +1,13 @@
-// Synchronous HTTP client implementation using hyper with tokio runtime
+// Synchronous HTTP client implementation using ureq
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use crate::config::ClientConfig;
 use crate::response::HttpResponse;
-use crate::hyper_client::HyperHttpClient;
-use crate::core::{build_and_send_request, send_request_direct};
-use crate::runtime::get_global_runtime;
-// Removed unused Duration import
-
-// Removed complex runtime management - now using simple approach in client.rs
+use crate::ureq_client::{UreqHttpClient, UreqClientConfig};
 
 #[pyclass(module = "faster_http")]
 pub struct SyncHttpClient {
-    client: HyperHttpClient,
+    client: UreqHttpClient,
     config: ClientConfig,
 }
 
@@ -43,14 +38,20 @@ impl SyncHttpClient {
             None,    // default_encoding
             None,    // params
         )?;
-        // Use dynamic client build for consistency with AsyncClient
-        let client = config.build_client(None)?;
+
+        // Create ureq client configuration from ClientConfig
+        let ureq_config = UreqClientConfig {
+            timeout: config.default_timeout,
+            follow_redirects: config.follow_redirects,
+            max_redirects: config.max_redirects as u32,
+        };
+        
+        let client = UreqHttpClient::new(ureq_config)?;
 
         Ok(Self { client, config })
     }
 
-    /// Use build_and_send_request for ALL requests (same as AsyncHttpClient)
-    /// This ensures consistent behavior and fixes localhost timeout issues
+    /// Use ureq for synchronous requests
     #[allow(clippy::too_many_arguments)]
     pub fn send_request(
         &self,
@@ -68,7 +69,7 @@ impl SyncHttpClient {
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
         
-        // Merge default params with request params (same pattern as AsyncClient)
+        // Merge default params with request params
         let merged_params = match params {
             Some(request_params) => {
                 let mut merged = self.config.default_params.clone();
@@ -81,7 +82,7 @@ impl SyncHttpClient {
             _ => None,
         };
 
-        // Merge default cookies with request cookies (same pattern as AsyncClient)
+        // Merge default cookies with request cookies
         let merged_cookies = match cookies {
             Some(request_cookies) => {
                 let mut merged = self.config.default_cookies.clone();
@@ -95,11 +96,19 @@ impl SyncHttpClient {
         };
         
         let auth_option = auth.or_else(|| crate::auth::extract_auth(&self.config.auth));
-        let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
         
-        let config = self.config.clone();
-        let method_owned = method.to_string();
-        let url_owned = url.to_string();
+        // Merge default headers with request headers
+        let merged_headers = match headers {
+            Some(request_headers) => {
+                let mut merged = self.config.default_headers.clone();
+                merged.extend(request_headers);
+                Some(merged)
+            }
+            None if !self.config.default_headers.is_empty() => {
+                Some(self.config.default_headers.clone())
+            }
+            _ => headers,
+        };
         
         // Convert Python objects to HashMap 
         let data_dict = data.and_then(|obj| {
@@ -117,58 +126,39 @@ impl SyncHttpClient {
                 obj.extract::<HashMap<String, PyObject>>(py).ok()
             })
         });
-        
-        // Use global runtime for better performance and consistency
-        if let Some(runtime) = get_global_runtime() {
-            runtime.block_on(async move {
-                build_and_send_request(
-                    &config,
-                    &method_owned,
-                    &url_owned,
-                    content,
-                    data_dict,
-                    json_dict,
-                    files_dict,
-                    merged_params,
-                    headers,
-                    timeout,
-                    &config.base_url,
-                    &config.default_headers,
-                    config.default_timeout,
-                    auth_option,
-                    follow_redirects,
-                    merged_cookies,
-                ).await
-            })
+
+        // Build final URL
+        let final_url = if let Some(base) = &self.config.base_url {
+            if url.starts_with("http://") || url.starts_with("https://") {
+                url.to_string()
+            } else {
+                format!(
+                    "{}/{}",
+                    base.trim_end_matches('/'),
+                    url.trim_start_matches('/')
+                )
+            }
         } else {
-            // Fallback: create temporary runtime if global one fails
-            let runtime = tokio::runtime::Runtime::new()
-                .map_err(|e| crate::error::RequestError::new_err(format!("Failed to create runtime: {}", e)))?;
-            
-            runtime.block_on(async move {
-                build_and_send_request(
-                    &config,
-                    &method_owned,
-                    &url_owned,
-                    content,
-                    data_dict,
-                    json_dict,
-                    files_dict,
-                    merged_params,
-                    headers,
-                    timeout,
-                    &config.base_url,
-                    &config.default_headers,
-                    config.default_timeout,
-                    auth_option,
-                    follow_redirects,
-                    merged_cookies,
-                ).await
-            })
-        }
+            url.to_string()
+        };
+        
+        // Use ureq client for synchronous request
+        self.client.send_request_full(
+            method,
+            &final_url,
+            content,
+            data_dict,
+            json_dict,
+            files_dict,
+            merged_params,
+            merged_headers,
+            timeout,
+            auth_option,
+            merged_cookies,
+        )
     }
 
-    /// Send a simple request directly (optimized version)
+    /// Send a simple request directly using ureq
     pub fn send_request_direct(
         &self,
         method: &str,
@@ -176,28 +166,10 @@ impl SyncHttpClient {
         headers: HashMap<String, String>,
         content: Option<Vec<u8>>,
     ) -> PyResult<HttpResponse> {
-        // Create a clone of the client to move into the async block
-        let client = self.client.clone();
-        let config = self.config.clone();
-
-        // Convert borrowed strings to owned strings for async block
-        let method_owned = method.to_string();
-        let url_owned = url.to_string();
+        use bytes::Bytes;
         
-        // Use global runtime for better performance and consistency
-        if let Some(runtime) = get_global_runtime() {
-            runtime.block_on(async move {
-                send_request_direct(&client, &method_owned, &url_owned, &headers, content.as_deref(), &config, None).await
-            })
-        } else {
-            // Fallback: create temporary runtime if global one fails
-            let runtime = tokio::runtime::Runtime::new()
-                .map_err(|e| crate::error::RequestError::new_err(format!("Failed to create runtime: {}", e)))?;
-            
-            runtime.block_on(async move {
-                send_request_direct(&client, &method_owned, &url_owned, &headers, content.as_deref(), &config, None).await
-            })
-        }
+        let body = content.map(Bytes::from);
+        self.client.request(method, url, Some(headers), body, None)
     }
 
     /// Send a GET request
@@ -410,8 +382,8 @@ impl SyncHttpClient {
 }
 
 impl SyncHttpClient {
-    /// Get access to the underlying HyperHttpClient
-    pub fn get_client(&self) -> &HyperHttpClient {
+    /// Get access to the underlying UreqHttpClient
+    pub fn get_client(&self) -> &UreqHttpClient {
         &self.client
     }
 
@@ -419,8 +391,14 @@ impl SyncHttpClient {
 
     /// Create a new SyncHttpClient with the provided config (internal use)
     pub fn new_with_config(config: ClientConfig) -> PyResult<Self> {
-        // Use dynamic client build for consistency with AsyncClient
-        let client = config.build_client(None)?;
+        // Create ureq client configuration from ClientConfig
+        let ureq_config = UreqClientConfig {
+            timeout: config.default_timeout,
+            follow_redirects: config.follow_redirects,
+            max_redirects: config.max_redirects as u32,
+        };
+        
+        let client = UreqHttpClient::new(ureq_config)?;
 
         Ok(Self { client, config })
     }

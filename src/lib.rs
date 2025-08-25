@@ -14,6 +14,7 @@ mod core;
 mod error;
 mod hooks;
 mod hyper_client; // New hyper-based client module
+mod ureq_client; // Ureq-based synchronous client module
 mod models;
 mod proxy_config_stub; // Temporary stub for proxy configuration
 mod request;
