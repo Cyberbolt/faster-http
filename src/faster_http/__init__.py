@@ -54,9 +54,8 @@ from ._core import (
     request,
     stream,
 )
-from ._core import (
-    AsyncHttpClient as AsyncClient,
-)
+# Import the Python wrapper AsyncClient instead of direct Rust AsyncClient
+from ._wrapper_client import AsyncClient
 
 # Note: RustClient is available internally but not exposed in public API
 from ._core import (
