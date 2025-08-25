@@ -15,10 +15,10 @@
 - **最佳实践遵循**：严格按照 Python 最佳实践组织代码结构和编写代码
 
 ### Rust 层职责  
-- **接口转换**：Python 请求参数 → hyper 请求格式
-- **请求处理**：委托 hyper 执行 HTTP 操作
-- **响应转换**：hyper Response → httpx 兼容的 Python Response 对象
-- **最小化实现**：除必要情况外，将逻辑交给 hyper 处理
+- **接口转换**：Python 请求参数 → ureq 请求格式
+- **请求处理**：委托 ureq 执行 HTTP 操作
+- **响应转换**：ureq Response → httpx 兼容的 Python Response 对象
+- **最小化实现**：除必要情况外，将逻辑交给 ureq 处理
 - **最佳实践遵循**：严格按照 Rust 最佳实践组织代码结构和编写代码
 
 ### 性能要求
@@ -150,4 +150,4 @@ sh scripts/auto_taskset.sh "timeout 60s uv run benchmarks/faster_http_test.py"
 
 ## 技术栈文档查询
 - **httpx**：不确定时使用 context7 查询 + 实际验证
-- **hyper**：不确定时使用 context7 查询相关文档
+- **ureq**：不确定时使用 context7 查询相关文档
