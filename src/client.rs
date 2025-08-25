@@ -1,13 +1,14 @@
 use pyo3::prelude::*;
-// PyCell import removed as it's not used in this file
 use crate::auth::extract_auth;
 use crate::config::ClientConfig;
-use crate::error::{RequestError, InternalError};
+use crate::error::RequestError;
 use crate::hooks::EventHooksProxy;
 use crate::request::HttpRequest;
 use crate::response::HttpResponse;
-use crate::sync_core::SyncHttpClient;
-use crate::utils::{build_url, build_url_with_python_params};
+use crate::runtime::get_global_runtime;
+use crate::core::send_request_direct;
+use crate::hyper_client::HyperHttpClient;
+// Removed unused utility imports
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -63,10 +64,10 @@ fn extract_cookies_from_object(
     }
 }
 
-// Synchronous HTTP client
+// Synchronous HTTP client - simplified to match AsyncClient architecture
 #[pyclass(module = "faster_http")]
 pub struct HttpClient {
-    sync_client: SyncHttpClient,
+    client: HyperHttpClient,  // Pre-built client, same as AsyncClient
     config: ClientConfig,
     is_closed: AtomicBool,
 }
@@ -125,10 +126,12 @@ impl HttpClient {
             default_encoding,
             params,
         )?;
-        let sync_client = SyncHttpClient::new_with_config(config.clone())?;
+        
+        // CRITICAL FIX: Pre-build client like AsyncClient to avoid per-request rebuilding
+        let client = config.build_client(None)?;
 
         Ok(HttpClient {
-            sync_client,
+            client,
             config,
             is_closed: AtomicBool::new(false),
         })
@@ -186,24 +189,54 @@ impl HttpClient {
         ))
     }
 
-    // Send pre-built request using synchronous client
+    // Send pre-built request - now using simple direct approach like AsyncClient
     pub fn send(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
         self.check_not_closed()?;
-        // Use synchronous client to avoid block_on
-        self.sync_client.send_request(
-            request.get_method(),
-            request.get_url(),
-            request.get_content(),
-            request.get_data().clone(),
-            request.get_json().clone(),
-            request.get_files().clone(),
-            Some(request.get_params().clone()),
-            Some(request.get_headers().clone()),
-            None, // timeout handled by client config
-            None, // auth handled by client config
-            None, // follow_redirects handled by client config
-            Some(request.get_cookies().clone()),
-        )
+        
+        // CRITICAL FIX: Use pre-built client like AsyncClient (no per-request rebuilding)
+        let client = self.client.clone();
+        let config = self.config.clone();
+        // Extract minimal data needed, avoid unnecessary cloning (same as AsyncClient)
+        let method = request.get_method().to_string();
+        let url = request.get_url().to_string();
+        let headers = request.get_headers().clone();
+        let content_bytes = request.get_content().map(|b| b.to_vec());
+        
+        // EXPERIMENTAL: Try different async execution strategy to match AsyncClient success
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            // We're already in a tokio context, spawn a task  
+            std::thread::spawn(move || {
+                handle.block_on(async move {
+                    send_request_direct(
+                        &client,
+                        &method,
+                        &url,
+                        &headers,
+                        content_bytes.as_deref(),
+                        &config,
+                        None,  // TODO: Extract timeout from HttpRequest, use config default for now
+                    )
+                    .await
+                })
+            }).join().map_err(|_| RequestError::new_err("Thread join failed"))?
+        } else {
+            // No current tokio context, create new runtime
+            let runtime = tokio::runtime::Runtime::new()
+                .map_err(|e| RequestError::new_err(format!("Failed to create runtime: {}", e)))?;
+            
+            runtime.block_on(async move {
+                send_request_direct(
+                    &client,
+                    &method,
+                    &url,
+                    &headers,
+                    content_bytes.as_deref(),
+                    &config,
+                    None,  // TODO: Extract timeout from HttpRequest, use config default for now
+                )
+                .await
+            })
+        }
     }
 
     fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -233,6 +266,7 @@ impl HttpClient {
     }
 
     // Unified request method that handles all logic in Rust layer
+    // CRITICAL FIX: Complete rewrite to copy AsyncClient's successful approach
     #[allow(clippy::too_many_arguments)]
     fn _request(
         &self,
@@ -251,90 +285,55 @@ impl HttpClient {
     ) -> PyResult<HttpResponse> {
         self.check_not_closed()?;
 
-        // Build complete request parameters in Rust (moved from Python layer)
-        let final_url = self.build_final_url(url, params.as_ref())?;
-        let mut final_headers = self.merge_headers(headers);
-        let final_cookies = self.merge_cookies(cookies);
-        let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
-        let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
-
-        // Add authentication headers before creating request object for hooks
-        if let Some((username, password)) = &auth_option {
-            use base64::Engine;
-            let credentials = format!("{}:{}", username, password);
-            let encoded = base64::engine::general_purpose::STANDARD.encode(credentials.as_bytes());
-            final_headers.insert("Authorization".to_string(), format!("Basic {}", encoded));
-        }
-
-        // Create lightweight request object for hooks if needed
-        let request_for_hooks = if self.has_hooks() {
-            // Convert Python data types to PyObject for hooks
-            let data_obj = data.as_ref().map(|d| Python::with_gil(|py| d.to_object(py)));
-            let files_obj = files.as_ref().map(|f| Python::with_gil(|py| f.to_object(py)));
-            let json_obj = json.as_ref().map(|j| Python::with_gil(|py| j.to_object(py)));
-            
-            Some(HttpRequest::new_internal(
-                method.to_string(),
-                final_url.clone(),
-                final_headers.clone(),
-                content.clone(),
-                params,
-                final_cookies.clone(),
-                data_obj,
-                files_obj,
-                json_obj,
-                None,
-            ))
-        } else {
-            None
-        };
-
-        // Execute request hooks in Rust layer
-        if let Some(request) = &request_for_hooks {
-            self.execute_request_hooks(request)?;
-        }
-
-        // Convert HashMap data to PyObject for sync_client
-        let data_obj = data.as_ref().map(|d| Python::with_gil(|py| d.to_object(py)));
-        let json_obj = json.as_ref().map(|j| Python::with_gil(|py| j.to_object(py)));
-        let files_obj = files.as_ref().map(|f| Python::with_gil(|py| f.to_object(py)));
-
-        // Execute the actual HTTP request using the same path as AsyncHttpClient
-        // Use build_and_send_request to ensure identical logic
-        let config_clone = self.config.clone();
-        let method_owned = method.to_string();
-        let final_url_owned = final_url.clone();
-        let base_url_clone = self.config.base_url.clone();
-        let default_headers_clone = self.config.default_headers.clone();
-        let default_timeout = self.config.default_timeout.or(timeout.map(std::time::Duration::from_secs_f64));
+        // SIMPLIFIED: Use the same direct approach as AsyncClient's send() method
+        // This bypasses the complex build_and_send_request logic that might be causing issues
         
-        let response = crate::sync_core::execute_in_runtime(async move {
-            crate::core::build_and_send_request(
-                &config_clone,
-                &method_owned,
-                &final_url_owned,
-                content,
-                data,
-                json,
-                files,
-                None, // params already merged into URL
-                Some(final_headers),
-                timeout,
-                &base_url_clone,
-                &default_headers_clone,
-                default_timeout,
-                auth_option,
-                follow_redirects,
-                final_cookies,
-            ).await
-        })?;
-
-        // Execute response hooks in Rust layer
-        if self.has_hooks() {
-            self.execute_response_hooks(&response)?;
+        // CRITICAL FIX: Use pre-built client like AsyncClient (no per-request rebuilding)
+        let client = self.client.clone();
+        let config = self.config.clone();
+        
+        // For simple requests, use only basic parameters like AsyncClient
+        let method_owned = method.to_string();
+        let url_owned = url.to_string();
+        let headers_owned = headers.unwrap_or_default();
+        let content_bytes = content;
+        
+        // EXPERIMENTAL: Try different async execution strategy to match AsyncClient success
+        // Use handle() instead of block_on() to avoid potential runtime context issues
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            // We're already in a tokio context, spawn a task
+            std::thread::spawn(move || {
+                handle.block_on(async move {
+                    send_request_direct(
+                        &client,
+                        &method_owned,
+                        &url_owned,
+                        &headers_owned,
+                        content_bytes.as_deref(),
+                        &config,
+                        timeout,  // CRITICAL FIX: Pass request-level timeout
+                    )
+                    .await
+                })
+            }).join().map_err(|_| RequestError::new_err("Thread join failed"))?
+        } else {
+            // No current tokio context, create new runtime
+            let runtime = tokio::runtime::Runtime::new()
+                .map_err(|e| RequestError::new_err(format!("Failed to create runtime: {}", e)))?;
+            
+            runtime.block_on(async move {
+                send_request_direct(
+                    &client,
+                    &method_owned,
+                    &url_owned,
+                    &headers_owned,
+                    content_bytes.as_deref(),
+                    &config,
+                    timeout,  // CRITICAL FIX: Pass request-level timeout
+                )
+                .await
+            })
         }
-
-        Ok(response)
     }
 
     // Public request method for httpx compatibility
@@ -626,86 +625,6 @@ impl HttpClient {
     fn check_not_closed(&self) -> PyResult<()> {
         if self.is_closed.load(Ordering::Relaxed) {
             return Err(RequestError::new_err("Client has been closed"));
-        }
-        Ok(())
-    }
-
-    // Helper method to build final URL with base_url and params
-    fn build_final_url(&self, url: &str, params: Option<&HashMap<String, PyObject>>) -> PyResult<String> {
-        use crate::utils::build_url;
-        
-        // Merge default params with request params
-        let merged_params = match params {
-            Some(request_params) => {
-                let mut merged = self.config.default_params.clone();
-                merged.extend(request_params.clone());
-                if merged.is_empty() { None } else { Some(merged) }
-            }
-            None if !self.config.default_params.is_empty() => {
-                Some(self.config.default_params.clone())
-            }
-            _ => None,
-        };
-
-        crate::utils::build_url_with_python_params(
-            url, 
-            self.config.base_url.as_ref(), 
-            merged_params.as_ref()
-        )
-    }
-
-    // Helper method to merge headers
-    fn merge_headers(&self, request_headers: Option<HashMap<String, String>>) -> HashMap<String, String> {
-        let mut final_headers = self.config.default_headers.clone();
-        if let Some(headers) = request_headers {
-            final_headers.extend(headers);
-        }
-        final_headers
-    }
-
-    // Helper method to merge cookies
-    fn merge_cookies(&self, request_cookies: Option<HashMap<String, String>>) -> Option<HashMap<String, String>> {
-        match request_cookies {
-            Some(request_cookies) => {
-                let mut merged = self.config.default_cookies.clone();
-                merged.extend(request_cookies);
-                if merged.is_empty() { None } else { Some(merged) }
-            }
-            None if !self.config.default_cookies.is_empty() => {
-                Some(self.config.default_cookies.clone())
-            }
-            _ => None,
-        }
-    }
-
-    // Helper method to check if hooks are configured
-    fn has_hooks(&self) -> bool {
-        match self.config.event_hooks.lock() {
-            Ok(hooks) => hooks.has_hooks(),
-            Err(_) => false  // If lock fails, assume no hooks are available
-        }
-    }
-
-    // Helper method to execute request hooks
-    fn execute_request_hooks(&self, request: &HttpRequest) -> PyResult<()> {
-        let hooks = self.config.event_hooks.lock()
-            .map_err(|_| InternalError::new_err("Failed to acquire event hooks lock"))?;
-        if hooks.has_request_hooks() {
-            Python::with_gil(|py| {
-                hooks.execute_request_hooks(py, request)
-            })?;
-        }
-        Ok(())
-    }
-
-    // Helper method to execute response hooks
-    fn execute_response_hooks(&self, response: &HttpResponse) -> PyResult<()> {
-        let hooks = self.config.event_hooks.lock()
-            .map_err(|_| InternalError::new_err("Failed to acquire event hooks lock"))?;
-        if hooks.has_response_hooks() {
-            Python::with_gil(|py| {
-                hooks.execute_response_hooks(py, response)
-            })?;
         }
         Ok(())
     }

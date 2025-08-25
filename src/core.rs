@@ -57,8 +57,10 @@ pub async fn send_request_direct(
     url: &str,
     headers: &HashMap<String, String>,
     content: Option<&[u8]>,
-    _config: &ClientConfig,
+    config: &ClientConfig,
+    timeout: Option<f64>,  // Add request-level timeout parameter
 ) -> PyResult<HttpResponse> {
+    
     let _start_time = Instant::now();
 
     // Parse URI
@@ -76,8 +78,16 @@ pub async fn send_request_direct(
     // Prepare body
     let body = content.map(Bytes::copy_from_slice);
 
-    // Send request using hyper client
-    client.request(method, uri, headers, body).await
+    
+    // Use hyper client for all requests (including localhost) for consistency
+    // Use request-level timeout if provided, otherwise use config default
+    let effective_timeout = timeout
+        .map(|t| Duration::from_secs_f64(t))
+        .or(config.default_timeout);
+    let result = client.request_with_timeout(method, uri, headers, body, effective_timeout).await;
+    
+    
+    result
 }
 
 // Legacy response processing function - removed in hyper migration
@@ -104,6 +114,7 @@ pub async fn build_and_send_request(
     follow_redirects: bool,
     cookies: Option<HashMap<String, String>>,
 ) -> PyResult<HttpResponse> {
+    
     let _start_time = Instant::now();
 
     // Use client from configuration
@@ -131,7 +142,9 @@ pub async fn build_and_send_request(
     // Add query parameters to URL (if any)
     if let Some(params_map) = &params {
         if !params_map.is_empty() {
-            let query_string: Vec<String> = params_map
+            // Use project standard function for type-safe PyObject conversion
+            let string_params = crate::utils::convert_params_to_strings(params_map)?;
+            let query_string: Vec<String> = string_params
                 .iter()
                 .map(|(key, value)| format!("{}={}", key, value))
                 .collect();
@@ -219,9 +232,15 @@ pub async fn build_and_send_request(
         .map(Duration::from_secs_f64)
         .or(default_timeout);
 
+    
     // Send request using hyper client with dynamic timeout
-    client.request_with_timeout(method, uri, Some(final_headers), body, effective_timeout).await
+    let result = client.request_with_timeout(method, uri, Some(final_headers), body, effective_timeout).await;
+    
+    
+    result
 }
+
+// Removed unused build_and_send_request_gil_free function
 
 
 // Core streaming request building and sending function - returns StreamingHttpResponse
@@ -254,3 +273,9 @@ pub async fn build_and_send_streaming_request(
 }
 
 // Legacy cookie extraction function removed - functionality moved to hyper_client module
+
+// Removed unused extract_content_length_from_headers function
+
+// Removed send_request_direct_sync - no longer needed as we use hyper for all requests
+
+// Removed send_request_with_curl - no longer needed as we use hyper for all requests

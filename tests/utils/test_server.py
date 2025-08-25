@@ -435,8 +435,24 @@ class HTTPTestServer:
 
             self._started = True
 
-            # Wait a moment for server to start
-            time.sleep(0.05)  # Reduced wait time
+            # Wait longer for server to start and verify it's responding
+            time.sleep(0.2)  # Increased wait time for reliability
+            
+            # Verify server is actually responding
+            for _ in range(10):  # Try up to 1 second total
+                try:
+                    import socket as test_socket
+                    sock = test_socket.socket(test_socket.AF_INET, test_socket.SOCK_STREAM)
+                    sock.settimeout(0.1)
+                    result = sock.connect_ex((self.host, self.port))
+                    sock.close()
+                    if result == 0:
+                        break  # Server is responding
+                except Exception:
+                    pass
+                time.sleep(0.1)
+            else:
+                raise RuntimeError(f"Test server failed to start properly on {self.host}:{self.port}")
         except Exception as e:
             print(f"Failed to start test server: {e}")
             raise

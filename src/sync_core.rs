@@ -3,47 +3,12 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 use crate::config::ClientConfig;
 use crate::response::HttpResponse;
-use crate::hyper_client::{HyperHttpClient, HyperClientConfig};
+use crate::hyper_client::HyperHttpClient;
 use crate::core::{build_and_send_request, send_request_direct};
-use std::sync::OnceLock;
-use tokio::runtime::Runtime;
-use std::time::Duration;
-use pyo3_asyncio;
+use crate::runtime::get_global_runtime;
+// Removed unused Duration import
 
-/// Safe runtime management for synchronous operations
-/// Returns a reference to the shared runtime when safe, or creates a temporary one
-fn get_shared_runtime() -> PyResult<&'static Runtime> {
-    use crate::error::RuntimeInitFailed;
-    
-    static SHARED_RUNTIME: OnceLock<Result<Runtime, String>> = OnceLock::new();
-    
-    let result = SHARED_RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .thread_name("faster-http-shared")
-            .worker_threads(2) // Limit threads to avoid resource conflicts
-            .build()
-            .map_err(|e| format!("Failed to create shared runtime: {}", e))
-    });
-    
-    match result {
-        Ok(runtime) => Ok(runtime),
-        Err(msg) => Err(RuntimeInitFailed::new_err(msg.clone()))
-    }
-}
-
-/// Execute async operation in a runtime-safe manner with simplified logic
-/// Uses the global shared runtime to avoid context issues
-pub fn execute_in_runtime<F, T>(future: F) -> PyResult<T>
-where
-    F: std::future::Future<Output = PyResult<T>> + Send + 'static,
-    T: Send + 'static,
-{
-    // Use the global shared runtime to maintain connection pool state
-    // This ensures the same runtime context as the connection pool
-    let runtime = get_shared_runtime()?;
-    runtime.block_on(future)
-}
+// Removed complex runtime management - now using simple approach in client.rs
 
 #[pyclass(module = "faster_http")]
 pub struct SyncHttpClient {
@@ -78,22 +43,14 @@ impl SyncHttpClient {
             None,    // default_encoding
             None,    // params
         )?;
-        // Convert ClientConfig to HyperClientConfig
-        let hyper_config = HyperClientConfig {
-            follow_redirects: config.follow_redirects,
-            max_redirects: config.max_redirects as usize,
-            timeout: config.default_timeout,
-            http1_only: config.http1,
-            http2_only: config.http2,
-        };
-
-        // Create the hyper client
-        let client = HyperHttpClient::new(hyper_config)?;
+        // Use dynamic client build for consistency with AsyncClient
+        let client = config.build_client(None)?;
 
         Ok(Self { client, config })
     }
 
-    /// Send a request using the synchronous client (blocking wrapper around async client)
+    /// Use build_and_send_request for ALL requests (same as AsyncHttpClient)
+    /// This ensures consistent behavior and fixes localhost timeout issues
     #[allow(clippy::too_many_arguments)]
     pub fn send_request(
         &self,
@@ -110,52 +67,105 @@ impl SyncHttpClient {
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        // Create a clone of the config to move into the async block
+        
+        // Merge default params with request params (same pattern as AsyncClient)
+        let merged_params = match params {
+            Some(request_params) => {
+                let mut merged = self.config.default_params.clone();
+                merged.extend(request_params);
+                Some(merged)
+            }
+            None if !self.config.default_params.is_empty() => {
+                Some(self.config.default_params.clone())
+            }
+            _ => None,
+        };
+
+        // Merge default cookies with request cookies (same pattern as AsyncClient)
+        let merged_cookies = match cookies {
+            Some(request_cookies) => {
+                let mut merged = self.config.default_cookies.clone();
+                merged.extend(request_cookies);
+                Some(merged)
+            }
+            None if !self.config.default_cookies.is_empty() => {
+                Some(self.config.default_cookies.clone())
+            }
+            _ => None,
+        };
+        
+        let auth_option = auth.or_else(|| crate::auth::extract_auth(&self.config.auth));
+        let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
+        
         let config = self.config.clone();
-
-        // Convert timeout to Duration if provided
-        let timeout_duration = timeout.map(Duration::from_secs_f64);
-
-        // Convert borrowed strings to owned strings for async block
         let method_owned = method.to_string();
         let url_owned = url.to_string();
         
-        // Execute the async operation in a runtime-safe manner
-        execute_in_runtime(async move {
-            build_and_send_request(
-                &config,
-                &method_owned,
-                &url_owned,
-                content,
-                data.and_then(|obj| {
-                    Python::with_gil(|py| {
-                        // Convert PyObject to HashMap for data parameter
-                        obj.extract::<HashMap<String, PyObject>>(py).ok()
-                    })
-                }),
-                json.and_then(|obj| {
-                    Python::with_gil(|py| {
-                        // Convert PyObject to HashMap for json parameter  
-                        obj.extract::<HashMap<String, PyObject>>(py).ok()
-                    })
-                }),
-                files.and_then(|obj| {
-                    Python::with_gil(|py| {
-                        // Convert PyObject to HashMap for files parameter
-                        obj.extract::<HashMap<String, PyObject>>(py).ok()
-                    })
-                }),
-                params,
-                headers,
-                timeout,
-                &config.base_url,
-                &config.default_headers,
-                config.default_timeout.or(timeout_duration),
-                auth,
-                follow_redirects.unwrap_or(config.follow_redirects),
-                cookies,
-            ).await
-        })
+        // Convert Python objects to HashMap 
+        let data_dict = data.and_then(|obj| {
+            Python::with_gil(|py| {
+                obj.extract::<HashMap<String, PyObject>>(py).ok()
+            })
+        });
+        let json_dict = json.and_then(|obj| {
+            Python::with_gil(|py| {
+                obj.extract::<HashMap<String, PyObject>>(py).ok()
+            })
+        });
+        let files_dict = files.and_then(|obj| {
+            Python::with_gil(|py| {
+                obj.extract::<HashMap<String, PyObject>>(py).ok()
+            })
+        });
+        
+        // Use global runtime for better performance and consistency
+        if let Some(runtime) = get_global_runtime() {
+            runtime.block_on(async move {
+                build_and_send_request(
+                    &config,
+                    &method_owned,
+                    &url_owned,
+                    content,
+                    data_dict,
+                    json_dict,
+                    files_dict,
+                    merged_params,
+                    headers,
+                    timeout,
+                    &config.base_url,
+                    &config.default_headers,
+                    config.default_timeout,
+                    auth_option,
+                    follow_redirects,
+                    merged_cookies,
+                ).await
+            })
+        } else {
+            // Fallback: create temporary runtime if global one fails
+            let runtime = tokio::runtime::Runtime::new()
+                .map_err(|e| crate::error::RequestError::new_err(format!("Failed to create runtime: {}", e)))?;
+            
+            runtime.block_on(async move {
+                build_and_send_request(
+                    &config,
+                    &method_owned,
+                    &url_owned,
+                    content,
+                    data_dict,
+                    json_dict,
+                    files_dict,
+                    merged_params,
+                    headers,
+                    timeout,
+                    &config.base_url,
+                    &config.default_headers,
+                    config.default_timeout,
+                    auth_option,
+                    follow_redirects,
+                    merged_cookies,
+                ).await
+            })
+        }
     }
 
     /// Send a simple request directly (optimized version)
@@ -174,10 +184,20 @@ impl SyncHttpClient {
         let method_owned = method.to_string();
         let url_owned = url.to_string();
         
-        // Execute the async operation in a runtime-safe manner
-        execute_in_runtime(async move {
-            send_request_direct(&client, &method_owned, &url_owned, &headers, content.as_deref(), &config).await
-        })
+        // Use global runtime for better performance and consistency
+        if let Some(runtime) = get_global_runtime() {
+            runtime.block_on(async move {
+                send_request_direct(&client, &method_owned, &url_owned, &headers, content.as_deref(), &config, None).await
+            })
+        } else {
+            // Fallback: create temporary runtime if global one fails
+            let runtime = tokio::runtime::Runtime::new()
+                .map_err(|e| crate::error::RequestError::new_err(format!("Failed to create runtime: {}", e)))?;
+            
+            runtime.block_on(async move {
+                send_request_direct(&client, &method_owned, &url_owned, &headers, content.as_deref(), &config, None).await
+            })
+        }
     }
 
     /// Send a GET request
@@ -390,19 +410,17 @@ impl SyncHttpClient {
 }
 
 impl SyncHttpClient {
+    /// Get access to the underlying HyperHttpClient
+    pub fn get_client(&self) -> &HyperHttpClient {
+        &self.client
+    }
+
+    // Removed complex localhost handling - now using unified simple approach
+
     /// Create a new SyncHttpClient with the provided config (internal use)
     pub fn new_with_config(config: ClientConfig) -> PyResult<Self> {
-        // Convert ClientConfig to HyperClientConfig
-        let hyper_config = HyperClientConfig {
-            follow_redirects: config.follow_redirects,
-            max_redirects: config.max_redirects as usize,
-            timeout: config.default_timeout,
-            http1_only: config.http1,
-            http2_only: config.http2,
-        };
-
-        // Create the hyper client
-        let client = HyperHttpClient::new(hyper_config)?;
+        // Use dynamic client build for consistency with AsyncClient
+        let client = config.build_client(None)?;
 
         Ok(Self { client, config })
     }
@@ -416,3 +434,5 @@ impl Clone for SyncHttpClient {
         }
     }
 }
+
+// Removed complex localhost optimization - now using unified simple approach

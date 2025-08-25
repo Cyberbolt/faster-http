@@ -162,7 +162,7 @@ impl ClientConfig {
                         None
                     }
                 })
-                .or(Some(Duration::from_secs(5))), // Set default 5-second timeout for debugging, negative values are ignored
+                .or(Some(Duration::from_secs(30))), // Set default 30-second timeout, negative values are ignored
             default_headers: headers.unwrap_or_default(),
             follow_redirects: follow_redirects.unwrap_or(true),
             auth: auth_type,

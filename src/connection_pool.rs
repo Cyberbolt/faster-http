@@ -12,12 +12,7 @@ use std::time::{Duration, Instant};
 use pyo3::prelude::*;
 use crate::error::RequestError;
 use hyper_util::rt::TokioExecutor;
-use tower_service::Service;
-use std::task::{Context, Poll};
-use std::future::Future;
-use std::pin::Pin;
-use std::net::{SocketAddr, Ipv4Addr, Ipv6Addr};
-use hyper_util::client::legacy::connect::dns::{Name, GaiResolver};
+// Removed unused imports
 
 /// Configuration for the connection pool
 #[derive(Clone, Debug)]
@@ -48,21 +43,12 @@ impl Default for PoolConfig {
             max_idle_per_host: 10,
             keep_alive_timeout: Duration::from_secs(90),
             max_total_connections: 100,
-            connect_timeout: Duration::from_secs(5),  // Shorter timeout for faster debugging
-            request_timeout: Duration::from_secs(10), // Shorter timeout for faster debugging
+            connect_timeout: Duration::from_secs(5),  // Consistent timeout
+            request_timeout: Duration::from_secs(30), // Reasonable timeout
             http2_only: false,
             http1_only: false,
         }
     }
-}
-
-/// Enum to handle different connector types for smart client selection
-#[derive(Clone)]
-pub enum HttpClient {
-    /// HTTPS-capable client (production)
-    Https(Client<HttpsConnector<HttpConnector>, Full<Bytes>>),
-    /// HTTP-only client (localhost and debugging)
-    Http(Client<HttpConnector, Full<Bytes>>),
 }
 
 /// Smart client container that holds both HTTP and HTTPS clients
@@ -112,14 +98,13 @@ impl HttpConnectionPool {
                 .ok(); // Ignore error if already installed
         });
 
-        // Create HTTP-only connector for localhost connections
+        // Create HTTP-only connector for localhost connections - fixed timeout
         let create_http_only_connector = || {
             let mut connector = HttpConnector::new();
-            connector.enforce_http(true);  // CRITICAL: Force HTTP-only for localhost
-            connector.set_connect_timeout(Some(config.connect_timeout));
-            connector.set_local_address(None);  // Let system choose local address
-            connector.set_nodelay(true);  // Disable Nagle's algorithm for lower latency
-            connector.set_keepalive(None);  // Disable keepalive at TCP level for localhost
+            connector.enforce_http(true);  // Force HTTP-only for localhost
+            connector.set_connect_timeout(Some(Duration::from_secs(5))); // Reasonable timeout for localhost
+            connector.set_nodelay(true);  // Enable TCP_NODELAY for low latency
+            connector.set_keepalive(Some(Duration::from_secs(30))); // Enable keepalive for localhost
             connector
         };
 
@@ -128,6 +113,8 @@ impl HttpConnectionPool {
             let mut connector = HttpConnector::new();
             connector.enforce_http(false);  // Allow both HTTP and HTTPS
             connector.set_connect_timeout(Some(config.connect_timeout));
+            connector.set_nodelay(true);  // Enable TCP_NODELAY for low latency
+            connector.set_keepalive(Some(Duration::from_secs(75))); // Enable keepalive
             connector
         };
 
@@ -209,7 +196,7 @@ impl HttpConnectionPool {
         }
 
         // SMART CLIENT SELECTION: Choose HTTP or HTTPS client based on URI
-        let is_localhost = match uri.host() {
+        let _is_localhost = match uri.host() {
             Some(host) => {
                 host == "localhost" || 
                 host == "127.0.0.1" || 
@@ -219,10 +206,13 @@ impl HttpConnectionPool {
             }
             None => false,
         };
-        let is_http = uri.scheme_str() == Some("http");
+        let _is_http = uri.scheme_str() == Some("http");
         
-        // Use HTTP-only client for localhost HTTP connections to avoid HttpsConnector issues
-        let use_http_client = is_localhost && is_http;
+        // CORRECT FIX: Use appropriate client based on URI scheme
+        // HTTP client for http:// requests, HTTPS client for https:// requests
+        let use_http_client = _is_http;
+        
+        // Client selection logic complete
 
         // Update statistics
         {
@@ -244,10 +234,10 @@ impl HttpConnectionPool {
             }
         }
 
-        // Add appropriate Connection header based on client type
+        // Add appropriate Connection header based on client type  
         if use_http_client {
-            // For localhost HTTP, use Connection: close to avoid keep-alive issues
-            request_builder = request_builder.header("Connection", "close");
+            // For localhost HTTP, use keep-alive for better performance
+            request_builder = request_builder.header("Connection", "keep-alive");
         } else {
             // For remote HTTPS, use keep-alive for connection reuse
             request_builder = request_builder.header("Connection", "keep-alive");

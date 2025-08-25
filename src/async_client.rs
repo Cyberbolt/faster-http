@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::auth::extract_auth;
 use crate::core::{build_and_send_request, send_request_direct};
 use crate::error::RequestError;
-use crate::utils::{build_url, build_url_with_python_params};
+// Removed unused import build_url_with_python_params
 
 // Asynchronous HTTP client
 #[pyclass(module = "faster_http")]
@@ -149,6 +149,7 @@ impl AsyncHttpClient {
                 &headers,
                 content_bytes.as_deref(),
                 &config,
+                None,  // TODO: Extract timeout from HttpRequest, use config default for now
             )
             .await
         })

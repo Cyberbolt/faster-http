@@ -211,7 +211,7 @@ impl TransportConfig {
         for item in mounts_dict.items() {
             let tuple = item.downcast::<pyo3::types::PyTuple>()?;
             let pattern = tuple.get_item(0)?;
-            let transport = tuple.get_item(1)?;
+            let _transport = tuple.get_item(1)?;
             
             let pattern_str = pattern.downcast::<PyString>()?.to_str()?;
             

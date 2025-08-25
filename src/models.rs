@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use std::collections::HashMap;
-use crate::error::{create_validation_error, create_file_error, create_url_error};
+use crate::error::{create_validation_error, create_url_error};
 
 /// Simple Headers wrapper - minimal interface for httpx compatibility
 /// Core logic handled by hyper in HTTP requests
