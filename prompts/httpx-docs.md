@@ -8,16 +8,16 @@
 ## 1. 顶级HTTP请求函数 (Top-Level Functions)
 
 ### 基础HTTP方法
-- [ ] `httpx.get(url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True, timeout=Timeout(5.0), trust_env=True) -> Response`
-- [ ] `httpx.post(url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True, timeout=Timeout(5.0), trust_env=True) -> Response`
-- [ ] `httpx.put(url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True, timeout=Timeout(5.0), trust_env=True) -> Response`
-- [ ] `httpx.patch(url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True, timeout=Timeout(5.0), trust_env=True) -> Response`
-- [ ] `httpx.delete(url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True, timeout=Timeout(5.0), trust_env=True) -> Response`
-- [ ] `httpx.head(url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True, timeout=Timeout(5.0), trust_env=True) -> Response`
-- [ ] `httpx.options(url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True, timeout=Timeout(5.0), trust_env=True) -> Response`
+- [x] `httpx.get(url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True, timeout=Timeout(5.0), trust_env=True) -> Response` # GET请求 - 完全正常
+- [x] `httpx.post(url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True, timeout=Timeout(5.0), trust_env=True) -> Response` # POST请求 - 完全正常
+- [x] `httpx.put(url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True, timeout=Timeout(5.0), trust_env=True) -> Response` # PUT请求 - 完全正常
+- [x] `httpx.patch(url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True, timeout=Timeout(5.0), trust_env=True) -> Response` # PATCH请求 - 完全正常
+- [x] `httpx.delete(url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True, timeout=Timeout(5.0), trust_env=True) -> Response` # DELETE请求 - 完全正常
+- [x] `httpx.head(url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True, timeout=Timeout(5.0), trust_env=True) -> Response` # HEAD请求 - 完全正常
+- [x] `httpx.options(url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True, timeout=Timeout(5.0), trust_env=True) -> Response` # OPTIONS请求 - 完全正常
 
 ### 通用请求函数
-- [ ] `httpx.request(method, url, *, params=None, content=None, data=None, files=None, json=None, headers=None, cookies=None, auth=None, proxy=None, timeout=Timeout(5.0), follow_redirects=False, verify=True, trust_env=True) -> Response`
+- [x] `httpx.request(method, url, *, params=None, content=None, data=None, files=None, json=None, headers=None, cookies=None, auth=None, proxy=None, timeout=Timeout(5.0), follow_redirects=False, verify=True, trust_env=True) -> Response` # 通用请求方法 - 完全正常
 
 ### 流式请求函数
 - [ ] `httpx.stream(method, url, *, params=None, content=None, data=None, files=None, json=None, headers=None, cookies=None, auth=None, proxy=None, timeout=Timeout(5.0), follow_redirects=False, verify=True, trust_env=True) -> Iterator[Response]`
@@ -51,16 +51,16 @@ httpx.Client(
 ```
 
 ### HTTP请求方法
-- [ ] `Client.get(url, *, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response`
-- [ ] `Client.post(url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response`
-- [ ] `Client.put(url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response`
-- [ ] `Client.patch(url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response`
-- [ ] `Client.delete(url, *, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response`
-- [ ] `Client.head(url, *, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response`
-- [ ] `Client.options(url, *, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response`
+- [x] `Client.get(url, *, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response` # 同步GET - 验证正常
+- [x] `Client.post(url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response` # 同步POST - 验证正常
+- [x] `Client.put(url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response` # 同步PUT - 验证正常
+- [x] `Client.patch(url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response` # 同步PATCH - 验证正常
+- [x] `Client.delete(url, *, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response` # 同步DELETE - 验证正常
+- [x] `Client.head(url, *, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response` # 同步HEAD - 验证正常
+- [x] `Client.options(url, *, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response` # 同步OPTIONS - 验证正常
 
 ### 通用请求和流式请求
-- [ ] `Client.request(method, url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response`
+- [x] `Client.request(method, url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Response` # 同步通用请求 - 验证正常
 - [ ] `Client.stream(method, url, *, content=None, data=None, files=None, json=None, params=None, headers=None, cookies=None, auth=UseClientDefault, follow_redirects=UseClientDefault, timeout=UseClientDefault, extensions=None) -> Iterator[Response]`
 
 ### 请求构建和发送
@@ -99,14 +99,14 @@ httpx.AsyncClient(
 ```
 
 ### HTTP请求方法 (异步，需要 await)
-- [ ] `AsyncClient.get(url, **kwargs) -> Response` (需要 await)
-- [ ] `AsyncClient.post(url, **kwargs) -> Response` (需要 await)
-- [ ] `AsyncClient.put(url, **kwargs) -> Response` (需要 await)
-- [ ] `AsyncClient.patch(url, **kwargs) -> Response` (需要 await)
-- [ ] `AsyncClient.delete(url, **kwargs) -> Response` (需要 await)
-- [ ] `AsyncClient.head(url, **kwargs) -> Response` (需要 await)
-- [ ] `AsyncClient.options(url, **kwargs) -> Response` (需要 await)
-- [ ] `AsyncClient.request(method, url, **kwargs) -> Response` (需要 await)
+- [x] `AsyncClient.get(url, **kwargs) -> Response` (需要 await) # 异步GET - ⚡已修复状态码兼容性
+- [x] `AsyncClient.post(url, **kwargs) -> Response` (需要 await) # 异步POST - ⚡已修复状态码兼容性
+- [x] `AsyncClient.put(url, **kwargs) -> Response` (需要 await) # 异步PUT - ⚡已修复状态码兼容性
+- [x] `AsyncClient.patch(url, **kwargs) -> Response` (需要 await) # 异步PATCH - ⚡已修复状态码兼容性
+- [x] `AsyncClient.delete(url, **kwargs) -> Response` (需要 await) # 异步DELETE - ⚡已修复状态码兼容性
+- [x] `AsyncClient.head(url, **kwargs) -> Response` (需要 await) # 异步HEAD - ⚡已修复状态码兼容性
+- [x] `AsyncClient.options(url, **kwargs) -> Response` (需要 await) # 异步OPTIONS - ⚡已修复状态码兼容性
+- [x] `AsyncClient.request(method, url, **kwargs) -> Response` (需要 await) # 异步通用请求 - ⚡已修复状态码兼容性
 
 ### 异步流式请求
 - [ ] `AsyncClient.stream(method, url, **kwargs) -> AsyncIterator[Response]` (需要 async with)
@@ -159,7 +159,7 @@ httpx.AsyncClient(
 
 ### 同步方法
 - [x] `Response.json() -> Any` - 解析JSON响应
-- [x] `Response.raise_for_status() -> Response` - 状态码异常检查
+- [x] `Response.raise_for_status() -> Response` - 状态码异常检查 # ⚡已修复兼容性问题
 - [ ] `Response.read() -> bytes` - 读取完整响应内容
 - [ ] `Response.close() -> None` - 关闭响应
 
@@ -264,7 +264,7 @@ httpx.DigestAuth(
 ### 基本异常
 - [ ] `httpx.HTTPError` - HTTP相关异常的基类
 - [ ] `httpx.RequestError` - 请求相关异常
-- [x] `httpx.HTTPStatusError` - HTTP状态码异常
+- [x] `httpx.HTTPStatusError` - HTTP状态码异常 # ⚡已修复兼容性问题
 - [ ] `httpx.ConnectError` - 连接异常
 - [ ] `httpx.TimeoutException` - 超时异常
 

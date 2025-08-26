@@ -111,7 +111,7 @@ impl SyncHttpClient {
         };
         
         // Handle data parameter - can be string, bytes, or dict
-        let (data_content, data_dict) = if let Some(data_obj) = data {
+        let (data_content, _data_dict) = if let Some(ref data_obj) = data {
             Python::with_gil(|py| {
                 // Try string first
                 if let Ok(s) = data_obj.extract::<String>(py) {
@@ -169,7 +169,7 @@ impl SyncHttpClient {
             method,
             &final_url,
             final_content,
-            data_dict,
+            data,
             json_dict,
             files_dict,
             merged_params,

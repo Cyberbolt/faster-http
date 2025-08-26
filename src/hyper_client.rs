@@ -1,4 +1,4 @@
-use crate::error::{RequestError, HTTPStatusError};
+use crate::error::RequestError;
 use crate::response::HttpResponse;
 use crate::connection_pool::{HttpConnectionPool, PoolConfig};
 use hyper::body::Incoming;
@@ -201,79 +201,8 @@ impl HyperHttpClient {
     ) -> PyResult<HttpResponse> {
         let status_code = response.status().as_u16();
         
-        // Check for HTTP status errors (4xx, 5xx) - httpx compatibility
-        if status_code >= 400 {
-            // We need to construct the response first to pass to the exception
-            let version = match response.version() {
-                Version::HTTP_09 => "HTTP/0.9".to_string(),
-                Version::HTTP_10 => "HTTP/1.0".to_string(),
-                Version::HTTP_11 => "HTTP/1.1".to_string(),
-                Version::HTTP_2 => "HTTP/2".to_string(),
-                Version::HTTP_3 => "HTTP/3".to_string(),
-                _ => "Unknown".to_string(),
-            };
-
-            // Extract headers
-            let headers: HashMap<String, String> = response
-                .headers()
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-                .collect();
-
-            // Extract cookies from Set-Cookie headers
-            let cookies = self.extract_cookies_from_headers(&headers);
-
-            // Read the body
-            let body_bytes = response
-                .into_body()
-                .collect()
-                .await
-                .map_err(|e| RequestError::new_err(format!("Failed to read response body: {}", e)))?
-                .to_bytes();
-
-            // Create HttpRequest object for the response
-            let request_obj = Python::with_gil(|py| -> PyResult<PyObject> {
-                let req = crate::request::HttpRequest::new(
-                    method.to_string(),
-                    url.clone(),
-                    request_headers.map(|h| h.to_object(py)),
-                    None,  // content
-                    None,  // params
-                    None,  // cookies
-                    None,  // data
-                    None,  // files
-                    None,  // json
-                    None,  // stream
-                )?;
-                Ok(Py::new(py, req)?.to_object(py))
-            })?;
-
-            // Create HttpResponse for the exception
-            let response_obj = HttpResponse::new(
-                status_code,
-                headers.clone(),
-                body_bytes.clone(),
-                url.clone(),
-                elapsed,
-                self.is_redirect_status(status_code),
-                version,
-                cookies,
-                Some(self.detect_encoding_from_headers(&headers)),
-                Vec::new(), // history
-                Some(request_obj), // request
-                body_bytes.len(),
-            );
-            
-            // Convert to Python object
-            let py_response = Python::with_gil(|py| {
-                Py::new(py, response_obj).map(|obj| obj.to_object(py))
-            })?;
-
-            return Err(HTTPStatusError::new_err_with_response(
-                format!("Client error '{}' for url '{}'", status_code, url),
-                Some(py_response),
-            ));
-        }
+        // Always return HttpResponse object for all status codes
+        // Users can call response.raise_for_status() if they want exceptions
 
         let version = match response.version() {
             Version::HTTP_09 => "HTTP/0.9".to_string(),

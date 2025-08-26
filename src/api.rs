@@ -12,7 +12,7 @@ fn execute_request_with_sync_client(
     method: &str,
     url: &str,
     content: Option<Vec<u8>>,
-    data: Option<HashMap<String, PyObject>>,
+    data: Option<PyObject>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, PyObject>>,
@@ -25,8 +25,7 @@ fn execute_request_with_sync_client(
     // Use the provided config to create a client with proper timeout settings
     let sync_client = SyncHttpClient::new_with_config(config.clone())?;
     
-    // Convert HashMap data to PyObject for sync_client
-    let data_obj = data.as_ref().map(|d| Python::with_gil(|py| d.to_object(py)));
+    // Convert HashMap types to PyObject for sync_client (data is already PyObject)
     let json_obj = json.as_ref().map(|j| Python::with_gil(|py| j.to_object(py)));
     let files_obj = files.as_ref().map(|f| Python::with_gil(|py| f.to_object(py)));
     
@@ -35,7 +34,7 @@ fn execute_request_with_sync_client(
         method,
         url,
         content,
-        data_obj,
+        data,
         json_obj,
         files_obj,
         params,
@@ -175,7 +174,7 @@ pub fn get(
 pub fn post(
     url: &str,
     content: Option<Vec<u8>>,
-    data: Option<HashMap<String, PyObject>>,
+    data: Option<PyObject>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, PyObject>>,
@@ -215,7 +214,7 @@ pub fn post(
 pub fn put(
     url: &str,
     content: Option<Vec<u8>>,
-    data: Option<HashMap<String, PyObject>>,
+    data: Option<PyObject>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, PyObject>>,
@@ -254,7 +253,7 @@ pub fn put(
 pub fn patch(
     url: &str,
     content: Option<Vec<u8>>,
-    data: Option<HashMap<String, PyObject>>,
+    data: Option<PyObject>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, PyObject>>,
@@ -397,7 +396,7 @@ pub fn request(
     method: &str,
     url: &str,
     content: Option<Vec<u8>>,
-    data: Option<HashMap<String, PyObject>>,
+    data: Option<PyObject>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, PyObject>>,

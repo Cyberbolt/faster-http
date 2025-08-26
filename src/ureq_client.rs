@@ -1,8 +1,8 @@
-use crate::error::{RequestError, HTTPStatusError, ConnectError, TimeoutException, TooManyRedirects};
+use crate::error::RequestError;
 use crate::response::HttpResponse;
 use pyo3::prelude::*;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use bytes::Bytes;
 use base64::Engine;
 
@@ -56,15 +56,8 @@ impl UreqHttpClient {
         body: Option<Bytes>,
         timeout: Option<Duration>,
     ) -> PyResult<HttpResponse> {
-        let start_time = Instant::now();
-        
-        let final_timeout = timeout
-            .or(self.config.timeout)
-            .unwrap_or(Duration::from_secs(30)); 
-        
         // SOLUTION: Release Python GIL and run ureq in isolated environment
         // This fixes the core issue where Python GIL interferes with ureq's network I/O
-        let config_timeout = self.config.timeout;
         let method = method.to_string();
         let url = url.to_string();
         let headers = headers.clone();
@@ -202,34 +195,8 @@ impl UreqHttpClient {
             Ok(Py::new(py, req)?.to_object(py))
         })?;
 
-        // Check for HTTP status errors (4xx, 5xx) - httpx compatibility
-        if status_code >= 400 {
-            // Create response object for the exception
-            let response_obj = HttpResponse::new(
-                status_code,
-                headers_map.clone(),
-                body.clone(),
-                url_str.clone(),
-                elapsed,
-                is_redirect_status,
-                http_version.clone(),
-                cookies.clone(),
-                None, // encoding - will be determined from headers
-                Vec::new(), // history - empty for now
-                Some(request_obj), // request
-                num_bytes_downloaded,
-            );
-            
-            // Convert to Python object
-            let py_response = Python::with_gil(|py| {
-                Py::new(py, response_obj).map(|obj| obj.to_object(py))
-            })?;
-
-            return Err(HTTPStatusError::new_err_with_response(
-                format!("Client error '{}' for url '{}'", status_code, url_str),
-                Some(py_response),
-            ));
-        }
+        // Always return HttpResponse object for all status codes
+        // Users can call response.raise_for_status() if they want exceptions
 
         // Create response object
         Ok(HttpResponse::new(
@@ -255,7 +222,7 @@ impl UreqHttpClient {
         method: &str,
         url: &str,
         content: Option<Vec<u8>>,
-        data: Option<HashMap<String, PyObject>>,
+        data: Option<PyObject>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, PyObject>>,
@@ -318,16 +285,36 @@ impl UreqHttpClient {
             // Handle file upload (multipart/form-data) - only if files is not empty
             if files_data.is_empty() {
                 // If files is empty, treat as regular form data
-                if let Some(form_data) = data {
-                    let form_string = crate::utils::python_dict_to_form_string(form_data)?;
-                    final_headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
-                    Some(Bytes::from(form_string))
+                if let Some(form_data_obj) = data {
+                    // Handle data as PyObject
+                    Python::with_gil(|py| {
+                        if let Ok(form_data_dict) = form_data_obj.extract::<HashMap<String, PyObject>>(py) {
+                            let form_string = crate::utils::python_dict_to_form_string(form_data_dict)?;
+                            final_headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+                            Ok::<Option<Bytes>, PyErr>(Some(Bytes::from(form_string)))
+                        } else if let Ok(string_data) = form_data_obj.extract::<String>(py) {
+                            final_headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+                            Ok::<Option<Bytes>, PyErr>(Some(Bytes::from(string_data)))
+                        } else {
+                            let string_data = form_data_obj.call_method0(py, "__str__")?.extract::<String>(py)?;
+                            final_headers.insert("Content-Type".to_string(), "text/plain".to_string());
+                            Ok::<Option<Bytes>, PyErr>(Some(Bytes::from(string_data)))
+                        }
+                    })?
                 } else {
                     None
                 }
             } else {
                 // Files is not empty, use multipart
-                let (multipart_body, content_type) = crate::utils::build_multipart_body(Some(files_data), data)?;
+                // Convert data to HashMap for multipart processing
+                let data_dict = if let Some(data_obj) = data {
+                    Python::with_gil(|py| {
+                        data_obj.extract::<HashMap<String, PyObject>>(py).ok()
+                    })
+                } else {
+                    None
+                };
+                let (multipart_body, content_type) = crate::utils::build_multipart_body(Some(files_data), data_dict)?;
                 final_headers.insert("Content-Type".to_string(), content_type);
                 Some(Bytes::from(multipart_body))
             }
@@ -337,10 +324,25 @@ impl UreqHttpClient {
                 .map_err(|e| RequestError::new_err(format!("JSON serialization failed: {}", e)))?;
             final_headers.insert("Content-Type".to_string(), "application/json".to_string());
             Some(Bytes::from(json_string))
-        } else if let Some(form_data) = data {
-            let form_string = crate::utils::python_dict_to_form_string(form_data)?;
-            final_headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
-            Some(Bytes::from(form_string))
+        } else if let Some(form_data_obj) = data {
+            // Handle data as PyObject - try to convert to dict or use as string
+            Python::with_gil(|py| {
+                if let Ok(form_data_dict) = form_data_obj.extract::<HashMap<String, PyObject>>(py) {
+                    // It's a dictionary, use the existing form string logic
+                    let form_string = crate::utils::python_dict_to_form_string(form_data_dict)?;
+                    final_headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+                    Ok::<Option<Bytes>, PyErr>(Some(Bytes::from(form_string)))
+                } else if let Ok(string_data) = form_data_obj.extract::<String>(py) {
+                    // It's a string, use directly
+                    final_headers.insert("Content-Type".to_string(), "application/x-www-form-urlencoded".to_string());
+                    Ok::<Option<Bytes>, PyErr>(Some(Bytes::from(string_data)))
+                } else {
+                    // Try to convert to string as fallback
+                    let string_data = form_data_obj.call_method0(py, "__str__")?.extract::<String>(py)?;
+                    final_headers.insert("Content-Type".to_string(), "text/plain".to_string());
+                    Ok::<Option<Bytes>, PyErr>(Some(Bytes::from(string_data)))
+                }
+            })?
         } else {
             None
         };
