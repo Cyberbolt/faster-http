@@ -27,6 +27,7 @@ from ._core import (
     # Transport classes temporarily disabled during hyper migration
     # MockTransport,
     NetRCAuth,
+    NetworkError,
     PoolTimeout,
     ProtocolError,
     QueryParams,
@@ -108,6 +109,7 @@ __all__ = [
     "Limits",
     "LocalProtocolError",
     "NetRCAuth",
+    "NetworkError",
     "PoolTimeout",
     "ProtocolError",
     "Proxy",

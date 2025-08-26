@@ -4,21 +4,27 @@ use pyo3::prelude::*;
 // Create custom exception types - complete httpx-compatible exception hierarchy
 pyo3::create_exception!(faster_http, HTTPError, PyException);
 
-// Connection related exceptions
-pyo3::create_exception!(faster_http, ConnectError, HTTPError);
+// Request/Response exceptions (httpx-compatible only)
+pyo3::create_exception!(faster_http, RequestError, HTTPError);
+
+// Transport related exceptions (httpx layer)
+pyo3::create_exception!(faster_http, TransportError, RequestError);
+
+// Network related exceptions
+pyo3::create_exception!(faster_http, NetworkError, TransportError);
+
+// Connection related exceptions - should inherit from NetworkError
+pyo3::create_exception!(faster_http, ConnectError, NetworkError);
 pyo3::create_exception!(faster_http, ConnectTimeout, ConnectError);
 
 // SSL related exceptions
 pyo3::create_exception!(faster_http, SSLError, ConnectError);
 
-// Timeout exceptions
-pyo3::create_exception!(faster_http, TimeoutException, HTTPError);
+// Timeout exceptions - should inherit from TransportError
+pyo3::create_exception!(faster_http, TimeoutException, TransportError);
 pyo3::create_exception!(faster_http, ReadTimeout, TimeoutException);
 pyo3::create_exception!(faster_http, WriteTimeout, TimeoutException);
 pyo3::create_exception!(faster_http, PoolTimeout, TimeoutException);
-
-// Request/Response exceptions (httpx-compatible only)
-pyo3::create_exception!(faster_http, RequestError, HTTPError);
 
 // HTTP status related exceptions
 pyo3::create_exception!(faster_http, HTTPStatusError, HTTPError);
@@ -44,11 +50,10 @@ impl HTTPStatusError {
 pyo3::create_exception!(faster_http, StreamError, HTTPError);
 
 // Protocol related exceptions
-pyo3::create_exception!(faster_http, ProtocolError, HTTPError);
-pyo3::create_exception!(faster_http, TooManyRedirects, ProtocolError);
+pyo3::create_exception!(faster_http, ProtocolError, TransportError);
+pyo3::create_exception!(faster_http, TooManyRedirects, RequestError);
 
-// Transport related exceptions
-pyo3::create_exception!(faster_http, TransportError, HTTPError);
+// Transport related exceptions - moved earlier in the hierarchy
 
 // Initialization related exceptions
 pyo3::create_exception!(faster_http, ConnectionPoolInitFailed, HTTPError);

@@ -121,26 +121,26 @@ httpx.AsyncClient(
 ## 4. Response 对象
 
 ### 状态属性
-- [ ] `Response.status_code: int` - HTTP状态码
+- [x] `Response.status_code: int` - HTTP状态码
 - [ ] `Response.reason_phrase: str` - 状态原因短语
 - [ ] `Response.http_version: str` - HTTP版本号 (如 'HTTP/1.1')
-- [ ] `Response.url: httpx.URL` - 请求的URL
-- [ ] `Response.headers: httpx.Headers` - 响应头 (不区分大小写)
+- [x] `Response.url: httpx.URL` - 请求的URL
+- [x] `Response.headers: httpx.Headers` - 响应头 (不区分大小写)
 - [ ] `Response.cookies: httpx.Cookies` - 响应中的cookies
-- [ ] `Response.request: httpx.Request` - 原始请求对象
+- [x] `Response.request: httpx.Request` - 原始请求对象
 
 ### 内容相关属性
-- [ ] `Response.content: bytes` - 响应内容的原始字节
-- [ ] `Response.text: str` - 响应内容的文本形式 (解码后)
+- [x] `Response.content: bytes` - 响应内容的原始字节
+- [x] `Response.text: str` - 响应内容的文本形式 (解码后)
 - [ ] `Response.encoding: str` - 文本编码
 - [ ] `Response.charset_encoding: str | None` - 字符集编码
 
 ### 状态判断属性
-- [ ] `Response.is_success: bool` - 是否成功 (2xx状态码)
+- [x] `Response.is_success: bool` - 是否成功 (2xx状态码)
 - [ ] `Response.is_redirect: bool` - 是否重定向
 - [ ] `Response.is_client_error: bool` - 是否客户端错误 (4xx)
 - [ ] `Response.is_server_error: bool` - 是否服务端错误 (5xx)
-- [ ] `Response.is_error: bool` - 是否错误 (4xx或5xx)
+- [x] `Response.is_error: bool` - 是否错误 (4xx或5xx)
 - [ ] `Response.is_informational: bool` - 是否信息性响应 (1xx)
 
 ### 流和重定向相关属性
@@ -158,8 +158,8 @@ httpx.AsyncClient(
 - [ ] `Response.default_encoding: str` - 默认编码
 
 ### 同步方法
-- [ ] `Response.json() -> Any` - 解析JSON响应
-- [ ] `Response.raise_for_status() -> Response` - 状态码异常检查
+- [x] `Response.json() -> Any` - 解析JSON响应
+- [x] `Response.raise_for_status() -> Response` - 状态码异常检查
 - [ ] `Response.read() -> bytes` - 读取完整响应内容
 - [ ] `Response.close() -> None` - 关闭响应
 
@@ -264,7 +264,7 @@ httpx.DigestAuth(
 ### 基本异常
 - [ ] `httpx.HTTPError` - HTTP相关异常的基类
 - [ ] `httpx.RequestError` - 请求相关异常
-- [ ] `httpx.HTTPStatusError` - HTTP状态码异常
+- [x] `httpx.HTTPStatusError` - HTTP状态码异常
 - [ ] `httpx.ConnectError` - 连接异常
 - [ ] `httpx.TimeoutException` - 超时异常
 

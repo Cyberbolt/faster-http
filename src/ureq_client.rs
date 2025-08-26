@@ -1,4 +1,4 @@
-use crate::error::RequestError;
+use crate::error::{RequestError, HTTPStatusError, ConnectError, TimeoutException, TooManyRedirects};
 use crate::response::HttpResponse;
 use pyo3::prelude::*;
 use std::collections::HashMap;
@@ -19,7 +19,7 @@ impl Default for UreqClientConfig {
         Self {
             timeout: Some(Duration::from_secs(30)),
             follow_redirects: true,
-            max_redirects: 20,
+            max_redirects: 21,  // Allow 20 redirects to complete
         }
     }
 }
@@ -41,6 +41,7 @@ impl UreqHttpClient {
             .timeout(timeout_duration)
             .max_idle_connections(100)  // Allow more idle connections for reuse
             .max_idle_connections_per_host(20)  // Per-host connection pooling
+            .redirects(config.max_redirects)  // Set max redirects to match httpx
             .build();
 
         Ok(Self { agent, config })
@@ -108,7 +109,21 @@ impl UreqHttpClient {
                     Err(ureq::Error::Status(_code, resp)) => {
                         resp // HTTP error status codes - still return response
                     },
-                    Err(e) => return Err(format!("Request failed: {}: {}", url, e)),
+                    Err(e) => {
+                        // Map ureq errors to appropriate exceptions
+                        let error_msg = e.to_string();
+                        if error_msg.contains("Dns Failed") || error_msg.contains("failed to lookup address") {
+                            return Err(format!("ConnectError:{}", error_msg));
+                        } else if error_msg.contains("Connection") || error_msg.contains("connection") {
+                            return Err(format!("ConnectError:{}", error_msg));
+                        } else if error_msg.contains("timeout") || error_msg.contains("Timeout") {
+                            return Err(format!("TimeoutError:{}", error_msg));
+                        } else if error_msg.contains("Too Many Redirects") || error_msg.contains("redirect") {
+                            return Err(format!("TooManyRedirects:{}", error_msg));
+                        } else {
+                            return Err(format!("RequestError:{}", error_msg));
+                        }
+                    },
                 };
 
                 // Extract all response data while GIL is released
@@ -134,7 +149,18 @@ impl UreqHttpClient {
 
                 Ok((status_code, url_str, headers_map, body, elapsed))
             })
-        }).map_err(|e| RequestError::new_err(e))?;
+        }).map_err(|e| {
+            // Parse error type and return appropriate exception
+            if e.starts_with("ConnectError:") {
+                crate::error::ConnectError::new_err(e.strip_prefix("ConnectError:").unwrap_or(&e).to_string())
+            } else if e.starts_with("TimeoutError:") {
+                crate::error::TimeoutException::new_err(e.strip_prefix("TimeoutError:").unwrap_or(&e).to_string())
+            } else if e.starts_with("TooManyRedirects:") {
+                crate::error::TooManyRedirects::new_err(e.strip_prefix("TooManyRedirects:").unwrap_or(&e).to_string())
+            } else {
+                RequestError::new_err(e)
+            }
+        })?;
 
         let num_bytes_downloaded = body.len();
 
@@ -159,6 +185,52 @@ impl UreqHttpClient {
         // Check if it's a redirect status
         let is_redirect_status = matches!(status_code, 301 | 302 | 303 | 307 | 308);
 
+        // Create HttpRequest object for the response
+        let request_obj = Python::with_gil(|py| -> PyResult<PyObject> {
+            let req = crate::request::HttpRequest::new(
+                method.to_string(),
+                url_str.clone(),
+                headers.as_ref().map(|h| h.to_object(py)),
+                None,  // content
+                None,  // params
+                None,  // cookies
+                None,  // data
+                None,  // files
+                None,  // json
+                None,  // stream
+            )?;
+            Ok(Py::new(py, req)?.to_object(py))
+        })?;
+
+        // Check for HTTP status errors (4xx, 5xx) - httpx compatibility
+        if status_code >= 400 {
+            // Create response object for the exception
+            let response_obj = HttpResponse::new(
+                status_code,
+                headers_map.clone(),
+                body.clone(),
+                url_str.clone(),
+                elapsed,
+                is_redirect_status,
+                http_version.clone(),
+                cookies.clone(),
+                None, // encoding - will be determined from headers
+                Vec::new(), // history - empty for now
+                Some(request_obj), // request
+                num_bytes_downloaded,
+            );
+            
+            // Convert to Python object
+            let py_response = Python::with_gil(|py| {
+                Py::new(py, response_obj).map(|obj| obj.to_object(py))
+            })?;
+
+            return Err(HTTPStatusError::new_err_with_response(
+                format!("Client error '{}' for url '{}'", status_code, url_str),
+                Some(py_response),
+            ));
+        }
+
         // Create response object
         Ok(HttpResponse::new(
             status_code,
@@ -171,7 +243,7 @@ impl UreqHttpClient {
             cookies,
             None, // encoding - will be determined from headers
             Vec::new(), // history - empty for now
-            None, // request - will be set later if needed
+            Some(request_obj), // request
             num_bytes_downloaded,
         ))
     }

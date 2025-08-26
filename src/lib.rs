@@ -88,6 +88,9 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     // Add exception types (httpx-compatible only)
     m.add("HTTPError", py.get_type::<HTTPError>())?;
 
+    // Network exceptions
+    m.add("NetworkError", py.get_type::<NetworkError>())?;
+    
     // Connection exceptions
     m.add("ConnectError", py.get_type::<ConnectError>())?;
     m.add("ConnectTimeout", py.get_type::<ConnectTimeout>())?;

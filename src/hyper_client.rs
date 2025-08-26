@@ -1,4 +1,4 @@
-use crate::error::RequestError;
+use crate::error::{RequestError, HTTPStatusError};
 use crate::response::HttpResponse;
 use crate::connection_pool::{HttpConnectionPool, PoolConfig};
 use hyper::body::Incoming;
@@ -108,6 +108,10 @@ impl HyperHttpClient {
         
         // Use connection pool to make the request with dynamic timeout
         // This automatically handles connection reuse and Keep-Alive
+        // Store method and headers before moving them for the request
+        let method_for_response = method.clone();
+        let headers_for_response = headers.clone();
+        
         let response = self.pool.request_with_timeout(method, uri, headers, body, timeout).await?;
 
         let elapsed = start_time.elapsed().as_secs_f64();
@@ -116,7 +120,7 @@ impl HyperHttpClient {
         if self.config.follow_redirects && self.is_redirect_status(response.status().as_u16()) {
             self.handle_redirects(response, &method_clone, headers_clone.as_ref(), body_clone.as_ref(), 0, start_time, &uri_clone).await
         } else {
-            self.process_response(response, url, elapsed).await
+            self.process_response(response, url, elapsed, &method_for_response, headers_for_response.as_ref()).await
         }
     }
 
@@ -187,8 +191,90 @@ impl HyperHttpClient {
     }
 
     /// Process hyper response into our HttpResponse format
-    async fn process_response(&self, response: Response<Incoming>, url: String, elapsed: f64) -> PyResult<HttpResponse> {
+    async fn process_response(
+        &self, 
+        response: Response<Incoming>, 
+        url: String, 
+        elapsed: f64,
+        method: &Method,
+        request_headers: Option<&HashMap<String, String>>,
+    ) -> PyResult<HttpResponse> {
         let status_code = response.status().as_u16();
+        
+        // Check for HTTP status errors (4xx, 5xx) - httpx compatibility
+        if status_code >= 400 {
+            // We need to construct the response first to pass to the exception
+            let version = match response.version() {
+                Version::HTTP_09 => "HTTP/0.9".to_string(),
+                Version::HTTP_10 => "HTTP/1.0".to_string(),
+                Version::HTTP_11 => "HTTP/1.1".to_string(),
+                Version::HTTP_2 => "HTTP/2".to_string(),
+                Version::HTTP_3 => "HTTP/3".to_string(),
+                _ => "Unknown".to_string(),
+            };
+
+            // Extract headers
+            let headers: HashMap<String, String> = response
+                .headers()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                .collect();
+
+            // Extract cookies from Set-Cookie headers
+            let cookies = self.extract_cookies_from_headers(&headers);
+
+            // Read the body
+            let body_bytes = response
+                .into_body()
+                .collect()
+                .await
+                .map_err(|e| RequestError::new_err(format!("Failed to read response body: {}", e)))?
+                .to_bytes();
+
+            // Create HttpRequest object for the response
+            let request_obj = Python::with_gil(|py| -> PyResult<PyObject> {
+                let req = crate::request::HttpRequest::new(
+                    method.to_string(),
+                    url.clone(),
+                    request_headers.map(|h| h.to_object(py)),
+                    None,  // content
+                    None,  // params
+                    None,  // cookies
+                    None,  // data
+                    None,  // files
+                    None,  // json
+                    None,  // stream
+                )?;
+                Ok(Py::new(py, req)?.to_object(py))
+            })?;
+
+            // Create HttpResponse for the exception
+            let response_obj = HttpResponse::new(
+                status_code,
+                headers.clone(),
+                body_bytes.clone(),
+                url.clone(),
+                elapsed,
+                self.is_redirect_status(status_code),
+                version,
+                cookies,
+                Some(self.detect_encoding_from_headers(&headers)),
+                Vec::new(), // history
+                Some(request_obj), // request
+                body_bytes.len(),
+            );
+            
+            // Convert to Python object
+            let py_response = Python::with_gil(|py| {
+                Py::new(py, response_obj).map(|obj| obj.to_object(py))
+            })?;
+
+            return Err(HTTPStatusError::new_err_with_response(
+                format!("Client error '{}' for url '{}'", status_code, url),
+                Some(py_response),
+            ));
+        }
+
         let version = match response.version() {
             Version::HTTP_09 => "HTTP/0.9".to_string(),
             Version::HTTP_10 => "HTTP/1.0".to_string(),
@@ -216,6 +302,23 @@ impl HyperHttpClient {
             .map_err(|e| RequestError::new_err(format!("Failed to read response body: {}", e)))?
             .to_bytes();
 
+        // Create HttpRequest object for the response
+        let request_obj = Python::with_gil(|py| -> PyResult<PyObject> {
+            let req = crate::request::HttpRequest::new(
+                method.to_string(),
+                url.clone(),
+                request_headers.map(|h| h.to_object(py)),
+                None,  // content
+                None,  // params
+                None,  // cookies
+                None,  // data
+                None,  // files
+                None,  // json
+                None,  // stream
+            )?;
+            Ok(Py::new(py, req)?.to_object(py))
+        })?;
+
         // Create HttpResponse using the proper constructor from response.rs
         Ok(HttpResponse::new(
             status_code,
@@ -228,7 +331,7 @@ impl HyperHttpClient {
             cookies,
             Some(self.detect_encoding_from_headers(&headers)),
             Vec::new(), // history
-            None,       // request
+            Some(request_obj), // request
             body_bytes.len(),
         ))
     }

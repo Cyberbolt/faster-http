@@ -175,7 +175,7 @@ impl ClientConfig {
             ssl_config,
             transport_config,
             limits: limits_config,
-            max_redirects: max_redirects.unwrap_or(20), // httpx default is 20
+            max_redirects: max_redirects.unwrap_or(21), // Allow 20 redirects to complete
             default_encoding: default_encoding.unwrap_or_else(|| "utf-8".to_string()),
             default_params: params.unwrap_or_default(),
             redirect_client,

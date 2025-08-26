@@ -67,6 +67,31 @@ impl HttpResponse {
 
 #[pymethods]
 impl HttpResponse {
+    // Python constructor for creating mock Response objects in tests
+    #[new]
+    #[pyo3(signature = (status_code = 200, headers = None, content = None, url = None))]
+    pub fn py_new(
+        status_code: Option<u16>,
+        headers: Option<HashMap<String, String>>,
+        content: Option<Vec<u8>>,
+        url: Option<String>,
+    ) -> Self {
+        let body = content.map(Bytes::from).unwrap_or_else(|| Bytes::from(""));
+        HttpResponse::new(
+            status_code.unwrap_or(200),
+            headers.unwrap_or_default(),
+            body,
+            url.unwrap_or_else(|| "http://example.com".to_string()),
+            0.0, // elapsed
+            false, // is_redirect_status
+            "HTTP/1.1".to_string(),
+            HashMap::new(), // cookies
+            Some("utf-8".to_string()), // encoding
+            Vec::new(), // history
+            None, // request
+            0, // num_bytes_downloaded
+        )
+    }
     // ==================== Basic properties - optimized version ====================
     #[getter]
     pub fn status_code(&self) -> u16 {
