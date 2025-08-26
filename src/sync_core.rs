@@ -110,12 +110,31 @@ impl SyncHttpClient {
             _ => headers,
         };
         
-        // Convert Python objects to HashMap 
-        let data_dict = data.and_then(|obj| {
+        // Handle data parameter - can be string, bytes, or dict
+        let (data_content, data_dict) = if let Some(data_obj) = data {
             Python::with_gil(|py| {
-                obj.extract::<HashMap<String, PyObject>>(py).ok()
+                // Try string first
+                if let Ok(s) = data_obj.extract::<String>(py) {
+                    (Some(s.into_bytes()), None)
+                }
+                // Try bytes
+                else if let Ok(b) = data_obj.extract::<Vec<u8>>(py) {
+                    (Some(b), None)
+                }
+                // Try dict
+                else if let Ok(dict) = data_obj.extract::<HashMap<String, PyObject>>(py) {
+                    (None, Some(dict))
+                }
+                else {
+                    // Fallback: convert to string
+                    let s = data_obj.call_method0(py, "__str__").unwrap().extract::<String>(py).unwrap();
+                    (Some(s.into_bytes()), None)
+                }
             })
-        });
+        } else {
+            (None, None)
+        };
+        
         let json_dict = json.and_then(|obj| {
             Python::with_gil(|py| {
                 obj.extract::<HashMap<String, PyObject>>(py).ok()
@@ -143,10 +162,13 @@ impl SyncHttpClient {
         };
         
         // Use ureq client for synchronous request
+        // If we have raw data content (string/bytes), prefer that over existing content
+        let final_content = data_content.or(content);
+        
         self.client.send_request_full(
             method,
             &final_url,
-            content,
+            final_content,
             data_dict,
             json_dict,
             files_dict,

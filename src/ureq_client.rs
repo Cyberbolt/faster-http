@@ -34,24 +34,19 @@ pub struct UreqHttpClient {
 impl UreqHttpClient {
     /// Create a new UreqHttpClient with the given configuration
     pub fn new(config: UreqClientConfig) -> PyResult<Self> {
-        let mut builder = ureq::AgentBuilder::new();
+        let timeout_duration = config.timeout.unwrap_or(Duration::from_secs(30));
         
-        if let Some(timeout) = config.timeout {
-            builder = builder.timeout(timeout);
-        }
-        
-        if config.follow_redirects {
-            builder = builder.max_idle_connections(10);
-        } else {
-            builder = builder.redirects(0);
-        }
-
-        let agent = builder.build();
+        // Configure ureq agent with connection pooling and keep-alive
+        let agent = ureq::AgentBuilder::new()
+            .timeout(timeout_duration)
+            .max_idle_connections(100)  // Allow more idle connections for reuse
+            .max_idle_connections_per_host(20)  // Per-host connection pooling
+            .build();
 
         Ok(Self { agent, config })
     }
 
-    /// Send a synchronous HTTP request using ureq
+    /// Send a synchronous HTTP request using ureq with GIL release
     pub fn request(
         &self,
         method: &str,
@@ -62,88 +57,103 @@ impl UreqHttpClient {
     ) -> PyResult<HttpResponse> {
         let start_time = Instant::now();
         
-        // Create request
-        let mut req = match method.to_uppercase().as_str() {
-            "GET" => self.agent.get(url),
-            "POST" => self.agent.post(url),
-            "PUT" => self.agent.put(url),
-            "PATCH" => self.agent.request("PATCH", url),
-            "DELETE" => self.agent.delete(url),
-            "HEAD" => self.agent.head(url),
-            "OPTIONS" => self.agent.request("OPTIONS", url),
-            _ => return Err(RequestError::new_err(format!("Unsupported method: {}", method))),
-        };
-
-        // Set timeout
-        if let Some(timeout) = timeout.or(self.config.timeout) {
-            req = req.timeout(timeout);
-        }
-
-        // Add headers
-        if let Some(headers_map) = headers {
-            for (key, value) in headers_map {
-                req = req.set(&key, &value);
-            }
-        }
-
-        // Send request
-        let response = if let Some(body_bytes) = body {
-            req.send_bytes(&body_bytes)
-        } else {
-            req.call()
-        };
-
-        // Handle response or error
-        let response = match response {
-            Ok(resp) => resp,
-            Err(ureq::Error::Status(code, resp)) => {
-                // Handle HTTP error status codes - still return a response
-                resp
-            },
-            Err(e) => {
-                return Err(RequestError::new_err(format!("Request failed: {}", e)));
-            }
-        };
-
-        // Extract response data
-        let status_code = response.status();
-        let url_str = response.get_url().to_string();
-        let elapsed = start_time.elapsed().as_secs_f64();
+        let final_timeout = timeout
+            .or(self.config.timeout)
+            .unwrap_or(Duration::from_secs(30)); 
         
-        // Extract headers
-        let mut headers_map = HashMap::new();
-        for name in response.headers_names() {
-            if let Some(value) = response.header(&name) {
-                headers_map.insert(name, value.to_string());
-            }
-        }
-
-        // Read body
-        let mut body_bytes = Vec::new();
-        if let Err(e) = std::io::copy(&mut response.into_reader(), &mut body_bytes) {
-            return Err(RequestError::new_err(format!("Failed to read response body: {}", e)));
-        }
+        // SOLUTION: Release Python GIL and run ureq in isolated environment
+        // This fixes the core issue where Python GIL interferes with ureq's network I/O
+        let config_timeout = self.config.timeout;
+        let method = method.to_string();
+        let url = url.to_string();
+        let headers = headers.clone();
+        let body = body.clone();
         
-        let body = Bytes::from(body_bytes);
+        // Complete ureq request and response processing with GIL released
+        // CRITICAL FIX: Reuse the existing agent instead of creating a new one each time
+        let agent = self.agent.clone(); // ureq::Agent clone is cheap and shares connection pool
+        let (status_code, url_str, headers_map, body, elapsed) = pyo3::Python::with_gil(|py| {
+            py.allow_threads(|| {
+                let start = std::time::Instant::now();
+                
+                // Execute ureq request with GIL released
+                let mut req = match method.to_uppercase().as_str() {
+                    "GET" => agent.get(&url),
+                    "POST" => agent.post(&url),
+                    "PUT" => agent.put(&url),
+                    "PATCH" => agent.request("PATCH", &url),
+                    "DELETE" => agent.delete(&url),
+                    "HEAD" => agent.head(&url),
+                    "OPTIONS" => agent.request("OPTIONS", &url),
+                    _ => return Err(format!("Unsupported method: {}", method)),
+                };
+
+                // Add headers
+                if let Some(headers_map) = &headers {
+                    for (key, value) in headers_map {
+                        req = req.set(key, value);
+                    }
+                }
+
+                // Send request
+                let response = if let Some(body_bytes) = &body {
+                    req.send_bytes(body_bytes)
+                } else {
+                    req.call()
+                };
+
+                // Handle response
+                let response = match response {
+                    Ok(resp) => resp,
+                    Err(ureq::Error::Status(_code, resp)) => {
+                        resp // HTTP error status codes - still return response
+                    },
+                    Err(e) => return Err(format!("Request failed: {}: {}", url, e)),
+                };
+
+                // Extract all response data while GIL is released
+                let status_code = response.status();
+                let url_str = response.get_url().to_string();
+                let elapsed = start.elapsed().as_secs_f64();
+                
+                // Extract headers
+                let mut headers_map = HashMap::new();
+                for name in response.headers_names() {
+                    if let Some(value) = response.header(&name) {
+                        headers_map.insert(name, value.to_string());
+                    }
+                }
+
+                // Read body
+                let mut body_bytes = Vec::new();
+                if let Err(e) = std::io::copy(&mut response.into_reader(), &mut body_bytes) {
+                    return Err(format!("Failed to read response body: {}", e));
+                }
+                
+                let body = Bytes::from(body_bytes);
+
+                Ok((status_code, url_str, headers_map, body, elapsed))
+            })
+        }).map_err(|e| RequestError::new_err(e))?;
+
         let num_bytes_downloaded = body.len();
 
         // Extract cookies (simple implementation)
         let mut cookies = HashMap::new();
         if let Some(cookie_header) = headers_map.get("set-cookie") {
-            // Parse cookies (simplified - just get the first key=value pair)
+            // Parse cookies (simplified)
             for cookie_str in cookie_header.split(',') {
                 let cookie_str = cookie_str.trim();
                 if let Some(eq_pos) = cookie_str.find('=') {
                     let key = cookie_str[..eq_pos].trim();
                     let value_part = &cookie_str[eq_pos + 1..];
-                    // Extract value before any semicolon
                     let value = value_part.split(';').next().unwrap_or("").trim();
                     cookies.insert(key.to_string(), value.to_string());
                 }
             }
         }
 
-        // Determine HTTP version (ureq doesn't expose this directly)
+        // HTTP version
         let http_version = "HTTP/1.1".to_string();
 
         // Check if it's a redirect status

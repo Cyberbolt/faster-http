@@ -4,11 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "_core"
+name = "faster_http"
 # "cdylib" is necessary to produce a shared library for Python to import from.
-crate-type = ["cdylib"]
+# "rlib" allows internal modules to be used by bin targets
+crate-type = ["cdylib", "rlib"]
 
-# Removed obsolete test binaries
+[[bin]]
+name = "test_connection"
+path = "src/bin/test_connection.rs"
 
 [dependencies]
 # "extension-module" tells pyo3 we want to build an extension module (skips linking against libpython.so)
@@ -42,7 +45,7 @@ base64 = "0.22"
 uuid = { version = "1.0", features = ["v4"] }
 multipart = "0.18"
 # Synchronous HTTP client for localhost optimization
-ureq = { version = "2.10", features = ["json", "charset"] }
+ureq = { version = "2.10" }
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 
 # Fix PyO3 + Tokio cleanup issues on program exit, especially on ARM64 architecture

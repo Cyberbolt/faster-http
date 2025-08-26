@@ -9,7 +9,7 @@ mod async_client;
 mod auth;
 mod client;
 mod config;
-mod connection_pool; // High-performance connection pool implementation
+pub mod connection_pool; // High-performance connection pool implementation
 mod core;
 mod error;
 mod hooks;
@@ -43,6 +43,7 @@ pub use models::{
     HttpBasicAuth, HttpCookies, HttpDigestAuth, HttpHeaders, HttpLimits, HttpNetRCAuth,
     HttpQueryParams, HttpTimeout, HttpUrl,
 };
+
 
 // Python module definition
 #[pymodule]
