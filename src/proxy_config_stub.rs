@@ -254,11 +254,10 @@ impl ProxySystem {
                 }
                 
                 // Check for localhost
-                if host == "localhost" || host.starts_with("127.") || host == "::1" {
-                    if pattern == "localhost" || pattern == "127.0.0.1" || pattern == "::1" {
+                if (host == "localhost" || host.starts_with("127.") || host == "::1")
+                    && (pattern == "localhost" || pattern == "127.0.0.1" || pattern == "::1") {
                         return true;
                     }
-                }
             }
         }
         

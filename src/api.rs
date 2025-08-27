@@ -438,7 +438,7 @@ pub fn stream(
     method: &str,
     url: &str,
     content: Option<Vec<u8>>,
-    data: Option<HashMap<String, PyObject>>,
+    data: Option<PyObject>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, PyObject>>,

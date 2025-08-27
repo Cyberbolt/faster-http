@@ -7,15 +7,19 @@ use pyo3::prelude::*;
 mod api;
 mod async_client;
 mod auth;
+mod batch; // ULTRA-OPTIMIZED: Batch request processing for A级 performance
 mod client;
 mod config;
 pub mod connection_pool; // High-performance connection pool implementation
 mod core;
 mod error;
+mod gil_optimized; // ULTRA-OPTIMIZED: Deep GIL optimization for A级 performance
 mod hooks;
 mod hyper_client; // New hyper-based client module
 mod ureq_client; // Ureq-based synchronous client module
+mod memory_pool; // EXTREME performance memory pool for A级 optimization  
 mod models;
+mod precompiled; // ULTRA-OPTIMIZED: Precompiled HTTP methods and headers for A级 performance
 mod proxy_config_stub; // Temporary stub for proxy configuration
 mod request;
 mod response;
@@ -25,6 +29,7 @@ mod streaming_stub; // Temporary stub for streaming functionality
 mod sync_core; // Synchronous HTTP client implementation
 mod transport_stub; // Temporary stub for transport configuration
 mod utils;
+mod zero_copy; // ULTRA-OPTIMIZED: Zero-copy data transfer for A级 performance
 
 // Re-export main types and functions
 pub use auth::*;
@@ -87,6 +92,20 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(api::request, m)?)?;
     m.add_function(wrap_pyfunction!(api::stream, m)?)?;
 
+    // Add ULTRA-OPTIMIZED batch processing functions for A级 performance
+    m.add_function(wrap_pyfunction!(batch::batch_request, m)?)?;
+    m.add_class::<batch::SmartBatcher>()?;
+
+    // Add ULTRA-OPTIMIZED zero-copy utilities for A级 performance
+    m.add_class::<zero_copy::ZeroCopyUtils>()?;
+
+    // Add ULTRA-OPTIMIZED GIL-free processing for A级 performance
+    m.add_function(wrap_pyfunction!(gil_optimized::gil_optimized_request, m)?)?;
+    m.add_function(wrap_pyfunction!(gil_optimized::gil_optimized_batch_request, m)?)?;
+
+    // Add exception factory functions
+    m.add_function(wrap_pyfunction!(error::new_http_status_error, m)?)?;
+
     // Add exception types (httpx-compatible only)
     m.add("HTTPError", py.get_type::<HTTPError>())?;
 
@@ -129,6 +148,17 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add("ReadError", py.get_type::<ReadError>())?;
     m.add("WriteError", py.get_type::<WriteError>())?;
     m.add("UnsupportedProtocol", py.get_type::<UnsupportedProtocol>())?;
+
+    // Missing httpx-compatible exceptions
+    m.add("NetworkError", py.get_type::<NetworkError>())?;
+    m.add("ProxyError", py.get_type::<ProxyError>())?;
+    m.add("DecodingError", py.get_type::<DecodingError>())?;
+    m.add("CookieConflict", py.get_type::<CookieConflict>())?;
+    m.add("CloseError", py.get_type::<CloseError>())?;
+    m.add("RequestNotRead", py.get_type::<RequestNotRead>())?;
+    m.add("ResponseNotRead", py.get_type::<ResponseNotRead>())?;
+    m.add("StreamClosed", py.get_type::<StreamClosed>())?;
+    m.add("StreamConsumed", py.get_type::<StreamConsumed>())?;
 
     Ok(())
 }

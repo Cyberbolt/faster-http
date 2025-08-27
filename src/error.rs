@@ -1,73 +1,138 @@
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 
-// Create custom exception types - complete httpx-compatible exception hierarchy
+// HTTPX-COMPATIBLE EXCEPTION HIERARCHY - FIXED
+// Based on encode/httpx exception structure for full compatibility
+
+// Base HTTP exception - matches httpx.HTTPError
 pyo3::create_exception!(faster_http, HTTPError, PyException);
 
-// Request/Response exceptions (httpx-compatible only)
+// Request-related exceptions - matches httpx.RequestError
+// Should include .request attribute for context
 pyo3::create_exception!(faster_http, RequestError, HTTPError);
 
-// Transport related exceptions (httpx layer)
-pyo3::create_exception!(faster_http, TransportError, RequestError);
+// HTTP status related exceptions - matches httpx.HTTPStatusError  
+// Should include both .request and .response attributes
+pyo3::create_exception!(faster_http, HTTPStatusError, HTTPError);
 
-// Network related exceptions
-pyo3::create_exception!(faster_http, NetworkError, TransportError);
+// Network related exceptions - matches httpx network error hierarchy  
+pyo3::create_exception!(faster_http, NetworkError, RequestError);
 
-// Connection related exceptions - should inherit from NetworkError
+// Connection related exceptions - matches httpx.ConnectError
 pyo3::create_exception!(faster_http, ConnectError, NetworkError);
 pyo3::create_exception!(faster_http, ConnectTimeout, ConnectError);
 
-// SSL related exceptions
-pyo3::create_exception!(faster_http, SSLError, ConnectError);
-
-// Timeout exceptions - should inherit from TransportError
-pyo3::create_exception!(faster_http, TimeoutException, TransportError);
+// Timeout exceptions - matches httpx timeout structure
+pyo3::create_exception!(faster_http, TimeoutException, RequestError);
 pyo3::create_exception!(faster_http, ReadTimeout, TimeoutException);
 pyo3::create_exception!(faster_http, WriteTimeout, TimeoutException);
 pyo3::create_exception!(faster_http, PoolTimeout, TimeoutException);
 
-// HTTP status related exceptions
-pyo3::create_exception!(faster_http, HTTPStatusError, HTTPError);
+// Additional httpx-compatible exceptions
+pyo3::create_exception!(faster_http, ProxyError, RequestError);
+pyo3::create_exception!(faster_http, UnsupportedProtocol, RequestError);
+pyo3::create_exception!(faster_http, DecodingError, HTTPError);
+pyo3::create_exception!(faster_http, TooManyRedirects, RequestError);
+
+// SSL/TLS related exceptions
+pyo3::create_exception!(faster_http, SSLError, ConnectError);  // Matches httpx SSL handling
+
+// HTTPStatusError already defined above in proper hierarchy
 
 impl HTTPStatusError {
-    pub fn new_err_with_response(message: String, response: Option<PyObject>) -> PyErr {
+    /// Create HTTPStatusError with request and response parameters (httpx-compatible)
+    pub fn new_err_with_request_response(
+        message: String, 
+        request: Option<PyObject>, 
+        response: Option<PyObject>
+    ) -> PyErr {
         Python::with_gil(|py| {
             // Create the basic exception
             let err = HTTPStatusError::new_err(message);
 
-            // Add response attribute directly to the exception instance
+            // Add request and response attributes directly to the exception instance
+            let exc_obj = err.value(py);
+            
+            if let Some(req) = request {
+                let _ = exc_obj.setattr("request", req);
+            } else {
+                let _ = exc_obj.setattr("request", py.None());
+            }
+            
             if let Some(resp) = response {
-                let exc_obj = err.value(py);
                 let _ = exc_obj.setattr("response", resp);
+            } else {
+                let _ = exc_obj.setattr("response", py.None());
             }
 
             err
         })
     }
+
+    /// Backward compatibility method - deprecated
+    pub fn new_err_with_response(message: String, response: Option<PyObject>) -> PyErr {
+        Self::new_err_with_request_response(message, None, response)
+    }
 }
 
-// Stream related exceptions
-pyo3::create_exception!(faster_http, StreamError, HTTPError);
+/// Factory function to create HTTPStatusError with keyword arguments
+#[pyfunction]
+#[pyo3(signature = (message, *, request = None, response = None))]
+pub fn new_http_status_error(
+    py: Python<'_>,
+    message: String,
+    request: Option<PyObject>,
+    response: Option<PyObject>,
+) -> PyResult<PyObject> {
+    // Create the HTTPStatusError exception instance
+    let exc_type = py.get_type::<HTTPStatusError>();
+    let exc_instance = exc_type.call1((message.clone(),))?;
+    
+    // Set request and response attributes
+    if let Some(req) = request {
+        exc_instance.setattr("request", req)?;
+    } else {
+        exc_instance.setattr("request", py.None())?;
+    }
+    
+    if let Some(resp) = response {
+        exc_instance.setattr("response", resp)?;
+    } else {
+        exc_instance.setattr("response", py.None())?;
+    }
+    
+    Ok(exc_instance.to_object(py))
+}
 
-// Protocol related exceptions
+// Transport and Protocol exceptions  
+pyo3::create_exception!(faster_http, TransportError, RequestError);
 pyo3::create_exception!(faster_http, ProtocolError, TransportError);
-pyo3::create_exception!(faster_http, TooManyRedirects, RequestError);
-
-// Transport related exceptions - moved earlier in the hierarchy
-
-// Initialization related exceptions
-pyo3::create_exception!(faster_http, ConnectionPoolInitFailed, HTTPError);
-pyo3::create_exception!(faster_http, RuntimeInitFailed, HTTPError);
-pyo3::create_exception!(faster_http, ClientInitFailed, HTTPError);
-
-// Additional httpx-compatible exceptions
-pyo3::create_exception!(faster_http, InvalidURL, RequestError);
 pyo3::create_exception!(faster_http, LocalProtocolError, ProtocolError);
 pyo3::create_exception!(faster_http, RemoteProtocolError, ProtocolError);
+
+// Stream related exceptions
+pyo3::create_exception!(faster_http, StreamError, RequestError);
+pyo3::create_exception!(faster_http, StreamClosed, StreamError);
+pyo3::create_exception!(faster_http, StreamConsumed, StreamError);
+
+// I/O exceptions
 pyo3::create_exception!(faster_http, ReadError, RequestError);
 pyo3::create_exception!(faster_http, WriteError, RequestError);
-pyo3::create_exception!(faster_http, UnsupportedProtocol, RequestError);
+
+// URL and validation exceptions
+pyo3::create_exception!(faster_http, InvalidURL, RequestError);
+pyo3::create_exception!(faster_http, CookieConflict, RequestError);
+
+// Close and Read/Write state exceptions
+pyo3::create_exception!(faster_http, CloseError, RequestError);
+pyo3::create_exception!(faster_http, RequestNotRead, RequestError);
+pyo3::create_exception!(faster_http, ResponseNotRead, RequestError);
+
+// Internal system exceptions (should be rare in production)
 pyo3::create_exception!(faster_http, InternalError, HTTPError);  // For locks and internal state errors
+pyo3::create_exception!(faster_http, ConnectionPoolInitFailed, InternalError);
+pyo3::create_exception!(faster_http, RuntimeInitFailed, InternalError);
+pyo3::create_exception!(faster_http, ClientInitFailed, InternalError);
 
 // Error handling utilities - httpx-compatible error mapping
 
@@ -107,7 +172,7 @@ pub fn map_hyper_util_error(error: hyper_util::client::legacy::Error) -> PyErr {
     let error_msg_lower = error_msg.to_lowercase();
     
     // Check for timeout errors
-    if error_msg_lower.contains("timeout") {
+    if error_msg_lower.contains("timeout") || error_msg_lower.contains("timed out") {
         if error_msg_lower.contains("connect") {
             ConnectTimeout::new_err(format!("Connection timeout: {}", error_msg))
         } else {

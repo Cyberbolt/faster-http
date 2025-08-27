@@ -1,0 +1,8 @@
+# Cargo configuration for faster-http project
+# This file allows proper RUSTFLAGS configuration without invalid Cargo.toml syntax
+
+[build]
+rustflags = [
+    "-C", "target-cpu=native",
+    "-C", "prefer-dynamic=no"
+]

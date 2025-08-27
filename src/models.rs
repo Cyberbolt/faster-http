@@ -470,7 +470,7 @@ impl HttpUrl {
     pub fn params(&self) -> HttpQueryParams {
         // Extract query parameters as HttpQueryParams object for httpx compatibility
         let mut inner = HashMap::new();
-        if let Some(query) = self.parsed.query() {
+        if let Some(_query) = self.parsed.query() {
             for (key, value) in self.parsed.query_pairs() {
                 inner.insert(key.to_string(), value.to_string());
             }
@@ -494,9 +494,9 @@ impl HttpUrl {
     // Additional methods for httpx compatibility
     pub fn copy_with(
         &self,
-        py: Python,
+        _py: Python,
         scheme: Option<&str>,
-        authority: Option<&str>,
+        _authority: Option<&str>,
         path: Option<&str>,
         query: Option<&PyAny>,
         fragment: Option<&str>,
@@ -588,10 +588,8 @@ impl HttpTimeout {
     ) -> PyResult<Self> {
         // Helper function to parse timeout values
         let parse_timeout = |val: f64| -> Option<f64> {
-            if val == -1.0 {
-                None // Not provided
-            } else if val.is_nan() {
-                None // Explicitly None
+            if val == -1.0 || val.is_nan() {
+                None // Not provided or explicitly None
             } else {
                 Some(val)
             }
@@ -710,7 +708,7 @@ impl HttpTimeout {
         }
     }
 
-    fn __eq__(&self, py: Python, other: &pyo3::PyAny) -> PyResult<bool> {
+    fn __eq__(&self, _py: Python, other: &pyo3::PyAny) -> PyResult<bool> {
         if let Ok(other_timeout) = other.extract::<HttpTimeout>() {
             Ok(self.connect == other_timeout.connect &&
                self.read == other_timeout.read &&
@@ -789,7 +787,7 @@ impl HttpLimits {
         )
     }
 
-    fn __eq__(&self, py: Python, other: &pyo3::PyAny) -> PyResult<bool> {
+    fn __eq__(&self, _py: Python, other: &pyo3::PyAny) -> PyResult<bool> {
         if let Ok(other_limits) = other.extract::<HttpLimits>() {
             Ok(self.max_connections == other_limits.max_connections &&
                self.max_keepalive_connections == other_limits.max_keepalive_connections &&

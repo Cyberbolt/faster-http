@@ -82,10 +82,10 @@ pub fn build_url_with_python_params(
     if let Some(python_params) = params {
         let string_params = convert_params_to_strings(python_params)?;
         build_url(base_path, base_url, Some(&string_params))
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     } else {
         build_url(base_path, base_url, None)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 }
 
@@ -251,6 +251,27 @@ pub fn build_multipart_form(
     Ok(content_type)
 }
 
+/// Extract HashMap from Python dict object
+pub fn extract_python_dict(py_obj: PyObject) -> PyResult<HashMap<String, PyObject>> {
+    Python::with_gil(|py| {
+        let dict = py_obj.as_ref(py);
+        
+        // Try to extract as a dictionary
+        if let Ok(py_dict) = dict.downcast::<pyo3::types::PyDict>() {
+            let mut result = HashMap::new();
+            for (key, value) in py_dict {
+                let key_str = key.extract::<String>()?;
+                result.insert(key_str, value.into());
+            }
+            Ok(result)
+        } else {
+            Err(crate::error::RequestError::new_err(
+                "Data must be a dictionary".to_string()
+            ))
+        }
+    })
+}
+
 /// Convert Python dict to URL-encoded form string
 pub fn python_dict_to_form_string(data: HashMap<String, PyObject>) -> PyResult<String> {
     Python::with_gil(|py| {
@@ -293,6 +314,34 @@ pub fn python_dict_to_json_value(data: HashMap<String, PyObject>) -> PyResult<Va
         }
         
         Ok(Value::Object(json_map))
+    })
+}
+
+/// Handle PyObject data parameter (string, bytes, or dict)
+pub fn handle_data_parameter(data_obj: &PyObject) -> PyResult<(Vec<u8>, String)> {
+    Python::with_gil(|py| {
+        // First try to extract as string
+        if let Ok(string_data) = data_obj.extract::<String>(py) {
+            // For string data, use application/x-www-form-urlencoded content type
+            return Ok((string_data.into_bytes(), "application/x-www-form-urlencoded".to_string()));
+        }
+        
+        // Try to extract as bytes
+        if let Ok(bytes_data) = data_obj.extract::<Vec<u8>>(py) {
+            // For raw bytes, use application/octet-stream content type
+            return Ok((bytes_data, "application/octet-stream".to_string()));
+        }
+        
+        // Try to extract as dict
+        if let Ok(dict_data) = data_obj.extract::<HashMap<String, PyObject>>(py) {
+            // For dict data, convert to form-encoded string
+            let form_string = python_dict_to_form_string(dict_data)?;
+            return Ok((form_string.into_bytes(), "application/x-www-form-urlencoded".to_string()));
+        }
+        
+        // Fallback: convert to string representation
+        let string_repr = data_obj.call_method0(py, "__str__")?.extract::<String>(py)?;
+        Ok((string_repr.into_bytes(), "application/x-www-form-urlencoded".to_string()))
     })
 }
 

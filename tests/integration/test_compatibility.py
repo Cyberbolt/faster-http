@@ -35,6 +35,7 @@ class TestCompatibility:
         response = client.delete(f"{self.base_url}/delete")
         assert response.status_code == 200
 
+    @pytest.mark.asyncio
     @httpx_compatibility_test
     async def test_api_parity_async_client(self, async_client_factory):
         """Test async client API matches httpx."""

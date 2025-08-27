@@ -9,10 +9,38 @@ import json
 
 import pytest
 
-import faster_http
 from tests.utils.httpx_comparison import httpx_compatibility_test
 from tests.utils.response_adapter import verify_json_response
 from tests.utils.tdd_helpers import AssertionHelpers, DataGenerator, TDDTestCase
+
+
+def get_exception_class(client_factory, exception_name):
+    """
+    Get the appropriate exception class based on the client library.
+
+    Args:
+        client_factory: The client factory instance
+        exception_name: Name of the exception (e.g., 'TimeoutException', 'ConnectError')
+
+    Returns:
+        The exception class from the appropriate library
+    """
+    if client_factory.library == 'httpx':
+        import httpx
+        # Map faster_http exception names to httpx exception names
+        exception_mapping = {
+            'TimeoutException': 'ReadTimeout',  # httpx uses more specific timeout exceptions
+            'ConnectError': 'ConnectError',
+            'HTTPStatusError': 'HTTPStatusError',
+            'InvalidURL': 'UnsupportedProtocol',  # httpx uses different name for URL errors
+            'TooManyRedirects': 'TooManyRedirects',
+        }
+        httpx_exception_name = exception_mapping.get(exception_name, exception_name)
+        return getattr(httpx, httpx_exception_name)
+    else:
+        # faster_http
+        import faster_http
+        return getattr(faster_http, exception_name)
 
 
 class TestBasicHTTPMethods(TDDTestCase):
@@ -539,12 +567,13 @@ class TestResponseCoreAttributes(TDDTestCase):
 
         # Test client error raises exception
         response = client_factory.get(f"{self.base_url}/status/404")
-        with pytest.raises(faster_http.HTTPStatusError):
+        expected_exception = get_exception_class(client_factory, 'HTTPStatusError')
+        with pytest.raises(expected_exception):
             response.raise_for_status()
 
         # Test server error raises exception
         response = client_factory.get(f"{self.base_url}/status/500")
-        with pytest.raises(faster_http.HTTPStatusError):
+        with pytest.raises(expected_exception):
             response.raise_for_status()
 
     @httpx_compatibility_test
@@ -677,12 +706,15 @@ class TestBasicParameterSupport(TDDTestCase):
     @httpx_compatibility_test
     def test_timeout_support(self, client_factory):
         """Test timeout configuration support."""
+        # Get the appropriate timeout exception class
+        timeout_exception_class = get_exception_class(client_factory, 'TimeoutException')
+
         # Test basic timeout setting
         try:
             # Use a fast endpoint to test timeout doesn't interfere
             response = client_factory.get(f"{self.base_url}/get", timeout=5.0)
             assert response.status_code == 200
-        except faster_http.TimeoutException:
+        except timeout_exception_class:
             pytest.skip("Timeout testing requires longer setup")
 
         # Test timeout with slow endpoint
@@ -690,7 +722,7 @@ class TestBasicParameterSupport(TDDTestCase):
             # Our test server has delay endpoint
             response = client_factory.get(f"{self.base_url}/delay/0.1", timeout=10.0)
             assert response.status_code == 200
-        except faster_http.TimeoutException:
+        except timeout_exception_class:
             pytest.fail("Request should not timeout with generous timeout")
 
         # Test very short timeout (might timeout)
@@ -698,6 +730,6 @@ class TestBasicParameterSupport(TDDTestCase):
             response = client_factory.get(f"{self.base_url}/delay/1", timeout=0.1)
             # If it succeeds, server was very fast
             assert response.status_code == 200
-        except faster_http.TimeoutException:
+        except timeout_exception_class:
             # Expected for very short timeout
             pass

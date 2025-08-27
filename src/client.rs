@@ -153,8 +153,8 @@ impl HttpClient {
         files: Option<PyObject>,
         json: Option<PyObject>,
         cookies: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-        extensions: Option<HashMap<String, PyObject>>,
+        #[allow(unused_variables)] timeout: Option<f64>,
+        #[allow(unused_variables)] extensions: Option<HashMap<String, PyObject>>,
         stream: Option<bool>,
     ) -> PyResult<HttpRequest> {
         // Merge default params with request params (same pattern as headers)
@@ -183,7 +183,7 @@ impl HttpClient {
         }
 
         // Handle JSON serialization and content-type headers like HttpRequest::new does
-        let mut final_content = content.map(|c| c.into());
+        let mut final_content = content;
         if let Some(json_obj) = &json {
             Python::with_gil(|py| -> PyResult<()> {
                 let json_module = py.import("json")?;
@@ -310,8 +310,29 @@ impl HttpClient {
         // Convert auth to tuple format for ureq client
         let auth_tuple = crate::auth::extract_auth(&final_auth);
 
+        // Merge cookies with cookie jar for session management
+        let merged_cookies = {
+            let mut merged = HashMap::new();
+            
+            // Add cookies from cookie jar (session cookies)
+            if let Ok(jar) = self.config.cookie_jar.lock() {
+                merged.extend(jar.clone());
+            }
+            
+            // Add request-specific cookies (highest priority)
+            if let Some(request_cookies) = cookies {
+                merged.extend(request_cookies);
+            }
+            
+            if !merged.is_empty() {
+                Some(merged)
+            } else {
+                None
+            }
+        };
+
         // Use ureq client's full request method (follow_redirects is handled by ureq config)
-        self.client.send_request_full(
+        let response = self.client.send_request_full(
             method,
             url,
             content,
@@ -322,8 +343,37 @@ impl HttpClient {
             headers,
             timeout,
             auth_tuple,
-            cookies,
-        )
+            merged_cookies,
+            follow_redirects,
+        )?;
+        
+        // Update cookie jar with Set-Cookie headers from response
+        self.update_cookie_jar_from_response(&response);
+        
+        Ok(response)
+    }
+
+    /// Update cookie jar with Set-Cookie headers from response
+    fn update_cookie_jar_from_response(&self, response: &crate::response::HttpResponse) {
+        let headers_map = response.headers().to_hashmap();
+        
+        // Look for Set-Cookie headers (case-insensitive)
+        for (key, value) in &headers_map {
+            if key.to_lowercase() == "set-cookie" {
+                // Parse the Set-Cookie header
+                if let Some(cookie_pair) = value.split(';').next() {
+                    if let Some((name, val)) = cookie_pair.split_once('=') {
+                        let cookie_name = name.trim().to_string();
+                        let cookie_value = val.trim().trim_matches('"').to_string();
+                        
+                        // Update cookie jar
+                        if let Ok(mut jar) = self.config.cookie_jar.lock() {
+                            jar.insert(cookie_name, cookie_value);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Public request method for httpx compatibility
@@ -621,15 +671,6 @@ impl HttpClient {
             }
         };
         
-        // Convert _data from Option<PyObject> to Option<HashMap<String, PyObject>>
-        let converted_data = _data.map(|obj| {
-            Python::with_gil(|py| {
-                let mut map = HashMap::new();
-                map.insert("data".to_string(), obj);
-                map
-            })
-        });
-        
         // Convert _params from Option<HashMap<String, String>> to Option<HashMap<String, PyObject>>
         let converted_params = _params.map(|params_map| {
             Python::with_gil(|py| {
@@ -645,7 +686,7 @@ impl HttpClient {
             _method.to_string(),
             _url.to_string(),
             _content,
-            converted_data,
+            _data,
             _json,
             _files,
             converted_params,
@@ -681,6 +722,39 @@ impl HttpClient {
     #[getter]
     pub fn auth(&self) -> Option<PyObject> {
         self.config.auth_object.clone()
+    }
+
+    #[getter] 
+    pub fn follow_redirects(&self) -> bool {
+        self.config.follow_redirects
+    }
+
+    // Connection pool monitoring methods
+    pub fn get_connection_stats(&self) -> PyResult<std::collections::HashMap<String, f64>> {
+        // Return connection pool statistics for monitoring
+        let mut stats = std::collections::HashMap::new();
+        
+        // For sync client, we use ureq which doesn't expose detailed pool stats
+        // But we can provide basic health information
+        stats.insert("client_type".to_string(), 0.0); // 0 = sync
+        stats.insert("health_score".to_string(), 1.0); // Assume healthy for sync client
+        stats.insert("total_requests".to_string(), 0.0); // ureq doesn't expose this
+        stats.insert("failed_requests".to_string(), 0.0);
+        stats.insert("success_rate".to_string(), 1.0);
+        
+        Ok(stats)
+    }
+
+    pub fn is_connection_healthy(&self) -> PyResult<bool> {
+        // For sync client, always return true unless client is closed
+        Ok(!self.is_closed.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    pub fn cleanup_connections(&self) -> PyResult<()> {
+        // For sync client (ureq), connections are managed automatically
+        // This is a no-op but provided for API compatibility
+        self.check_not_closed()?;
+        Ok(())
     }
 }
 

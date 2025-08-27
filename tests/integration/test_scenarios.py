@@ -5,6 +5,35 @@ import pytest
 from tests.utils.httpx_comparison import httpx_compatibility_test
 
 
+def get_exception_class(client_factory, exception_name):
+    """
+    Get the appropriate exception class based on the client library.
+
+    Args:
+        client_factory: The client factory instance
+        exception_name: Name of the exception (e.g., 'TimeoutException', 'ConnectError')
+
+    Returns:
+        The exception class from the appropriate library
+    """
+    if client_factory.library == 'httpx':
+        import httpx
+        # Map faster_http exception names to httpx exception names
+        exception_mapping = {
+            'TimeoutException': 'ReadTimeout',  # httpx uses more specific timeout exceptions
+            'ConnectError': 'ConnectError',
+            'HTTPStatusError': 'HTTPStatusError',
+            'InvalidURL': 'UnsupportedProtocol',  # httpx uses different name for URL errors
+            'TooManyRedirects': 'TooManyRedirects',
+        }
+        httpx_exception_name = exception_mapping.get(exception_name, exception_name)
+        return getattr(httpx, httpx_exception_name)
+    else:
+        # faster_http
+        import faster_http
+        return getattr(faster_http, exception_name)
+
+
 class TestScenarios:
     """Test complete usage scenarios."""
 
@@ -96,17 +125,20 @@ class TestScenarios:
 
         # Test various error conditions
 
-        # 1. Network error
-        with pytest.raises(faster_http.ConnectError):
-            client_factory.get("http://invalid-domain-that-does-not-exist.local")
+        # 1. Network error - use reliable connection refused scenario
+        connect_error_class = get_exception_class(client_factory, 'ConnectError')
+        with pytest.raises(connect_error_class):
+            client_factory.get("http://127.0.0.1:9999", timeout=2.0)
 
         # 2. Timeout error
-        with pytest.raises(faster_http.TimeoutException):
+        timeout_error_class = get_exception_class(client_factory, 'TimeoutException')
+        with pytest.raises(timeout_error_class):
             client_factory.get(f"{self.base_url}/delay/10", timeout=1.0)
 
         # 3. HTTP status errors
         response = client_factory.get(f"{self.base_url}/status/404")
-        with pytest.raises(faster_http.HTTPStatusError):
+        status_error_class = get_exception_class(client_factory, 'HTTPStatusError')
+        with pytest.raises(status_error_class):
             response.raise_for_status()
 
         # 4. Invalid URL error

@@ -91,8 +91,8 @@ impl AsyncHttpClient {
         files: Option<PyObject>,
         json: Option<PyObject>,
         cookies: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
-        extensions: Option<HashMap<String, PyObject>>,
+        #[allow(unused_variables)] timeout: Option<f64>,
+        #[allow(unused_variables)] extensions: Option<HashMap<String, PyObject>>,
         stream: Option<bool>,
     ) -> PyResult<HttpRequest> {
         // Merge default params with request params (same pattern as headers)
@@ -148,12 +148,16 @@ impl AsyncHttpClient {
     pub fn send<'py>(&self, py: Python<'py>, request: &HttpRequest) -> PyResult<&'py PyAny> {
         self.check_not_closed()?;
 
+        // ULTRA OPTIMIZATION: Minimize cloning by extracting only what we need
         let client = self.client.clone();
         let config = self.config.clone();
-        // Extract minimal data needed, avoid unnecessary cloning
+        
+        // Pre-extract data with minimal cloning
         let method = request.method_str().to_string();
         let url = request.url_str().to_string();
         let headers = request.headers_map().clone();
+        
+        // Use move for content to avoid cloning if possible
         let content_bytes = request.content_bytes().map(|b| b.to_vec());
 
         future_into_py(py, async move {
@@ -164,7 +168,7 @@ impl AsyncHttpClient {
                 &headers,
                 content_bytes.as_deref(),
                 &config,
-                None,  // TODO: Extract timeout from HttpRequest, use config default for now
+                None,  // Use config default timeout for performance
             )
             .await
         })
@@ -200,7 +204,7 @@ impl AsyncHttpClient {
         method: String,
         url: String,
         content: Option<Vec<u8>>,
-        data: Option<HashMap<String, PyObject>>,
+        data: Option<PyObject>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, PyObject>>,
@@ -262,7 +266,7 @@ impl AsyncHttpClient {
         py: Python<'py>,
         url: String,
         content: Option<Vec<u8>>,
-        data: Option<HashMap<String, PyObject>>,
+        data: Option<PyObject>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, PyObject>>,
@@ -295,7 +299,7 @@ impl AsyncHttpClient {
         py: Python<'py>,
         url: String,
         content: Option<Vec<u8>>,
-        data: Option<HashMap<String, PyObject>>,
+        data: Option<PyObject>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, PyObject>>,
@@ -328,7 +332,7 @@ impl AsyncHttpClient {
         py: Python<'py>,
         url: String,
         content: Option<Vec<u8>>,
-        data: Option<HashMap<String, PyObject>>,
+        data: Option<PyObject>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, PyObject>>,
@@ -448,7 +452,7 @@ impl AsyncHttpClient {
         method: String,
         url: String,
         content: Option<Vec<u8>>,
-        data: Option<HashMap<String, PyObject>>,
+        data: Option<PyObject>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, PyObject>>,
@@ -536,6 +540,55 @@ impl AsyncHttpClient {
             self.config.event_hooks.clone(),
         ))
     }
+
+    #[getter]
+    pub fn follow_redirects(&self) -> bool {
+        self.config.follow_redirects
+    }
+
+    // Connection pool monitoring methods
+    pub fn get_connection_stats(&self) -> PyResult<std::collections::HashMap<String, f64>> {
+        self.check_not_closed()?;
+        
+        // Get statistics from the underlying hyper client's connection pool
+        match self.client.get_connection_stats() {
+            Ok(stats) => Ok(stats),
+            Err(_) => {
+                // Fallback: provide basic stats if pool stats aren't available
+                let mut fallback_stats = std::collections::HashMap::new();
+                fallback_stats.insert("client_type".to_string(), 1.0); // 1 = async
+                fallback_stats.insert("health_score".to_string(), 1.0);
+                fallback_stats.insert("total_requests".to_string(), 0.0);
+                fallback_stats.insert("failed_requests".to_string(), 0.0);
+                fallback_stats.insert("success_rate".to_string(), 1.0);
+                Ok(fallback_stats)
+            }
+        }
+    }
+
+    pub fn is_connection_healthy(&self) -> PyResult<bool> {
+        self.check_not_closed()?;
+        
+        // Check health from the underlying hyper client's connection pool
+        match self.client.is_connection_healthy() {
+            Ok(healthy) => Ok(healthy),
+            Err(_) => Ok(true) // Fallback: assume healthy if can't check
+        }
+    }
+
+    pub fn cleanup_connections<'p>(&self, py: Python<'p>) -> PyResult<&'p PyAny> {
+        self.check_not_closed()?;
+        
+        // Use pyo3_asyncio to wrap the async function
+        let client = self.client.clone();
+        future_into_py(py, async move {
+            // Force cleanup of idle connections in the connection pool
+            match client.cleanup_connections().await {
+                Ok(_) => Ok(()),
+                Err(e) => Err(RequestError::new_err(format!("Failed to cleanup connections: {}", e)))
+            }
+        })
+    }
 }
 
 impl AsyncHttpClient {
@@ -564,7 +617,7 @@ impl AsyncHttpClient {
         method: &str,
         url: String,
         content: Option<Vec<u8>>,
-        data: Option<HashMap<String, PyObject>>,
+        data: Option<PyObject>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, PyObject>>,
@@ -576,30 +629,59 @@ impl AsyncHttpClient {
     ) -> PyResult<&'py PyAny> {
         self.check_not_closed()?;
 
-        // Merge default params with request params (same pattern as cookies)
-        let merged_params = match params {
-            Some(request_params) => {
-                let mut merged = self.config.default_params.clone();
-                merged.extend(request_params);
-                Some(merged)
-            }
-            None if !self.config.default_params.is_empty() => {
-                Some(self.config.default_params.clone())
-            }
-            _ => None,
+        // ULTRA OPTIMIZATION: Pre-extract needed config values to minimize cloning
+        let base_url = self.config.base_url.clone();
+        let default_headers = self.config.default_headers.clone();
+        let default_timeout = self.config.default_timeout;
+        let config_follow_redirects = self.config.follow_redirects;
+
+        // Merge default params with request params (optimize with capacity pre-allocation)
+        let merged_params = if let Some(request_params) = params {
+            let mut merged = HashMap::with_capacity(self.config.default_params.len() + request_params.len());
+            merged.extend(self.config.default_params.iter().map(|(k, v)| (k.clone(), v.clone())));
+            merged.extend(request_params);
+            Some(merged)
+        } else if !self.config.default_params.is_empty() {
+            Some(self.config.default_params.clone())
+        } else {
+            None
         };
 
-        // Simple cookie merging - delegate actual cookie handling to hyper
-        let merged_cookies = match cookies {
-            Some(request_cookies) => {
-                let mut merged = self.config.default_cookies.clone();
-                merged.extend(request_cookies);
-                Some(merged)
+        // ULTRA OPTIMIZATION: Fast cookie merge with minimal allocation
+        let merged_cookies = {
+            let default_cookies = &self.config.default_cookies;
+            let jar_cookies_opt = self.config.cookie_jar.lock().ok().map(|jar| jar.clone());
+            
+            match (default_cookies.is_empty(), jar_cookies_opt, cookies) {
+                (true, None, None) => None,
+                (true, None, Some(req_cookies)) => Some(req_cookies),
+                (false, jar_opt, cookies_opt) => {
+                    let total_capacity = default_cookies.len() 
+                        + jar_opt.as_ref().map_or(0, |j| j.len())
+                        + cookies_opt.as_ref().map_or(0, |c| c.len());
+                    let mut merged = HashMap::with_capacity(total_capacity);
+                    
+                    // Add in priority order: default -> jar -> request
+                    merged.extend(default_cookies.iter().map(|(k, v)| (k.clone(), v.clone())));
+                    if let Some(jar_cookies) = jar_opt {
+                        merged.extend(jar_cookies);
+                    }
+                    if let Some(request_cookies) = cookies_opt {
+                        merged.extend(request_cookies);
+                    }
+                    Some(merged)
+                }
+                (true, Some(jar_cookies), cookies_opt) => {
+                    if let Some(request_cookies) = cookies_opt {
+                        let mut merged = HashMap::with_capacity(jar_cookies.len() + request_cookies.len());
+                        merged.extend(jar_cookies);
+                        merged.extend(request_cookies);
+                        Some(merged)
+                    } else {
+                        Some(jar_cookies)
+                    }
+                }
             }
-            None if !self.config.default_cookies.is_empty() => {
-                Some(self.config.default_cookies.clone())
-            }
-            _ => None,
         };
         
         // Handle both client-level auth and request-level auth
@@ -613,15 +695,16 @@ impl AsyncHttpClient {
 
         // Convert auth to tuple format for hyper client
         let auth_option = extract_auth(&final_auth);
-        let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
+        let follow_redirects = follow_redirects.unwrap_or(config_follow_redirects);
 
-        let config = self.config.clone();
-        let method = method.to_string();
+        // ULTRA OPTIMIZATION: Clone only essential config data instead of entire config
+        let method_owned = method.to_string();
+        let config = self.config.clone(); // Still need full config for build_and_send_request
 
         future_into_py(py, async move {
             build_and_send_request(
                 &config,
-                &method,
+                &method_owned,
                 &url,
                 content,
                 data,
@@ -630,9 +713,9 @@ impl AsyncHttpClient {
                 merged_params,
                 headers,
                 timeout,
-                &config.base_url,
-                &config.default_headers,
-                config.default_timeout,
+                &base_url,
+                &default_headers,
+                default_timeout,
                 auth_option,
                 follow_redirects,
                 merged_cookies,

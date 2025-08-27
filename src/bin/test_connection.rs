@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::time::Duration;
 
 // Test connection to test server using different HTTP clients
@@ -31,7 +30,7 @@ async fn test_with_curl(base_url: &str) -> Result<(), Box<dyn std::error::Error>
     println!("=== Testing with curl ===");
     
     let output = tokio::process::Command::new("curl")
-        .args(&["-s", "-w", "HTTP %{http_code}", &format!("{}/get", base_url)])
+        .args(["-s", "-w", "HTTP %{http_code}", &format!("{}/get", base_url)])
         .output()
         .await?;
     
@@ -146,7 +145,7 @@ async fn start_test_server() -> Result<TestServer, Box<dyn std::error::Error>> {
     
     // Start Python test server in background
     let mut child = tokio::process::Command::new("python")
-        .args(&["-c", r#"
+        .args(["-c", r#"
 import sys
 sys.path.insert(0, 'tests')
 from utils.test_server import HTTPTestServer

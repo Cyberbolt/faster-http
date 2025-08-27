@@ -176,7 +176,7 @@ impl HttpRequest {
         })
     }
 
-    pub fn copy(&self, py: Python) -> PyResult<Self> {
+    pub fn copy(&self, _py: Python) -> PyResult<Self> {
         // Deep copy the request object (similar to Python copy.deepcopy)
         Ok(HttpRequest {
             method: self.method.clone(),

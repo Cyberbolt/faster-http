@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 // Response object - production version, fully aligned with httpx
 #[pyclass(module = "faster_http")]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct HttpResponse {
     status_code: u16,
     headers: HashMap<String, String>,
@@ -88,6 +88,25 @@ impl HttpResponse {
             ext
         };
 
+        // Ensure request is always available - create default if None
+        let final_request = request.or_else(|| {
+            // Create a default HttpRequest object if none provided
+            Python::with_gil(|py| {
+                crate::request::HttpRequest::new(
+                    "GET".to_string(),
+                    url.clone(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ).ok().map(|req| Py::new(py, req).ok().map(|obj| obj.to_object(py))).flatten()
+            })
+        });
+
         HttpResponse {
             status_code,
             headers,
@@ -99,7 +118,7 @@ impl HttpResponse {
             cookies,
             encoding,
             history,
-            request,
+            request: final_request,
             num_bytes_downloaded,
             extensions,
             next_request: None,
@@ -227,6 +246,27 @@ impl HttpResponse {
         self.history.clone()
     }
 
+    /// Create a new response with the same data but different history
+    pub fn with_history(&self, new_history: Vec<PyObject>) -> Self {
+        Self {
+            status_code: self.status_code,
+            headers: self.headers.clone(),
+            body: self.body.clone(),
+            url: self.url.clone(),
+            elapsed: self.elapsed,
+            is_redirect_status: self.is_redirect_status,
+            http_version: self.http_version.clone(),
+            cookies: self.cookies.clone(),
+            encoding: self.encoding.clone(),
+            history: new_history,
+            request: self.request.clone(),
+            num_bytes_downloaded: self.num_bytes_downloaded,
+            extensions: self.extensions.clone(),
+            next_request: self.next_request.clone(),
+            _closed: self._closed,
+        }
+    }
+
     #[getter]
     pub fn request(&self) -> Option<PyObject> {
         self.request.clone()
@@ -352,14 +392,18 @@ impl HttpResponse {
     // ==================== Other methods ====================
     pub fn raise_for_status(&self) -> PyResult<()> {
         if self.status_code >= 400 {
-            let response_obj = Python::with_gil(|py| {
+            let (request_obj, response_obj) = Python::with_gil(|py| {
                 // Convert self to PyObject
-                Py::new(py, self.clone()).map(|obj| obj.to_object(py))
+                let response = Py::new(py, self.clone()).map(|obj| obj.to_object(py)).ok();
+                // Get the request object from self.request
+                let request = self.request.clone();
+                (request, response)
             });
 
-            return Err(HTTPStatusError::new_err_with_response(
+            return Err(HTTPStatusError::new_err_with_request_response(
                 format!("HTTP {} error for url: {}", self.status_code, self.url),
-                response_obj.ok(),
+                request_obj,
+                response_obj,
             ));
         }
         Ok(())
@@ -687,5 +731,13 @@ pub fn detect_http_version(version: &hyper::Version) -> String {
         hyper::Version::HTTP_2 => "HTTP/2".to_string(),
         hyper::Version::HTTP_3 => "HTTP/3".to_string(),
         _ => "HTTP/1.1".to_string(), // Default value
+    }
+}
+
+// Implement ToPyObject for HttpResponse to enable Python conversion
+impl pyo3::ToPyObject for HttpResponse {
+    fn to_object(&self, py: Python) -> PyObject {
+        // Return the PyClass instance as a PyObject
+        self.clone().into_py(py)
     }
 }

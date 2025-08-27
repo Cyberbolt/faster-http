@@ -177,6 +177,7 @@ impl SyncHttpClient {
             timeout,
             auth_option,
             merged_cookies,
+            follow_redirects,
         )
     }
 

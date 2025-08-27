@@ -5,12 +5,12 @@ use crate::config::ClientConfig;
 use crate::hyper_client::{HyperHttpClient, HyperClientConfig};
 use crate::response::HttpResponse;
 use crate::error::RequestError;
-use crate::core::build_and_send_request;
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::runtime::Runtime;
 
 /// Simplified runtime management for streaming operations
 /// Uses the same runtime as sync_core for consistency and simplicity
+#[allow(dead_code)]
 fn execute_streaming_async<F, T>(future: F) -> PyResult<T>
 where
     F: std::future::Future<Output = PyResult<T>> + Send + 'static,
@@ -40,10 +40,12 @@ where
 }
 
 /// Global streaming client pool for reusing connections - safe implementation
+#[allow(dead_code)]
 static STREAMING_CLIENT_POOL: OnceLock<Result<Arc<Mutex<HyperHttpClient>>, String>> = OnceLock::new();
 
 /// Get or create the global shared streaming client for performance
 /// Uses safe OnceLock pattern without unsafe code
+#[allow(dead_code)]
 fn get_shared_streaming_client() -> PyResult<Arc<Mutex<HyperHttpClient>>> {
     let result = STREAMING_CLIENT_POOL.get_or_init(|| {
         let config = HyperClientConfig {
@@ -73,7 +75,7 @@ pub struct StreamingClient {
     method: String,
     url: String,
     content: Option<Vec<u8>>,
-    data: Option<HashMap<String, PyObject>>,
+    data: Option<PyObject>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, PyObject>>,
@@ -95,7 +97,7 @@ impl StreamingClient {
         method: String,
         url: String,
         content: Option<Vec<u8>>,
-        data: Option<HashMap<String, PyObject>>,
+        data: Option<PyObject>,
         json: Option<HashMap<String, PyObject>>,
         files: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, PyObject>>,
@@ -147,18 +149,8 @@ impl StreamingClient {
         let follow_redirects = slf.follow_redirects;
         let cookies = slf.cookies.clone();
 
-        // Convert data from Option<HashMap<String, PyObject>> to Option<PyObject>
-        let data_obj = slf.data.as_ref().map(|data_map| {
-            Python::with_gil(|py| {
-                // If data is a single key-value pair with key "data", extract the value
-                if let Some(value) = data_map.get("data") {
-                    value.clone()
-                } else {
-                    // Otherwise, convert the entire map to a PyObject
-                    data_map.to_object(py)
-                }
-            })
-        });
+        // Data is already Option<PyObject>, no conversion needed
+        let data_obj = slf.data.clone();
 
         // Execute request using synchronous client to avoid async runtime issues
         let response = crate::api::execute_request_with_sync_client(
@@ -324,7 +316,7 @@ impl StreamingClient {
     /// Stream response content as bytes - httpx iter_bytes() compatible
     fn iter_bytes(&self, chunk_size: Option<usize>) -> PyResult<StreamingIterator> {
         if self._is_closed {
-            return Err(RequestError::new_err("Cannot iterate over closed stream"));
+            return Err(crate::error::StreamError::new_err("Cannot iterate over closed stream"));
         }
         
         match &self.response {
@@ -347,7 +339,7 @@ impl StreamingClient {
     /// Stream response content as text - httpx iter_text() compatible
     fn iter_text(&self, chunk_size: Option<usize>) -> PyResult<StreamingIterator> {
         if self._is_closed {
-            return Err(RequestError::new_err("Cannot iterate over closed stream"));
+            return Err(crate::error::StreamError::new_err("Cannot iterate over closed stream"));
         }
         
         match &self.response {
@@ -368,7 +360,7 @@ impl StreamingClient {
     /// Stream response content line by line - httpx iter_lines() compatible
     fn iter_lines(&self) -> PyResult<StreamingIterator> {
         if self._is_closed {
-            return Err(RequestError::new_err("Cannot iterate over closed stream"));
+            return Err(crate::error::StreamError::new_err("Cannot iterate over closed stream"));
         }
         
         match &self.response {
@@ -389,7 +381,7 @@ impl StreamingClient {
     /// Stream raw response bytes - httpx iter_raw() compatible
     fn iter_raw(&self, chunk_size: Option<usize>) -> PyResult<StreamingIterator> {
         if self._is_closed {
-            return Err(RequestError::new_err("Cannot iterate over closed stream"));
+            return Err(crate::error::StreamError::new_err("Cannot iterate over closed stream"));
         }
         
         match &self.response {
