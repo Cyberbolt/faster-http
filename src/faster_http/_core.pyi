@@ -174,6 +174,9 @@ class HttpClient:
         data: Any | None = None,
         files: Any | None = None,
         json: Any | None = None,
+        cookies: dict[str, str] | None = None,
+        timeout: float | None = None,
+        extensions: dict[str, Any] | None = None,
         stream: bool | None = None,
     ) -> HttpRequest: ...
     def send(self, request: HttpRequest) -> HttpResponse: ...
@@ -319,6 +322,9 @@ class AsyncHttpClient:
         data: Any | None = None,
         files: Any | None = None,
         json: Any | None = None,
+        cookies: dict[str, str] | None = None,
+        timeout: float | None = None,
+        extensions: dict[str, Any] | None = None,
         stream: bool | None = None,
     ) -> HttpRequest: ...
     async def send(self, request: HttpRequest) -> HttpResponse: ...

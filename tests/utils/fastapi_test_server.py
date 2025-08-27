@@ -12,12 +12,11 @@ import json
 import random
 import threading
 import time
-import urllib.parse
-from typing import Any, Dict, Optional
+from typing import Any
 
-import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
+import uvicorn
 
 
 class FastAPITestServer:
@@ -50,7 +49,7 @@ class FastAPITestServer:
                 del response.headers["server"]
             return response
 
-        def _get_request_data(request: Request) -> Dict[str, Any]:
+        def _get_request_data(request: Request) -> dict[str, Any]:
             """Extract request data for response."""
             # Get query parameters
             args = {}
@@ -107,7 +106,7 @@ class FastAPITestServer:
             # Get request body
             body = await request.body()
             data["data"] = body.decode("utf-8") if body else ""
-            
+
             # Try to parse JSON
             if body and request.headers.get("content-type", "").startswith("application/json"):
                 try:
@@ -116,7 +115,7 @@ class FastAPITestServer:
                     data["json"] = None
             else:
                 data["json"] = None
-                
+
             return data
 
         @app.put("/put")
@@ -125,7 +124,7 @@ class FastAPITestServer:
             data = _get_request_data(request)
             body = await request.body()
             data["data"] = body.decode("utf-8") if body else ""
-            
+
             if body and request.headers.get("content-type", "").startswith("application/json"):
                 try:
                     data["json"] = json.loads(body)
@@ -133,7 +132,7 @@ class FastAPITestServer:
                     data["json"] = None
             else:
                 data["json"] = None
-                
+
             return data
 
         @app.patch("/patch")
@@ -142,7 +141,7 @@ class FastAPITestServer:
             data = _get_request_data(request)
             body = await request.body()
             data["data"] = body.decode("utf-8") if body else ""
-            
+
             if body and request.headers.get("content-type", "").startswith("application/json"):
                 try:
                     data["json"] = json.loads(body)
@@ -150,7 +149,7 @@ class FastAPITestServer:
                     data["json"] = None
             else:
                 data["json"] = None
-                
+
             return data
 
         @app.delete("/delete")
@@ -159,7 +158,7 @@ class FastAPITestServer:
             data = _get_request_data(request)
             body = await request.body()
             data["data"] = body.decode("utf-8") if body else ""
-            
+
             if body and request.headers.get("content-type", "").startswith("application/json"):
                 try:
                     data["json"] = json.loads(body)
@@ -167,7 +166,7 @@ class FastAPITestServer:
                     data["json"] = None
             else:
                 data["json"] = None
-                
+
             return data
 
         @app.head("/head")
@@ -230,17 +229,17 @@ class FastAPITestServer:
         async def handle_basic_auth(username: str, password: str, request: Request):
             """Handle /basic-auth/<user>/<passwd> endpoint."""
             auth_header = request.headers.get("authorization", "")
-            
+
             if not auth_header.startswith("Basic "):
                 raise HTTPException(
                     status_code=401,
                     headers={"WWW-Authenticate": 'Basic realm="Test"'}
                 )
-            
+
             try:
                 credentials = base64.b64decode(auth_header[6:]).decode("utf-8")
                 auth_username, auth_password = credentials.split(":", 1)
-                
+
                 if auth_username == username and auth_password == password:
                     return {"authenticated": True, "user": auth_username}
                 else:
@@ -259,7 +258,7 @@ class FastAPITestServer:
         async def handle_digest_auth(qop: str, username: str, password: str, request: Request):
             """Handle /digest-auth/<qop>/<user>/<passwd> endpoint."""
             auth_header = request.headers.get("authorization", "")
-            
+
             if auth_header.startswith("Digest "):
                 # Simplified digest auth - just check if digest auth is attempted
                 return {"authenticated": True, "user": username}
@@ -281,7 +280,7 @@ class FastAPITestServer:
                     line = json.dumps({"line": i, "data": f"Line {i} data"}) + "\n"
                     yield line.encode("utf-8")
                     await asyncio.sleep(0.01)  # Small delay
-            
+
             return StreamingResponse(generate_stream(), media_type="application/json")
 
         # Bytes endpoint
@@ -300,7 +299,7 @@ class FastAPITestServer:
 
         try:
             import asyncio
-            
+
             # Create server manually for better control
             import socket
             if self.port == 0:
@@ -309,7 +308,7 @@ class FastAPITestServer:
                 sock.bind((self.host, 0))
                 self.port = sock.getsockname()[1]
                 sock.close()
-            
+
             config = uvicorn.Config(
                 self.app,
                 host=self.host,
@@ -319,34 +318,34 @@ class FastAPITestServer:
                 server_header=False,   # Disable server header
                 date_header=False,     # Disable date header
             )
-            
+
             self.server = uvicorn.Server(config)
-            
+
             # Start server in background thread
             def run_server():
                 try:
                     asyncio.run(self.server.serve())
                 except Exception as e:
                     print(f"Server thread error: {e}")
-            
+
             self.thread = threading.Thread(target=run_server, daemon=True)
             self.thread.start()
-            
+
             # Wait for server to start with better checking
             start_time = time.time()
             max_wait = 10.0
-            
+
             while (time.time() - start_time) < max_wait:
                 if self.server.started:
                     break
                 time.sleep(0.01)
             else:
                 raise RuntimeError(f"FastAPI test server failed to start within {max_wait} seconds")
-            
+
             self._started = True
-            
+
             # Verify server is responding with socket test
-            for attempt in range(50):  # Try up to 5 seconds
+            for _attempt in range(50):  # Try up to 5 seconds
                 try:
                     test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     test_socket.settimeout(0.1)
@@ -359,7 +358,7 @@ class FastAPITestServer:
                 time.sleep(0.1)
             else:
                 raise RuntimeError(f"FastAPI test server not responding on {self.host}:{self.port}")
-            
+
         except Exception as e:
             print(f"Failed to start FastAPI test server: {e}")
             raise
@@ -372,7 +371,7 @@ class FastAPITestServer:
         try:
             if self.server:
                 self.server.should_exit = True
-                
+
             if self.thread and self.thread.is_alive():
                 self.thread.join(timeout=1.0)
         except Exception:

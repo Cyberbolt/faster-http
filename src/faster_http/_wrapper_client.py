@@ -33,26 +33,25 @@ class Client:
 
     def __init__(
         self,
-        base_url: str | None = None,
-        timeout: float | dict[str, float] | None = None,
-        headers: dict[str, str] | None = None,
-        verify: bool | None = None,
-        follow_redirects: bool | None = None,
         auth: Any | None = None,
-        proxy: Any | None = None,
-        proxies: dict[str, str] | None = None,
-        cookies: dict[str, str] | None = None,
-        http1: bool | None = None,
-        http2: bool | None = None,
-        event_hooks: dict[str, list[Callable]] | None = None,
-        cert: Any | None = None,
-        trust_env: bool | None = None,
-        transport: Any | None = None,
-        mounts: dict[str, Any] | None = None,
-        limits: Any | None = None,
-        max_redirects: int | None = None,
-        default_encoding: str | None = None,
         params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        verify: bool = True,
+        cert: Any | None = None,
+        http1: bool = True,
+        http2: bool = False,
+        proxy: Any | None = None,
+        mounts: dict[str, Any] | None = None,
+        timeout: float | dict[str, float] | None = 5.0,
+        follow_redirects: bool = False,
+        limits: Any | None = None,
+        max_redirects: int = 20,
+        event_hooks: dict[str, list[Callable]] | None = None,
+        base_url: str | None = "",
+        transport: Any | None = None,
+        trust_env: bool = True,
+        default_encoding: str | None = "utf-8",
     ):
         # Store client configuration for localhost requests
         self._base_url = base_url
@@ -72,7 +71,6 @@ class Client:
             follow_redirects=follow_redirects,
             auth=auth,
             proxy=proxy,
-            proxies=proxies,
             cookies=cookies,
             http1=http1,
             http2=http2,
@@ -100,7 +98,7 @@ class Client:
         params: dict[str, str] | None = None,
         headers: dict[str, str] | None = None,
         timeout: float | None = None,
-        auth: tuple | None = None,
+        auth: Any | None = None,
         follow_redirects: bool | None = None,
         cookies: dict[str, str] | None = None,
     ):
@@ -176,6 +174,9 @@ class Client:
         files: dict[str, Any] | None = None,
         params: dict[str, str] | None = None,
         headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        timeout: float | None = None,
+        extensions: dict[str, Any] | None = None,
         stream: bool | None = None,
     ):
         """
@@ -193,12 +194,28 @@ class Client:
             files=files,
             params=params,
             headers=headers,
+            cookies=cookies,
+            timeout=timeout,
+            extensions=extensions,
             stream=stream,
         )
 
     def stream(self, method: str, url: str, **kwargs):
         """Send streaming request."""
-        return self._rust_client.stream(method, url, **kwargs)
+        return self._rust_client.stream(
+            method,
+            url,
+            kwargs.get('content'),
+            kwargs.get('data'),
+            kwargs.get('json'),
+            kwargs.get('files'),
+            kwargs.get('params'),
+            kwargs.get('headers'),
+            kwargs.get('timeout'),
+            kwargs.get('auth'),
+            kwargs.get('follow_redirects'),
+            kwargs.get('cookies')
+        )
 
     def close(self):
         """Close the client."""
@@ -262,26 +279,25 @@ class AsyncClient:
 
     def __init__(
         self,
-        base_url: str | None = None,
-        timeout: float | dict[str, float] | None = None,
-        headers: dict[str, str] | None = None,
-        verify: bool | None = None,
-        follow_redirects: bool | None = None,
         auth: Any | None = None,
-        proxy: Any | None = None,
-        proxies: dict[str, str] | None = None,
-        cookies: dict[str, str] | None = None,
-        http1: bool | None = None,
-        http2: bool | None = None,
-        event_hooks: dict[str, list[Callable]] | None = None,
-        cert: Any | None = None,
-        trust_env: bool | None = None,
-        transport: Any | None = None,
-        mounts: dict[str, Any] | None = None,
-        limits: Any | None = None,
-        max_redirects: int | None = None,
-        default_encoding: str | None = None,
         params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        verify: bool = True,
+        cert: Any | None = None,
+        http1: bool = True,
+        http2: bool = False,
+        proxy: Any | None = None,
+        mounts: dict[str, Any] | None = None,
+        timeout: float | dict[str, float] | None = 5.0,
+        follow_redirects: bool = False,
+        limits: Any | None = None,
+        max_redirects: int = 20,
+        event_hooks: dict[str, list[Callable]] | None = None,
+        base_url: str | None = "",
+        transport: Any | None = None,
+        trust_env: bool = True,
+        default_encoding: str | None = "utf-8",
     ):
         # Store client configuration for localhost requests
         self._base_url = base_url
@@ -301,7 +317,6 @@ class AsyncClient:
             follow_redirects=follow_redirects,
             auth=auth,
             proxy=proxy,
-            proxies=proxies,
             cookies=cookies,
             http1=http1,
             http2=http2,
@@ -329,7 +344,7 @@ class AsyncClient:
         params: dict[str, str] | None = None,
         headers: dict[str, str] | None = None,
         timeout: float | None = None,
-        auth: tuple | None = None,
+        auth: Any | None = None,
         follow_redirects: bool | None = None,
         cookies: dict[str, str] | None = None,
     ):
@@ -406,6 +421,9 @@ class AsyncClient:
         files: dict[str, Any] | None = None,
         params: dict[str, str] | None = None,
         headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        timeout: float | None = None,
+        extensions: dict[str, Any] | None = None,
         stream: bool | None = None,
     ):
         """
@@ -423,12 +441,28 @@ class AsyncClient:
             files=files,
             params=params,
             headers=headers,
+            cookies=cookies,
+            timeout=timeout,
+            extensions=extensions,
             stream=stream,
         )
 
     def stream(self, method: str, url: str, **kwargs):
         """Send streaming request."""
-        return self._rust_client.stream(method, url, **kwargs)
+        return self._rust_client.stream(
+            method,
+            url,
+            kwargs.get('content'),
+            kwargs.get('data'),
+            kwargs.get('json'),
+            kwargs.get('files'),
+            kwargs.get('params'),
+            kwargs.get('headers'),
+            kwargs.get('timeout'),
+            kwargs.get('auth'),
+            kwargs.get('follow_redirects'),
+            kwargs.get('cookies')
+        )
 
     async def aclose(self):
         """Close the async client."""

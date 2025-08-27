@@ -176,6 +176,22 @@ impl HttpRequest {
         })
     }
 
+    pub fn copy(&self, py: Python) -> PyResult<Self> {
+        // Deep copy the request object (similar to Python copy.deepcopy)
+        Ok(HttpRequest {
+            method: self.method.clone(),
+            url: self.url.clone(),
+            headers: self.headers.clone(),
+            content: self.content.clone(),
+            params: self.params.clone(), 
+            cookies: self.cookies.clone(),
+            data: self.data.clone(),
+            files: self.files.clone(),
+            json: self.json.clone(),
+            stream: self.stream,
+        })
+    }
+
     fn __repr__(&self) -> String {
         format!("<Request('{}', '{}')>", self.method, self.url)
     }

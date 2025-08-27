@@ -130,18 +130,14 @@ impl StreamingClient {
 impl StreamingClient {
     /// Context manager protocol - enter
     fn __enter__(mut slf: PyRefMut<'_, Self>) -> PyResult<PyRefMut<'_, Self>> {
-        // Execute request immediately when entering context
-        let client_arc = get_shared_streaming_client()?;
-        let _client = client_arc.lock().map_err(|_| {
-            RequestError::new_err("Failed to acquire streaming client lock")
-        })?;
-
-        // Clone necessary data for the async block
+        // Execute request immediately when entering context using synchronous execution
+        // This avoids async runtime conflicts and timeout issues
+        
+        // Prepare data for synchronous execution
         let config = slf.config.clone();
         let method = slf.method.clone();
         let url = slf.url.clone();
         let content = slf.content.clone();
-        let data = slf.data.clone();
         let json = slf.json.clone();
         let files = slf.files.clone();
         let params = slf.params.clone();
@@ -151,27 +147,35 @@ impl StreamingClient {
         let follow_redirects = slf.follow_redirects;
         let cookies = slf.cookies.clone();
 
-        // Execute the async operation in a runtime-safe manner to get initial response
-        let response = execute_streaming_async(async move {
-            build_and_send_request(
-                &config,
-                &method,
-                &url,
-                content,
-                data,
-                json,
-                files,
-                params,
-                headers,
-                timeout,
-                &config.base_url,
-                &config.default_headers,
-                config.default_timeout,
-                auth,
-                follow_redirects,
-                cookies,
-            ).await
-        })?;
+        // Convert data from Option<HashMap<String, PyObject>> to Option<PyObject>
+        let data_obj = slf.data.as_ref().map(|data_map| {
+            Python::with_gil(|py| {
+                // If data is a single key-value pair with key "data", extract the value
+                if let Some(value) = data_map.get("data") {
+                    value.clone()
+                } else {
+                    // Otherwise, convert the entire map to a PyObject
+                    data_map.to_object(py)
+                }
+            })
+        });
+
+        // Execute request using synchronous client to avoid async runtime issues
+        let response = crate::api::execute_request_with_sync_client(
+            &config,
+            &method,
+            &url,
+            content,
+            data_obj,
+            json,
+            files,
+            params,
+            headers,
+            timeout,
+            auth,
+            follow_redirects,
+            cookies,
+        )?;
 
         slf.response = Some(response);
         slf._is_closed = false;
@@ -498,7 +502,8 @@ impl StreamingIterator {
                             Ok(Some(text.to_string().to_object(py)))
                         },
                         StreamingMode::Bytes | StreamingMode::Raw => {
-                            Ok(Some(chunk.to_vec().to_object(py)))
+                            // Create proper Python bytes object instead of list
+                            Ok(Some(pyo3::types::PyBytes::new(py, chunk).to_object(py)))
                         },
                         StreamingMode::Lines => {
                             // This should not happen in this branch, but handle gracefully

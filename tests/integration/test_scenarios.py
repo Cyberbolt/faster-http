@@ -39,6 +39,7 @@ class TestScenarios:
             delete_response = client.delete("/delete")
             assert delete_response.status_code == 200
 
+    @pytest.mark.asyncio
     @httpx_compatibility_test
     async def test_async_api_workflow_scenario(self, async_client_factory):
         """Test complete async API workflow scenario."""

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 // Unified synchronous request execution
 #[allow(clippy::too_many_arguments)]
-fn execute_request_with_sync_client(
+pub fn execute_request_with_sync_client(
     config: &ClientConfig,
     method: &str,
     url: &str,

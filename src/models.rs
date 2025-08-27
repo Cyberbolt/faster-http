@@ -1,7 +1,55 @@
 use pyo3::prelude::*;
-use pyo3::types::IntoPyDict;
+use pyo3::types::{IntoPyDict, PyAny};
 use std::collections::HashMap;
 use crate::error::{create_validation_error, create_url_error};
+
+/// Iterator for HttpHeaders
+#[pyclass]
+pub struct HttpHeadersIterator {
+    keys: Vec<String>,
+    index: usize,
+}
+
+#[pymethods]
+impl HttpHeadersIterator {
+    fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<Self>) -> Option<String> {
+        if slf.index < slf.keys.len() {
+            let key = slf.keys[slf.index].clone();
+            slf.index += 1;
+            Some(key)
+        } else {
+            None
+        }
+    }
+}
+
+/// Iterator for HttpCookies
+#[pyclass]
+pub struct HttpCookiesIterator {
+    keys: Vec<String>,
+    index: usize,
+}
+
+#[pymethods]
+impl HttpCookiesIterator {
+    fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<Self>) -> Option<String> {
+        if slf.index < slf.keys.len() {
+            let key = slf.keys[slf.index].clone();
+            slf.index += 1;
+            Some(key)
+        } else {
+            None
+        }
+    }
+}
 
 /// Simple Headers wrapper - minimal interface for httpx compatibility
 /// Core logic handled by hyper in HTTP requests
@@ -38,6 +86,16 @@ impl HttpHeaders {
         self.inner.insert(key, value);
     }
 
+    fn __delitem__(&mut self, key: &str) -> PyResult<()> {
+        let key_lower = key.to_lowercase();
+        let original_len = self.inner.len();
+        self.inner.retain(|k, _| k.to_lowercase() != key_lower);
+        if self.inner.len() == original_len {
+            return Err(create_validation_error(&format!("Header not found: {}", key)));
+        }
+        Ok(())
+    }
+
     fn get(&self, key: &str, default: Option<String>) -> Option<String> {
         for (k, v) in &self.inner {
             if k.to_lowercase() == key.to_lowercase() {
@@ -45,6 +103,24 @@ impl HttpHeaders {
             }
         }
         default
+    }
+
+    fn get_list(&self, key: &str, split_commas: Option<bool>) -> Vec<String> {
+        // Find all values for this header (case-insensitive)
+        let mut values = Vec::new();
+        for (k, v) in &self.inner {
+            if k.to_lowercase() == key.to_lowercase() {
+                if split_commas.unwrap_or(false) {
+                    // Split comma-separated values if requested
+                    for val in v.split(',') {
+                        values.push(val.trim().to_string());
+                    }
+                } else {
+                    values.push(v.clone());
+                }
+            }
+        }
+        values
     }
 
     fn update(&mut self, other: HashMap<String, String>) {
@@ -70,8 +146,11 @@ impl HttpHeaders {
         self.inner.len()
     }
 
-    fn __iter__(&self) -> Vec<String> {
-        self.inner.keys().cloned().collect()
+    fn __iter__(&self) -> HttpHeadersIterator {
+        HttpHeadersIterator {
+            keys: self.inner.keys().cloned().collect(),
+            index: 0,
+        }
     }
 
     fn __contains__(&self, key: &str) -> bool {
@@ -245,6 +324,13 @@ impl HttpCookies {
         self.inner.insert(key, value);
     }
 
+    fn __delitem__(&mut self, key: &str) -> PyResult<()> {
+        if self.inner.remove(key).is_none() {
+            return Err(create_validation_error(&format!("Cookie not found: {}", key)));
+        }
+        Ok(())
+    }
+
     fn get(&self, key: &str, default: Option<String>) -> Option<String> {
         self.inner.get(key).cloned().or(default)
     }
@@ -279,8 +365,11 @@ impl HttpCookies {
         self.inner.len()
     }
 
-    fn __iter__(&self) -> Vec<String> {
-        self.inner.keys().cloned().collect()
+    fn __iter__(&self) -> HttpCookiesIterator {
+        HttpCookiesIterator {
+            keys: self.inner.keys().cloned().collect(),
+            index: 0,
+        }
     }
 
     fn __contains__(&self, key: &str) -> bool {
@@ -372,8 +461,24 @@ impl HttpUrl {
     }
 
     #[getter]
-    pub fn fragment(&self) -> Option<String> {
-        self.parsed.fragment().map(|f| f.to_string())
+    pub fn fragment(&self) -> String {
+        // httpx compatibility: return empty string instead of None when fragment is missing
+        self.parsed.fragment().map(|f| f.to_string()).unwrap_or_default()
+    }
+
+    #[getter]
+    pub fn params(&self) -> HttpQueryParams {
+        // Extract query parameters as HttpQueryParams object for httpx compatibility
+        let mut inner = HashMap::new();
+        if let Some(query) = self.parsed.query() {
+            for (key, value) in self.parsed.query_pairs() {
+                inner.insert(key.to_string(), value.to_string());
+            }
+        }
+        HttpQueryParams {
+            inner,
+            raw_string: self.parsed.query().map(|s| s.to_string()),
+        }
     }
 
     #[getter]
@@ -387,9 +492,45 @@ impl HttpUrl {
     }
 
     // Additional methods for httpx compatibility
-    pub fn copy_with(&self, _kwargs: &pyo3::types::PyDict) -> PyResult<Self> {
-        // Simplified copy_with implementation
-        Ok(self.clone())
+    pub fn copy_with(
+        &self,
+        py: Python,
+        scheme: Option<&str>,
+        authority: Option<&str>,
+        path: Option<&str>,
+        query: Option<&PyAny>,
+        fragment: Option<&str>,
+    ) -> PyResult<Self> {
+        let mut new_url = self.parsed.clone();
+        
+        if let Some(scheme) = scheme {
+            new_url.set_scheme(scheme).map_err(|_| {
+                create_url_error("Invalid scheme")
+            })?;
+        }
+        
+        if let Some(path) = path {
+            new_url.set_path(path);
+        }
+        
+        if let Some(query) = query {
+            if let Ok(query_bytes) = query.extract::<&[u8]>() {
+                let query_str = std::str::from_utf8(query_bytes)
+                    .map_err(|_| create_url_error("Invalid query bytes"))?;
+                new_url.set_query(Some(query_str));
+            } else if let Ok(query_str) = query.extract::<String>() {
+                new_url.set_query(Some(&query_str));
+            }
+        }
+        
+        if let Some(fragment) = fragment {
+            new_url.set_fragment(Some(fragment));
+        }
+        
+        Ok(Self {
+            url: new_url.to_string(),
+            parsed: new_url,
+        })
     }
 
     pub fn resolve_reference(&self, reference: &str) -> PyResult<Self> {
@@ -400,6 +541,10 @@ impl HttpUrl {
             url: resolved.to_string(),
             parsed: resolved,
         })
+    }
+
+    fn __repr__(&self) -> String {
+        format!("URL('{}')", self.url)
     }
 
     fn __eq__(&self, other: &pyo3::PyAny) -> PyResult<bool> {
@@ -433,36 +578,85 @@ pub struct HttpTimeout {
 #[pymethods]
 impl HttpTimeout {
     #[new]
-    #[pyo3(signature = (timeout = None, *, connect = None, read = None, write = None, pool = None))]
+    #[pyo3(signature = (timeout = -1.0, *, connect = -1.0, read = -1.0, write = -1.0, pool = -1.0))]
     pub fn new(
-        timeout: Option<f64>, // Default timeout
-        connect: Option<f64>,
-        read: Option<f64>,
-        write: Option<f64>,
-        pool: Option<f64>,
+        timeout: f64,        // Use -1.0 as sentinel for "not provided", NaN for None
+        connect: f64,        // Use -1.0 as sentinel for "not provided", NaN for None
+        read: f64,           // Use -1.0 as sentinel for "not provided", NaN for None  
+        write: f64,          // Use -1.0 as sentinel for "not provided", NaN for None
+        pool: f64,           // Use -1.0 as sentinel for "not provided", NaN for None
     ) -> PyResult<Self> {
-        // Match httpx behavior: either provide default timeout or all parameters explicitly
-        if let Some(default_timeout) = timeout {
-            // Use the default timeout for all parameters unless explicitly set
-            Ok(Self {
-                connect: connect.or(Some(default_timeout)),
-                read: read.or(Some(default_timeout)),
-                write: write.or(Some(default_timeout)),
-                pool: pool.or(Some(default_timeout)),
-            })
-        } else if connect.is_none() && read.is_none() && write.is_none() && pool.is_none() {
-            // If no timeout specified at all, raise error like httpx
+        // Helper function to parse timeout values
+        let parse_timeout = |val: f64| -> Option<f64> {
+            if val == -1.0 {
+                None // Not provided
+            } else if val.is_nan() {
+                None // Explicitly None
+            } else {
+                Some(val)
+            }
+        };
+        
+        let timeout_provided = timeout != -1.0;
+        let timeout_is_none = timeout.is_nan();
+        let timeout_value = parse_timeout(timeout);
+        
+        let connect_provided = connect != -1.0;
+        let read_provided = read != -1.0;
+        let write_provided = write != -1.0;
+        let pool_provided = pool != -1.0;
+        
+        let connect_val = parse_timeout(connect);
+        let read_val = parse_timeout(read);
+        let write_val = parse_timeout(write);
+        let pool_val = parse_timeout(pool);
+        
+        // Check if any individual timeout parameters were provided
+        let has_individual_params = connect_provided || read_provided || write_provided || pool_provided;
+        
+        // Match httpx behavior
+        if timeout_provided {
+            if timeout_is_none {
+                // timeout=None explicitly passed - infinite timeout (all None)
+                Ok(Self {
+                    connect: None,
+                    read: None,
+                    write: None,
+                    pool: None,
+                })
+            } else if let Some(default_timeout) = timeout_value {
+                // A numeric timeout was provided - use it as default for all unspecified timeouts
+                Ok(Self {
+                    connect: if connect_provided { connect_val } else { Some(default_timeout) },
+                    read: if read_provided { read_val } else { Some(default_timeout) },
+                    write: if write_provided { write_val } else { Some(default_timeout) },
+                    pool: if pool_provided { pool_val } else { Some(default_timeout) },
+                })
+            } else {
+                // Shouldn't happen with our logic but handle it
+                Err(create_validation_error(
+                    "Invalid timeout configuration."
+                ))
+            }
+        } else if has_individual_params {
+            // Individual parameters provided - all must be specified for httpx compatibility
+            if connect_provided && read_provided && write_provided && pool_provided {
+                Ok(Self {
+                    connect: connect_val,
+                    read: read_val,
+                    write: write_val,
+                    pool: pool_val,
+                })
+            } else {
+                Err(create_validation_error(
+                    "httpx.Timeout must either include a default, or set all four parameters explicitly."
+                ))
+            }
+        } else {
+            // No parameters at all - error like httpx Timeout()
             Err(create_validation_error(
                 "httpx.Timeout must either include a default, or set all four parameters explicitly."
             ))
-        } else {
-            // All parameters must be explicitly set
-            Ok(Self {
-                connect,
-                read,
-                write,
-                pool,
-            })
         }
     }
 
@@ -485,6 +679,47 @@ impl HttpTimeout {
     pub fn pool(&self) -> Option<f64> {
         self.pool
     }
+
+    fn __repr__(&self) -> String {
+        // Helper function to format timeout values with .1 precision for whole numbers
+        let format_timeout = |val: Option<f64>| -> String {
+            match val {
+                Some(v) if v.fract() == 0.0 => format!("{:.1}", v),
+                Some(v) => v.to_string(),
+                None => "None".to_string(),
+            }
+        };
+        
+        // Match httpx format exactly
+        if self.connect == self.read && self.read == self.write && self.write == self.pool {
+            // All timeouts are the same - use compact format
+            if let Some(timeout_val) = self.connect {
+                format!("Timeout(timeout={})", format_timeout(Some(timeout_val)))
+            } else {
+                "Timeout(timeout=None)".to_string()
+            }
+        } else {
+            // Different timeouts - use explicit format
+            format!(
+                "Timeout(connect={}, read={}, write={}, pool={})",
+                format_timeout(self.connect),
+                format_timeout(self.read),
+                format_timeout(self.write),
+                format_timeout(self.pool)
+            )
+        }
+    }
+
+    fn __eq__(&self, py: Python, other: &pyo3::PyAny) -> PyResult<bool> {
+        if let Ok(other_timeout) = other.extract::<HttpTimeout>() {
+            Ok(self.connect == other_timeout.connect &&
+               self.read == other_timeout.read &&
+               self.write == other_timeout.write &&
+               self.pool == other_timeout.pool)
+        } else {
+            Ok(false)
+        }
+    }
 }
 
 impl HttpTimeout {
@@ -505,32 +740,63 @@ pub struct HttpLimits {
 #[pymethods]
 impl HttpLimits {
     #[new]
-    #[pyo3(signature = (max_keepalive_connections = 20, max_connections = 100, keepalive_expiry = 5.0))]
+    #[pyo3(signature = (max_keepalive_connections = None, max_connections = None, keepalive_expiry = 5.0))]
     pub fn new(
-        max_keepalive_connections: i32,
-        max_connections: i32,
+        max_keepalive_connections: Option<i32>,
+        max_connections: Option<i32>,
         keepalive_expiry: f64,
     ) -> Self {
         Self {
-            max_keepalive_connections,
-            max_connections,
+            max_keepalive_connections: max_keepalive_connections.unwrap_or(-1), // Use -1 to represent None
+            max_connections: max_connections.unwrap_or(-1), // Use -1 to represent None
             keepalive_expiry,
         }
     }
 
     #[getter]
-    pub fn max_keepalive_connections(&self) -> i32 {
-        self.max_keepalive_connections
+    pub fn max_keepalive_connections(&self, py: Python) -> PyObject {
+        if self.max_keepalive_connections == -1 {
+            py.None()
+        } else {
+            self.max_keepalive_connections.to_object(py)
+        }
     }
 
     #[getter]
-    pub fn max_connections(&self) -> i32 {
-        self.max_connections
+    pub fn max_connections(&self, py: Python) -> PyObject {
+        if self.max_connections == -1 {
+            py.None()
+        } else {
+            self.max_connections.to_object(py)
+        }
     }
 
     #[getter]
     pub fn keepalive_expiry(&self) -> f64 {
         self.keepalive_expiry
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Limits(max_connections={}, max_keepalive_connections={}, keepalive_expiry={})",
+            if self.max_connections == -1 { "None".to_string() } else { self.max_connections.to_string() },
+            if self.max_keepalive_connections == -1 { "None".to_string() } else { self.max_keepalive_connections.to_string() },
+            if self.keepalive_expiry.fract() == 0.0 { 
+                format!("{:.1}", self.keepalive_expiry) 
+            } else { 
+                self.keepalive_expiry.to_string() 
+            }
+        )
+    }
+
+    fn __eq__(&self, py: Python, other: &pyo3::PyAny) -> PyResult<bool> {
+        if let Ok(other_limits) = other.extract::<HttpLimits>() {
+            Ok(self.max_connections == other_limits.max_connections &&
+               self.max_keepalive_connections == other_limits.max_keepalive_connections &&
+               (self.keepalive_expiry - other_limits.keepalive_expiry).abs() < f64::EPSILON)
+        } else {
+            Ok(false)
+        }
     }
 }
 
@@ -576,6 +842,24 @@ impl HttpBasicAuth {
 
     fn __repr__(&self) -> String {
         format!("<BasicAuth [username={:?}]>", self.username)
+    }
+
+    fn __eq__(&self, other: &pyo3::PyAny) -> PyResult<bool> {
+        if let Ok(other_auth) = other.extract::<HttpBasicAuth>() {
+            Ok(self.username == other_auth.username && self.password == other_auth.password)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn __hash__(&self) -> PyResult<isize> {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        
+        let mut hasher = DefaultHasher::new();
+        self.username.hash(&mut hasher);
+        self.password.hash(&mut hasher);
+        Ok(hasher.finish() as isize)
     }
 }
 
@@ -627,6 +911,24 @@ impl HttpDigestAuth {
 
     fn __repr__(&self) -> String {
         format!("<DigestAuth [username={:?}]>", self.username)
+    }
+
+    fn __eq__(&self, other: &pyo3::PyAny) -> PyResult<bool> {
+        if let Ok(other_auth) = other.extract::<HttpDigestAuth>() {
+            Ok(self.username == other_auth.username && self.password == other_auth.password)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn __hash__(&self) -> PyResult<isize> {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        
+        let mut hasher = DefaultHasher::new();
+        self.username.hash(&mut hasher);
+        self.password.hash(&mut hasher);
+        Ok(hasher.finish() as isize)
     }
 }
 

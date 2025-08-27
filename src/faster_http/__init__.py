@@ -37,7 +37,7 @@ from ._core import (
     RequestError,
     SSLError,
     StreamError,
-    Timeout,
+    # Timeout imported separately below
     TimeoutException,
     TooManyRedirects,
     TransportError,
@@ -63,6 +63,9 @@ from ._core import (
 from ._core import (
     HttpResponse as Response,
 )
+
+# Import the Python wrapper Timeout instead of direct Rust Timeout
+from ._timeout import Timeout
 
 # Import the Python wrapper AsyncClient instead of direct Rust AsyncClient
 # Import the Python wrapper Client instead of direct Rust Client

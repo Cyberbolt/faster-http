@@ -199,9 +199,9 @@ pub fn build_multipart_body(
                     format!("Content-Type: {}\r\n\r\n", mime_type).as_bytes()
                 );
                 
-                // Read file content
+                // Read file content - support both file objects and direct content
                 let file_content = if let Ok(read_method) = file_obj.getattr(py, "read") {
-                    // Call read() method to get file content
+                    // Case 1: File object with read() method
                     let content = read_method.call0(py)?;
                     if let Ok(bytes) = content.extract::<Vec<u8>>(py) {
                         bytes
@@ -212,9 +212,15 @@ pub fn build_multipart_body(
                             "File content must be bytes or string"
                         ));
                     }
+                } else if let Ok(string_content) = file_obj.extract::<String>(py) {
+                    // Case 2: Direct string content (httpx compatibility)
+                    string_content.into_bytes()
+                } else if let Ok(bytes_content) = file_obj.extract::<Vec<u8>>(py) {
+                    // Case 3: Direct bytes content (httpx compatibility)
+                    bytes_content
                 } else {
                     return Err(crate::error::RequestError::new_err(
-                        format!("File object must have a read() method. Got object type: {}", file_obj.as_ref(py).get_type().name()?)
+                        format!("File object must be a file-like object with read() method, string, or bytes. Got object type: {}", file_obj.as_ref(py).get_type().name()?)
                     ));
                 };
                 

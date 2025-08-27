@@ -90,6 +90,9 @@ impl AsyncHttpClient {
         data: Option<PyObject>,
         files: Option<PyObject>,
         json: Option<PyObject>,
+        cookies: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+        extensions: Option<HashMap<String, PyObject>>,
         stream: Option<bool>,
     ) -> PyResult<HttpRequest> {
         // Merge default params with request params (same pattern as headers)
@@ -111,9 +114,21 @@ impl AsyncHttpClient {
             final_headers.extend(headers);
         }
 
-        // Merge cookies
-        let final_cookies = self.config.default_cookies.clone();
-        // Note: Individual request cookies would be handled at higher level
+        // Merge cookies - same pattern as headers
+        let mut final_cookies = self.config.default_cookies.clone();
+        if let Some(request_cookies) = cookies {
+            final_cookies.extend(request_cookies);
+        }
+
+        // Handle cookies - convert to Cookie header like httpx does
+        if !final_cookies.is_empty() {
+            let cookie_header = final_cookies
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join("; ");
+            final_headers.insert("Cookie".to_string(), cookie_header);
+        }
 
         let headers_dict: HashMap<String, String> = final_headers;
         HttpRequest::new(
@@ -191,7 +206,7 @@ impl AsyncHttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
@@ -220,7 +235,7 @@ impl AsyncHttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
@@ -253,7 +268,7 @@ impl AsyncHttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
@@ -286,7 +301,7 @@ impl AsyncHttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
@@ -319,7 +334,7 @@ impl AsyncHttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
@@ -348,7 +363,7 @@ impl AsyncHttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
@@ -377,7 +392,7 @@ impl AsyncHttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
@@ -406,7 +421,7 @@ impl AsyncHttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
@@ -439,7 +454,7 @@ impl AsyncHttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<crate::streaming_stub::StreamingClient> {
@@ -458,7 +473,17 @@ impl AsyncHttpClient {
             }
             _ => None,
         };
-        let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
+        // Handle both client-level auth and request-level auth
+        let final_auth = if let Some(auth_obj) = auth {
+            // Request-level auth takes priority
+            crate::auth::extract_auth_from_object(&auth_obj)?
+        } else {
+            // Use client-level auth as fallback
+            self.config.auth.clone()
+        };
+
+        // Convert auth to tuple format for StreamingClient
+        let auth_option = extract_auth(&final_auth);
         let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
 
         // Create StreamingClient that can be used as async context manager
@@ -545,7 +570,7 @@ impl AsyncHttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
@@ -576,7 +601,18 @@ impl AsyncHttpClient {
             }
             _ => None,
         };
-        let auth_option = auth.or_else(|| extract_auth(&self.config.auth));
+        
+        // Handle both client-level auth and request-level auth
+        let final_auth = if let Some(auth_obj) = auth {
+            // Request-level auth takes priority
+            crate::auth::extract_auth_from_object(&auth_obj)?
+        } else {
+            // Use client-level auth as fallback
+            self.config.auth.clone()
+        };
+
+        // Convert auth to tuple format for hyper client
+        let auth_option = extract_auth(&final_auth);
         let follow_redirects = follow_redirects.unwrap_or(self.config.follow_redirects);
 
         let config = self.config.clone();

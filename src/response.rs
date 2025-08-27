@@ -45,6 +45,49 @@ impl HttpResponse {
         request: Option<PyObject>,
         num_bytes_downloaded: usize,
     ) -> Self {
+        // Prepare extensions before building the struct
+        let extensions = {
+            let mut ext = HashMap::new();
+            Python::with_gil(|py| {
+                // Add http_version as bytes (similar to httpx)
+                let http_version_bytes = pyo3::types::PyBytes::new(py, http_version.as_bytes()).to_object(py);
+                ext.insert("http_version".to_string(), http_version_bytes);
+                
+                // Add reason_phrase as bytes (similar to httpx) 
+                let reason = match status_code {
+                    200 => "OK",
+                    201 => "Created",
+                    202 => "Accepted", 
+                    204 => "No Content",
+                    301 => "Moved Permanently",
+                    302 => "Found",
+                    303 => "See Other",
+                    304 => "Not Modified",
+                    307 => "Temporary Redirect",
+                    308 => "Permanent Redirect",
+                    400 => "Bad Request",
+                    401 => "Unauthorized",
+                    403 => "Forbidden",
+                    404 => "Not Found",
+                    405 => "Method Not Allowed",
+                    408 => "Request Timeout",
+                    409 => "Conflict", 
+                    410 => "Gone",
+                    422 => "Unprocessable Entity",
+                    429 => "Too Many Requests",
+                    500 => "Internal Server Error",
+                    501 => "Not Implemented",
+                    502 => "Bad Gateway",
+                    503 => "Service Unavailable",
+                    504 => "Gateway Timeout",
+                    _ => "Unknown Status",
+                };
+                let reason_bytes = pyo3::types::PyBytes::new(py, reason.as_bytes()).to_object(py);
+                ext.insert("reason_phrase".to_string(), reason_bytes);
+            });
+            ext
+        };
+
         HttpResponse {
             status_code,
             headers,
@@ -58,9 +101,9 @@ impl HttpResponse {
             history,
             request,
             num_bytes_downloaded,
-            extensions: HashMap::new(),
+            extensions,
             next_request: None,
-            _closed: false,
+            _closed: true, // Response is closed after reading the entire content
         }
     }
 }
@@ -345,7 +388,7 @@ impl HttpResponse {
 
     #[getter]
     pub fn is_stream_consumed(&self) -> bool {
-        false // We always cache the entire response
+        true // We always cache the entire response, so stream is always consumed
     }
 
     // ==================== Extensions manipulation ====================
@@ -408,21 +451,42 @@ impl HttpResponse {
             // Parse Link header according to RFC 5988
             for link_part in link_header.split(',') {
                 let link_part = link_part.trim();
-                if let Some(rel_start) = link_part.find("rel=") {
+                
+                // Extract URL first
+                if let Some(url_start) = link_part.find('<') {
                     if let Some(url_end) = link_part.find('>') {
-                        if let Some(url_start) = link_part.find('<') {
-                            let url = link_part.get(url_start + 1..url_end).unwrap_or("").to_string();
-                            let rel_part = link_part.get(rel_start + 4..).unwrap_or("");
-                            let rel = rel_part
-                                .split(';')
-                                .next()
-                                .unwrap_or("")
-                                .trim_matches('"')
-                                .trim();
-
-                            let mut link_info = HashMap::new();
-                            link_info.insert("url".to_string(), url);
-                            links.insert(rel.to_string(), link_info);
+                        let url = link_part.get(url_start + 1..url_end).unwrap_or("").to_string();
+                        
+                        // Parse all attributes after the URL
+                        let attributes_part = link_part.get(url_end + 1..).unwrap_or("");
+                        let mut link_info = HashMap::new();
+                        link_info.insert("url".to_string(), url);
+                        
+                        let mut rel_value = String::new();
+                        
+                        // Parse all attributes separated by semicolons
+                        for attr_part in attributes_part.split(';') {
+                            let attr_part = attr_part.trim();
+                            if let Some(eq_pos) = attr_part.find('=') {
+                                let key = attr_part[..eq_pos].trim();
+                                let value = attr_part[eq_pos + 1..]
+                                    .trim()
+                                    .trim_matches('"')
+                                    .trim_matches('\'')
+                                    .to_string();
+                                
+                                link_info.insert(key.to_string(), value.clone());
+                                
+                                // Keep track of rel value for the key
+                                if key == "rel" {
+                                    rel_value = value;
+                                }
+                            }
+                        }
+                        
+                        // Only add to links if we found a rel attribute
+                        if !rel_value.is_empty() {
+                            links.insert(rel_value, link_info);
                         }
                     }
                 }

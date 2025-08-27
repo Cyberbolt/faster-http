@@ -12,7 +12,6 @@ import pytest
 # Import FastAPI-based implementation
 from tests.utils.fastapi_test_server import FastAPITestServer
 
-
 # For backward compatibility, create an alias
 HTTPTestServer = FastAPITestServer
 

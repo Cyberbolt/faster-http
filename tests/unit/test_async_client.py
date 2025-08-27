@@ -13,6 +13,7 @@ class TestAsyncClient:
         """Setup for each test."""
         self.base_url = test_server.base_url
 
+    @pytest.mark.asyncio
     @httpx_compatibility_test
     async def test_async_client_creation(self, async_client_factory):
         """Test async client can be created with default settings."""
@@ -20,6 +21,7 @@ class TestAsyncClient:
         client = async_client_factory()
         assert client is not None
 
+    @pytest.mark.asyncio
     @httpx_compatibility_test
     async def test_async_client_get(self, async_client_factory):
         """Test async client GET request."""
@@ -28,6 +30,7 @@ class TestAsyncClient:
             response = await client.get(f"{self.base_url}/get")
             assert response.status_code == 200
 
+    @pytest.mark.asyncio
     @httpx_compatibility_test
     async def test_async_client_post(self, async_client_factory):
         """Test async client POST request."""
@@ -36,6 +39,7 @@ class TestAsyncClient:
             response = await client.post(f"{self.base_url}/post", json={"test": "data"})
             assert response.status_code == 200
 
+    @pytest.mark.asyncio
     @httpx_compatibility_test
     async def test_async_client_with_timeout(self, async_client_factory):
         """Test async client with timeout configuration."""
@@ -44,6 +48,7 @@ class TestAsyncClient:
             response = await client.get(f"{self.base_url}/get")
             assert response.status_code == 200
 
+    @pytest.mark.asyncio
     @httpx_compatibility_test
     async def test_async_client_with_headers(self, async_client_factory):
         """Test async client with default headers."""
@@ -53,6 +58,7 @@ class TestAsyncClient:
             response = await client.get(f"{self.base_url}/headers")
             assert response.status_code == 200
 
+    @pytest.mark.asyncio
     @httpx_compatibility_test
     async def test_async_client_with_base_url(self, async_client_factory):
         """Test async client with base URL."""
@@ -61,6 +67,7 @@ class TestAsyncClient:
             response = await client.get("/get")
             assert response.status_code == 200
 
+    @pytest.mark.asyncio
     @httpx_compatibility_test
     async def test_async_client_request_method(self, async_client_factory):
         """Test async client.request() method."""
@@ -69,6 +76,7 @@ class TestAsyncClient:
             response = await client.request("GET", f"{self.base_url}/get")
             assert response.status_code == 200
 
+    @pytest.mark.asyncio
     @httpx_compatibility_test
     async def test_async_client_params(self, async_client_factory):
         """Test async client with query parameters."""

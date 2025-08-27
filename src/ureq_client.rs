@@ -41,7 +41,7 @@ impl UreqHttpClient {
             .timeout(timeout_duration)
             .max_idle_connections(100)  // Allow more idle connections for reuse
             .max_idle_connections_per_host(20)  // Per-host connection pooling
-            .redirects(config.max_redirects)  // Set max redirects to match httpx
+            .redirects(0)  // Disable automatic redirects - we'll handle them manually
             .build();
 
         Ok(Self { agent, config })
@@ -157,20 +157,8 @@ impl UreqHttpClient {
 
         let num_bytes_downloaded = body.len();
 
-        // Extract cookies (simple implementation)
-        let mut cookies = HashMap::new();
-        if let Some(cookie_header) = headers_map.get("set-cookie") {
-            // Parse cookies (simplified)
-            for cookie_str in cookie_header.split(',') {
-                let cookie_str = cookie_str.trim();
-                if let Some(eq_pos) = cookie_str.find('=') {
-                    let key = cookie_str[..eq_pos].trim();
-                    let value_part = &cookie_str[eq_pos + 1..];
-                    let value = value_part.split(';').next().unwrap_or("").trim();
-                    cookies.insert(key.to_string(), value.to_string());
-                }
-            }
-        }
+        // Extract cookies using the existing parse_cookies_from_headers function
+        let cookies = crate::response::parse_cookies_from_headers(&headers_map);
 
         // HTTP version
         let http_version = "HTTP/1.1".to_string();

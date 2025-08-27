@@ -7,14 +7,14 @@ built-in http.server module, optimized for testing HTTP client functionality.
 
 import base64
 import hashlib
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import random
 import socket
+from socketserver import ThreadingMixIn
 import threading
 import time
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from socketserver import ThreadingMixIn
 
 
 class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
@@ -28,7 +28,6 @@ class SimpleHTTPTestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):
         """Suppress default logging."""
-        pass
 
     def _send_response(
         self,
@@ -56,7 +55,7 @@ class SimpleHTTPTestHandler(BaseHTTPRequestHandler):
             if content is not None:
                 self.wfile.write(content)
                 self.wfile.flush()
-                
+
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             # Client closed connection - ignore these errors
             pass
@@ -84,7 +83,7 @@ class SimpleHTTPTestHandler(BaseHTTPRequestHandler):
         if content_length > 0:
             try:
                 body = self.rfile.read(content_length).decode("utf-8")
-            except:
+            except (UnicodeDecodeError, OSError):
                 body = ""
 
         # Try to parse body as JSON
@@ -138,6 +137,8 @@ class SimpleHTTPTestHandler(BaseHTTPRequestHandler):
                 self._handle_head()
             elif path == "/options":
                 self._handle_options()
+            elif path == "/response-headers":
+                self._handle_response_headers()
             else:
                 self._send_404()
         except Exception:
@@ -427,6 +428,26 @@ class SimpleHTTPTestHandler(BaseHTTPRequestHandler):
         except ValueError:
             self._send_404()
 
+    def _handle_response_headers(self):
+        """Handle /response-headers endpoint with custom headers via query params."""
+        parsed_url = urllib.parse.urlparse(self.path)
+        query_params = urllib.parse.parse_qs(parsed_url.query)
+
+        # Build custom headers from query parameters
+        custom_headers = {}
+        for key, values in query_params.items():
+            if values:
+                custom_headers[key] = values[0]  # Take first value
+
+        data = {
+            "url": f"http://{self.headers.get('Host', 'localhost')}{self.path}",
+            "headers": custom_headers,
+            "method": "GET"
+        }
+
+        content = json.dumps(data, indent=2).encode("utf-8")
+        self._send_response(200, headers=custom_headers, content=content)
+
     def _send_404(self):
         """Send 404 Not Found response."""
         content = json.dumps({"error": "Not Found"}).encode("utf-8")
@@ -458,7 +479,7 @@ class SimpleHTTPTestServer:
         try:
             # Use threading server for better performance
             self.server = ThreadingHTTPServer((self.host, self.port), SimpleHTTPTestHandler)
-            
+
             # Set socket options for better reliability
             self.server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             # Set timeout to prevent hanging connections
@@ -490,7 +511,7 @@ class SimpleHTTPTestServer:
                 time.sleep(0.1)
             else:
                 raise RuntimeError(f"Simple test server failed to start properly on {self.host}:{self.port}")
-                
+
         except Exception as e:
             print(f"Failed to start simple test server: {e}")
             raise

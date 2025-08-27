@@ -152,6 +152,9 @@ impl HttpClient {
         data: Option<PyObject>,
         files: Option<PyObject>,
         json: Option<PyObject>,
+        cookies: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+        extensions: Option<HashMap<String, PyObject>>,
         stream: Option<bool>,
     ) -> PyResult<HttpRequest> {
         // Merge default params with request params (same pattern as headers)
@@ -173,16 +176,59 @@ impl HttpClient {
             final_headers.extend(headers);
         }
 
-        // Merge cookies
-        let final_cookies = self.config.default_cookies.clone();
-        // Note: Individual request cookies would be handled at higher level
+        // Merge cookies - same pattern as headers
+        let mut final_cookies = self.config.default_cookies.clone();
+        if let Some(request_cookies) = cookies {
+            final_cookies.extend(request_cookies);
+        }
 
-        // Use internal constructor to avoid GIL conflicts
+        // Handle JSON serialization and content-type headers like HttpRequest::new does
+        let mut final_content = content.map(|c| c.into());
+        if let Some(json_obj) = &json {
+            Python::with_gil(|py| -> PyResult<()> {
+                let json_module = py.import("json")?;
+                let json_str = json_module
+                    .call_method1("dumps", (json_obj,))?
+                    .extract::<String>()?;
+                final_content = Some(json_str.into_bytes());
+
+                // Add JSON content-type header if not already present
+                if !final_headers
+                    .iter()
+                    .any(|(k, _)| k.to_lowercase() == "content-type")
+                {
+                    final_headers
+                        .insert("content-type".to_string(), "application/json".to_string());
+                }
+
+                Ok(())
+            })?;
+        }
+
+        // Add content-length header if content is present
+        if let Some(ref content_bytes) = final_content {
+            final_headers.insert(
+                "content-length".to_string(),
+                content_bytes.len().to_string(),
+            );
+        }
+
+        // Handle cookies - convert to Cookie header like httpx does
+        if !final_cookies.is_empty() {
+            let cookie_header = final_cookies
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join("; ");
+            final_headers.insert("Cookie".to_string(), cookie_header);
+        }
+
+        // Use internal constructor but with processed content and headers
         Ok(HttpRequest::new_internal(
             method.to_string(),
             final_url,
             final_headers,
-            content,
+            final_content.map(|bytes| bytes.to_vec()),
             Some(final_params),
             Some(final_cookies),
             data,
@@ -246,11 +292,23 @@ impl HttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
         self.check_not_closed()?;
+
+        // Handle both client-level auth and request-level auth
+        let final_auth = if auth.is_some() {
+            // Request-level auth takes priority
+            crate::auth::extract_auth_from_object(&auth.unwrap())?
+        } else {
+            // Use client-level auth as fallback
+            self.config.auth.clone()
+        };
+
+        // Convert auth to tuple format for ureq client
+        let auth_tuple = crate::auth::extract_auth(&final_auth);
 
         // Use ureq client's full request method (follow_redirects is handled by ureq config)
         self.client.send_request_full(
@@ -263,7 +321,7 @@ impl HttpClient {
             params,
             headers,
             timeout,
-            auth,
+            auth_tuple,
             cookies,
         )
     }
@@ -281,23 +339,48 @@ impl HttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
+        // CRITICAL FIX: Merge default params with request params and build final URL
+        let mut final_params = self.config.default_params.clone();
+        if let Some(request_params) = params {
+            final_params.extend(request_params);
+        }
+
+        // Use centralized URL building with merged params (same as build_request method)
+        let final_url = crate::utils::build_url_with_python_params(
+            url, 
+            self.config.base_url.as_ref(), 
+            Some(&final_params)
+        )?;
+
+        // Merge default headers with request headers
+        let mut final_headers = self.config.default_headers.clone();
+        if let Some(request_headers) = headers {
+            final_headers.extend(request_headers);
+        }
+
+        // Merge default cookies with request cookies
+        let mut final_cookies = self.config.default_cookies.clone();
+        if let Some(request_cookies) = cookies {
+            final_cookies.extend(request_cookies);
+        }
+
         self._request(
             method,
-            url,
+            &final_url,  // Use the properly resolved URL
             content,
             data,
             json,
             files,
-            params,
-            headers,
+            Some(final_params),  // Pass the final params
+            Some(final_headers),  // Pass the merged headers
             timeout,
             auth,
             follow_redirects,
-            cookies,
+            Some(final_cookies),  // Pass the merged cookies
         )
     }
 
@@ -308,7 +391,7 @@ impl HttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
@@ -339,7 +422,7 @@ impl HttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
@@ -370,7 +453,7 @@ impl HttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
@@ -401,7 +484,7 @@ impl HttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
@@ -428,7 +511,7 @@ impl HttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
@@ -455,7 +538,7 @@ impl HttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
@@ -482,7 +565,7 @@ impl HttpClient {
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
         timeout: Option<f64>,
-        auth: Option<(String, String)>,
+        auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
@@ -518,10 +601,59 @@ impl HttpClient {
         follow_redirects: Option<bool>,
         _cookies: Option<HashMap<String, String>>,
     ) -> PyResult<crate::streaming_stub::StreamingClient> {
-        // Streaming is not supported in the synchronous client implementation
-        // For streaming functionality, use the async client instead
-        Err(RequestError::new_err(
-            "Streaming is not supported in synchronous client. Use AsyncHttpClient for streaming functionality."
+        use crate::streaming_stub::StreamingClient;
+        
+        self.check_not_closed()?;
+        
+        // Merge request cookies with client default cookies
+        let merged_cookies = match _cookies {
+            Some(request_cookies) => {
+                let mut combined = self.config.default_cookies.clone();
+                combined.extend(request_cookies);
+                Some(combined)
+            },
+            None => {
+                if !self.config.default_cookies.is_empty() {
+                    Some(self.config.default_cookies.clone())
+                } else {
+                    None
+                }
+            }
+        };
+        
+        // Convert _data from Option<PyObject> to Option<HashMap<String, PyObject>>
+        let converted_data = _data.map(|obj| {
+            Python::with_gil(|py| {
+                let mut map = HashMap::new();
+                map.insert("data".to_string(), obj);
+                map
+            })
+        });
+        
+        // Convert _params from Option<HashMap<String, String>> to Option<HashMap<String, PyObject>>
+        let converted_params = _params.map(|params_map| {
+            Python::with_gil(|py| {
+                params_map.into_iter()
+                    .map(|(k, v)| (k, v.to_object(py)))
+                    .collect()
+            })
+        });
+
+        // Use client's configuration and merge with request-specific parameters
+        Ok(StreamingClient::new(
+            self.config.clone(),
+            _method.to_string(),
+            _url.to_string(),
+            _content,
+            converted_data,
+            _json,
+            _files,
+            converted_params,
+            _headers,
+            _timeout,
+            _auth,
+            follow_redirects.unwrap_or(self.config.follow_redirects),
+            merged_cookies,
         ))
     }
 

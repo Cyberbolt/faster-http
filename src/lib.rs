@@ -40,7 +40,7 @@ pub use sync_core::SyncHttpClient;
 pub use api::{delete, get, head, options, patch, post, put, stream};
 pub use hooks::EventHooksProxy;
 pub use models::{
-    HttpBasicAuth, HttpCookies, HttpDigestAuth, HttpHeaders, HttpLimits, HttpNetRCAuth,
+    HttpBasicAuth, HttpCookies, HttpCookiesIterator, HttpDigestAuth, HttpHeaders, HttpHeadersIterator, HttpLimits, HttpNetRCAuth,
     HttpQueryParams, HttpTimeout, HttpUrl,
 };
 
@@ -57,8 +57,10 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
 
     // Add data model classes
     m.add_class::<HttpHeaders>()?;
+    m.add_class::<HttpHeadersIterator>()?;
     m.add_class::<HttpQueryParams>()?;
     m.add_class::<HttpCookies>()?;
+    m.add_class::<HttpCookiesIterator>()?;
     m.add_class::<HttpUrl>()?;
     m.add_class::<HttpTimeout>()?;
     m.add_class::<HttpLimits>()?;

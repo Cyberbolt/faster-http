@@ -26,9 +26,14 @@ class TestAuth:
     def test_basic_auth_request(self, client_factory):
         """Test request with BasicAuth."""
         # TDD: Red phase - this will fail initially
-        import faster_http
 
-        auth = faster_http.BasicAuth("user", "pass")
+        # Create appropriate auth object based on the client type
+        if client_factory.client_type == "httpx":
+            import httpx
+            auth = httpx.BasicAuth("user", "pass")
+        else:
+            import faster_http
+            auth = faster_http.BasicAuth("user", "pass")
 
         with client_factory(auth=auth) as client:
             response = client.get(f"{self.base_url}/basic-auth/user/pass")
@@ -47,9 +52,14 @@ class TestAuth:
     def test_digest_auth_request(self, client_factory):
         """Test request with DigestAuth."""
         # TDD: Red phase - this will fail initially
-        import faster_http
 
-        auth = faster_http.DigestAuth("user", "pass")
+        # Create appropriate auth object based on the client type
+        if client_factory.client_type == "httpx":
+            import httpx
+            auth = httpx.DigestAuth("user", "pass")
+        else:
+            import faster_http
+            auth = faster_http.DigestAuth("user", "pass")
 
         with client_factory(auth=auth) as client:
             response = client.get(f"{self.base_url}/digest-auth/auth/user/pass")
@@ -68,9 +78,14 @@ class TestAuth:
     def test_auth_inheritance(self, client_factory):
         """Test auth can be passed to individual requests."""
         # TDD: Red phase - this will fail initially
-        import faster_http
 
-        auth = faster_http.BasicAuth("user", "pass")
+        # Create appropriate auth object based on the client type
+        if client_factory.client_type == "httpx":
+            import httpx
+            auth = httpx.BasicAuth("user", "pass")
+        else:
+            import faster_http
+            auth = faster_http.BasicAuth("user", "pass")
 
         response = client_factory.get(f"{self.base_url}/basic-auth/user/pass", auth=auth)
         assert response.status_code == 200
