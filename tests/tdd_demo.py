@@ -60,7 +60,7 @@ class TestTDDWorkflow:
         """TDD Refactor Phase: Improve code quality while keeping tests green."""
         # This represents refactoring the code to improve quality
 
-        class ImprovedResponse:
+        class RefactoredResponse:
             def __init__(self, headers=None):
                 self.status_code = 200
                 self.headers = headers or {"content-type": "application/json"}
@@ -68,13 +68,13 @@ class TestTDDWorkflow:
 
             @property
             def parsed_headers(self):
-                """Lazy loading of parsed headers (refactored for better performance)."""
+                """Lazy loading of parsed headers (refactored implementation)."""
                 if self._parsed_headers is None:
                     self._parsed_headers = self._parse_headers()
                 return self._parsed_headers
 
             def _parse_headers(self):
-                """Improved parsing logic with better error handling."""
+                """Enhanced parsing logic with comprehensive error handling."""
                 try:
                     return {
                         key.lower().replace("-", "_"): value.strip()
@@ -84,15 +84,15 @@ class TestTDDWorkflow:
                 except (AttributeError, TypeError):
                     return {}
 
-        response = ImprovedResponse()
+        response = RefactoredResponse()
 
         # All previous tests still pass after refactoring
         assert response.status_code == 200
         assert hasattr(response, "parsed_headers")
         assert response.parsed_headers["content_type"] == "application/json"
 
-        # Refactored version handles edge cases better
-        edge_case_response = ImprovedResponse({"Content-Type": "  text/html  "})
+        # Refactored version handles edge cases more robustly
+        edge_case_response = RefactoredResponse({"Content-Type": "  text/html  "})
         assert edge_case_response.parsed_headers["content_type"] == "text/html"
 
 
@@ -118,8 +118,8 @@ class TestTDDCycleIntegration:
                 return True
 
             def refactor_phase(self):
-                """Improved implementation."""
-                return {"success": True, "quality": "improved"}
+                """Enhanced implementation."""
+                return {"success": True, "quality": "enhanced"}
 
         feature = TDDFeature()
 
@@ -128,4 +128,4 @@ class TestTDDCycleIntegration:
         assert feature.green_phase() is True
         refactored = feature.refactor_phase()
         assert refactored["success"] is True
-        assert refactored["quality"] == "improved"
+        assert refactored["quality"] == "enhanced"

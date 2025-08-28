@@ -44,7 +44,7 @@ class ClientFactory:
                 import os
 
                 if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
-                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                    kwargs["timeout"] = 1.0  # Fast timeout for TDD cycles
                 else:
                     kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.Client(*args, **kwargs)
@@ -61,7 +61,7 @@ class ClientFactory:
                 import os
 
                 if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
-                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                    kwargs["timeout"] = 1.0  # Fast timeout for TDD cycles
                 else:
                     kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.get(url, **kwargs)
@@ -76,7 +76,7 @@ class ClientFactory:
                 import os
 
                 if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
-                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                    kwargs["timeout"] = 1.0  # Fast timeout for TDD cycles
                 else:
                     kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.post(url, **kwargs)
@@ -91,7 +91,7 @@ class ClientFactory:
                 import os
 
                 if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
-                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                    kwargs["timeout"] = 1.0  # Fast timeout for TDD cycles
                 else:
                     kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.put(url, **kwargs)
@@ -106,7 +106,7 @@ class ClientFactory:
                 import os
 
                 if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
-                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                    kwargs["timeout"] = 1.0  # Fast timeout for TDD cycles
                 else:
                     kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.patch(url, **kwargs)
@@ -121,7 +121,7 @@ class ClientFactory:
                 import os
 
                 if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
-                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                    kwargs["timeout"] = 1.0  # Fast timeout for TDD cycles
                 else:
                     kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.delete(url, **kwargs)
@@ -136,7 +136,7 @@ class ClientFactory:
                 import os
 
                 if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
-                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                    kwargs["timeout"] = 1.0  # Fast timeout for TDD cycles
                 else:
                     kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.head(url, **kwargs)
@@ -151,7 +151,7 @@ class ClientFactory:
                 import os
 
                 if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
-                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                    kwargs["timeout"] = 1.0  # Fast timeout for TDD cycles
                 else:
                     kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.options(url, **kwargs)
@@ -166,7 +166,7 @@ class ClientFactory:
                 import os
 
                 if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
-                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                    kwargs["timeout"] = 1.0  # Fast timeout for TDD cycles
                 else:
                     kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.request(method, url, **kwargs)
@@ -195,7 +195,7 @@ class AsyncClientFactory:
                 import os
 
                 if os.getenv("FASTER_HTTP_FAST_TDD", "false").lower() == "true":
-                    kwargs["timeout"] = 1.0  # Ultra fast for TDD cycles
+                    kwargs["timeout"] = 1.0  # Fast timeout for TDD cycles
                 else:
                     kwargs["timeout"] = 2.0  # Even faster for TDD Red phase
             return faster_http.AsyncClient(*args, **kwargs)
@@ -442,7 +442,7 @@ def httpx_compatibility_test(
 
             # Only compare if we ran both tests
             if not skip_httpx_comparison:
-                # Compare results with improved exception handling
+                # Compare results with enhanced exception handling
                 if httpx_exception and faster_http_exception:
                     # Both raised exceptions - compare exceptions
                     comparison = compare_exceptions(httpx_exception, faster_http_exception)
@@ -548,7 +548,7 @@ def httpx_compatibility_test(
 
             # Only compare if we ran both tests
             if not skip_httpx_comparison:
-                # Compare results with improved exception handling (same as sync version)
+                # Compare results with enhanced exception handling (same as sync version)
                 if httpx_exception and faster_http_exception:
                     comparison = compare_exceptions(httpx_exception, faster_http_exception)
                     if not comparison.is_compatible and strict:

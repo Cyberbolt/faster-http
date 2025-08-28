@@ -18,7 +18,7 @@ pub struct ClientConfig {
     pub follow_redirects: bool,
     pub auth: Option<AuthType>,
     pub auth_object: Option<PyObject>, // Store original auth object for httpx compatibility
-    pub proxy_system: ProxySystem,     // Advanced proxy configuration
+    pub proxy_system: ProxySystem,     // Proxy configuration management
     pub default_cookies: HashMap<String, String>,
     pub cookie_jar: Arc<Mutex<HashMap<String, String>>>, // Dynamic cookie jar for session management
     pub http1: bool,
@@ -30,7 +30,7 @@ pub struct ClientConfig {
     pub max_redirects: i32,                  // Maximum number of redirects to follow
     pub default_encoding: String,            // Default character encoding
     pub default_params: HashMap<String, PyObject>, // Default query parameters
-    // Pre-built clients to support efficient redirect control
+    // Pre-built clients to support redirect control
     pub redirect_client: HyperHttpClient,
     pub no_redirect_client: HyperHttpClient,
 }
@@ -166,10 +166,10 @@ impl ClientConfig {
         });
         
         // Ensure reasonable timeout
-        if self.default_timeout.map_or(true, |t| t.as_secs() > 300) {
+        if self.default_timeout.is_none_or(|t| t.as_secs() > 300) {
             self.default_timeout = Some(Duration::from_secs(300));  // 5 minute max
         }
-        if self.default_timeout.map_or(false, |t| t.as_millis() < 100) {
+        if self.default_timeout.is_some_and(|t| t.as_millis() < 100) {
             self.default_timeout = Some(Duration::from_millis(1000));  // 1 second min
         }
     }
@@ -291,11 +291,11 @@ impl ClientConfig {
             None
         };
 
-        // Process HTTP version parameters - default to HTTP/1.1 only for better localhost compatibility
+        // Process HTTP version parameters - default to HTTP/1.1 for localhost compatibility
         let http1_enabled = http1.unwrap_or(true);
         let http2_enabled = http2.unwrap_or(false);
 
-        // Pre-build two clients to support efficient redirect control
+        // Pre-build two clients to support redirect control
         let redirect_client = Self::build_hyper_client_with_redirect(
             true,
             http1_enabled,

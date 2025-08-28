@@ -7,19 +7,19 @@ use pyo3::prelude::*;
 mod api;
 mod async_client;
 mod auth;
-mod batch; // ULTRA-OPTIMIZED: Batch request processing for A级 performance
+mod batch; // Batch request processing
 mod client;
 mod config;
-pub mod connection_pool; // High-performance connection pool implementation
+pub mod connection_pool; // HTTP connection pool implementation
 mod core;
 mod error;
-mod gil_optimized; // ULTRA-OPTIMIZED: Deep GIL optimization for A级 performance
+mod gil_optimized; // GIL processing module
 mod hooks;
 mod hyper_client; // New hyper-based client module
 mod ureq_client; // Ureq-based synchronous client module
-mod memory_pool; // EXTREME performance memory pool for A级 optimization  
+// mod memory_pool; // Removed - over-engineered  
 mod models;
-mod precompiled; // ULTRA-OPTIMIZED: Precompiled HTTP methods and headers for A级 performance
+mod precompiled; // Precompiled HTTP methods and headers for performance
 mod proxy_config_stub; // Temporary stub for proxy configuration
 mod request;
 mod response;
@@ -30,7 +30,7 @@ mod sync_core; // Synchronous HTTP client implementation
 mod transport; // Transport implementations including MockTransport
 mod transport_stub; // Temporary stub for transport configuration
 mod utils;
-mod zero_copy; // ULTRA-OPTIMIZED: Zero-copy data transfer for A级 performance
+// mod zero_copy; // Removed - over-engineered optimization
 
 // Re-export main types and functions
 pub use auth::*;
@@ -81,6 +81,21 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<HttpDigestAuth>()?;
     m.add_class::<HttpNetRCAuth>()?;
 
+    // Add missing httpx core components
+    m.add_class::<models::UseClientDefault>()?;
+    m.add_class::<models::BaseTransport>()?;
+    m.add_class::<models::HTTPTransport>()?;
+    m.add_class::<models::AsyncHTTPTransport>()?;
+    m.add_class::<models::ByteStream>()?;
+    m.add_class::<models::SyncByteStream>()?;
+    m.add_class::<models::AsyncByteStream>()?;
+    m.add_class::<models::ASGITransport>()?;
+    m.add_class::<models::WSGITransport>()?;
+    m.add_function(wrap_pyfunction!(models::create_ssl_context, m)?)?;
+    
+    // Add USE_CLIENT_DEFAULT constant
+    m.add("USE_CLIENT_DEFAULT", Py::new(py, models::UseClientDefault)?)?;
+
     // Add hooks proxy class
     m.add_class::<EventHooksProxy>()?;
 
@@ -100,17 +115,17 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(api::request, m)?)?;
     m.add_function(wrap_pyfunction!(api::stream, m)?)?;
 
-    // Add ULTRA-OPTIMIZED batch processing functions for A级 performance
+    // Add batch processing functions for performance
     m.add_function(wrap_pyfunction!(batch::batch_request, m)?)?;
     m.add_class::<batch::SmartBatcher>()?;
 
-    // Add ULTRA-OPTIMIZED zero-copy utilities for A级 performance
-    m.add_class::<zero_copy::ZeroCopyUtils>()?;
+    // Add zero-copy utilities for performance
+    // m.add_class::<zero_copy::ZeroCopyUtils>()?; // Removed - over-engineered
 
-    // Add ULTRA-OPTIMIZED GIL-free processing for A级 performance
-    m.add_function(wrap_pyfunction!(gil_optimized::gil_optimized_request, m)?)?;
-    m.add_function(wrap_pyfunction!(gil_optimized::gil_optimized_async_request, m)?)?;
-    m.add_function(wrap_pyfunction!(gil_optimized::gil_optimized_batch_request, m)?)?;
+    // Add GIL-free processing for performance
+    m.add_function(wrap_pyfunction!(gil_optimized::gil_processed_request, m)?)?; // Updated function name for objective terminology
+    m.add_function(wrap_pyfunction!(gil_optimized::gil_processed_async_request, m)?)?; // Updated function name for objective terminology
+    m.add_function(wrap_pyfunction!(gil_optimized::gil_processed_batch_request, m)?)?; // Updated function name for objective terminology
 
     // Add exception factory functions
     m.add_function(wrap_pyfunction!(error::new_http_status_error, m)?)?;

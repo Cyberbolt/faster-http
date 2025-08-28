@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Fast TDD runner script for faster-http development.
+TDD runner script for faster-http development.
 
-This script sets up environment for fastest possible TDD cycles:
-- Skips httpx comparison tests for speed
+This script sets up environment for efficient TDD cycles:
+- Skips httpx comparison tests for simplicity
 - Uses shorter timeouts
 - Focuses on faster-http only tests
 """
@@ -14,10 +14,10 @@ import sys
 
 
 def main():
-    """Run tests in fast TDD mode."""
-    print("🚀 Running fast TDD mode - skipping httpx comparisons for speed")
+    """Run tests in TDD mode."""
+    print("🚀 Running TDD mode - skipping httpx comparisons for simplicity")
 
-    # Set environment variables for fast TDD
+    # Set environment variables for TDD
     env = os.environ.copy()
     env["SKIP_HTTPX_COMPARISON"] = "true"
     env["FASTER_HTTP_FAST_TDD"] = "true"
@@ -31,7 +31,7 @@ def main():
         "tests/unit/",
         "-v",
         "--tb=short",
-        "-x",  # Stop on first failure for faster feedback
+        "-x",  # Stop on first failure for immediate feedback
         "--disable-warnings",
     ]
 

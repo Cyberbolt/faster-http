@@ -17,8 +17,8 @@ from typing import Any
 from ._core import AsyncHttpClient as RustAsyncHttpClient
 from ._core import HttpClient as RustHttpClient
 
-# ULTRA-OPTIMIZED: Import GIL-free processing for A级 performance
-from ._core import gil_optimized_request
+# Import GIL-free processing
+from ._core import gil_processed_request  # Updated function name for objective terminology
 
 # _is_localhost_url function removed - all requests go through Rust
 
@@ -107,13 +107,13 @@ class Client:
         cookies: dict[str, str] | None = None,
     ):
         """
-        Send HTTP request with ULTRA-OPTIMIZED GIL-free processing.
+        Send HTTP request with GIL-free processing.
 
-        All requests are routed through the GIL-optimized Rust implementation
-        for maximum performance with true zero-GIL processing.
+        All requests are routed through the GIL-free Rust implementation
+        for true zero-GIL processing.
         """
-        # EXTREME OPTIMIZATION: Use GIL-free processing for A级 performance
-        # Build request object for GIL-optimized processing
+        # Use GIL-free processing for performance
+        # Build request object for GIL-free processing
         request_obj = self._rust_client.build_request(
             method=method,
             url=url,
@@ -129,9 +129,9 @@ class Client:
 
         # Process request with minimal GIL interaction
         try:
-            return gil_optimized_request(request_obj, use_async=False)
+            return gil_processed_request(request_obj, use_async=False)
         except Exception:
-            # Fallback to standard Rust client if GIL optimization fails
+            # Fallback to standard Rust client if GIL-free processing fails
             return self._rust_client.request(
                 method=method,
                 url=url,
@@ -316,7 +316,7 @@ class AsyncClient:
     Simplified Python wrapper for Rust AsyncHttpClient.
 
     This wrapper provides httpx-compatible async API with all requests
-    routed through the Rust implementation for maximum performance.
+    routed through the Rust implementation.
     """
 
     def __init__(
@@ -391,13 +391,13 @@ class AsyncClient:
         cookies: dict[str, str] | None = None,
     ):
         """
-        Send async HTTP request with BREAKTHROUGH GIL-optimized async processing.
+        Send async HTTP request with GIL-free async processing.
 
-        ULTIMATE OPTIMIZATION: Use specialized GIL-free async path for 11,297+ RPS performance.
+        Use specialized GIL-free async path.
         This bypasses the standard future_into_py conversion overhead.
         """
 
-        # BREAKTHROUGH: Build request and use GIL-optimized async path
+        # Build request and use GIL-free async path
         try:
             # Build request object with all parameters merged
             request_obj = self._rust_client.build_request(
@@ -413,13 +413,13 @@ class AsyncClient:
                 cookies=cookies,
             )
 
-            # ULTIMATE OPTIMIZATION: Use GIL-optimized async processing for maximum performance
-            from ._core import gil_optimized_async_request
+            # Use GIL-free async processing
+            from ._core import gil_processed_async_request  # Updated function name for objective terminology
 
-            return await gil_optimized_async_request(request_obj)
+            return await gil_processed_async_request(request_obj)
 
         except Exception:
-            # Fallback to standard Rust async client if GIL optimization fails
+            # Fallback to standard Rust async client if GIL-free processing fails
             return await self._rust_client.request(
                 method=method,
                 url=url,

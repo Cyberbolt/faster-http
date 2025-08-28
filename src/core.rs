@@ -3,8 +3,8 @@ use crate::error::{RequestError};
 use crate::hyper_client::HyperHttpClient;
 use crate::request::HttpRequest;
 use crate::response::HttpResponse;
-use crate::memory_pool::get_global_memory_pool; // EXTREME performance memory pool
-use crate::precompiled::parse_method_optimized; // ULTRA-OPTIMIZED precompiled lookups
+// Removed memory_pool dependency - using standard Bytes instead
+use crate::precompiled::parse_method_configured; // Precompiled lookups
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -52,8 +52,8 @@ pub async fn send_request(
     client.request(method, uri, headers, body).await
 }
 
-// ULTRA-OPTIMIZED version: send requests directly with ZERO-COPY optimization for A级 performance  
-#[inline(always)]  // Force inlining for maximum performance
+// Standard request processing function with configuration handling  
+#[inline(always)]  // Force inlining for high performance
 pub async fn send_request_direct(
     client: &HyperHttpClient,
     method: &str,
@@ -64,9 +64,9 @@ pub async fn send_request_direct(
     timeout: Option<f64>,
 ) -> PyResult<HttpResponse> {
     
-    // ULTRA-OPTIMIZED: Use precompiled method lookup for EXTREME performance
-    let method = parse_method_optimized(method)
-        .map_err(|e| RequestError::new_err(e))?;
+    // Use precompiled method lookup for performance
+    let method = parse_method_configured(method)
+        .map_err(RequestError::new_err)?;
 
     // PERFORMANCE OPTIMIZATION: Parse URI directly without string allocation
     let uri = Uri::from_str(url)
@@ -80,13 +80,10 @@ pub async fn send_request_direct(
         Some(headers.clone()) 
     };
 
-    // EXTREME ZERO-COPY OPTIMIZATION: Use memory pool for optimal allocation
-    let body = content.map(|data| {
-        let memory_pool = get_global_memory_pool();
-        memory_pool.create_bytes(data)
-    });
+    // Simple bytes creation - removed memory pool optimization
+    let body = content.map(|data| Bytes::from(data.to_vec()));
 
-    // ULTRA-FAST TIMEOUT: Pre-computed timeout for common values
+    // Timeout handling with pre-computed configuration values
     let effective_timeout = match timeout {
         Some(t) if (t - 30.0).abs() < f64::EPSILON => Some(Duration::from_secs(30)), // 30s cache
         Some(t) if (t - 60.0).abs() < f64::EPSILON => Some(Duration::from_secs(60)), // 60s cache  
@@ -148,7 +145,7 @@ pub async fn build_and_send_request(
         url.to_string()
     };
 
-    // EXTREME OPTIMIZATION: Add query parameters using zero-allocation techniques
+    // Add query parameters using zero-allocation techniques
     if let Some(params_map) = &params {
         if !params_map.is_empty() {
             let string_params = crate::utils::convert_params_to_strings(params_map)?;
@@ -159,21 +156,21 @@ pub async fn build_and_send_request(
             let new_capacity = full_url.len() + separator.len() + estimated_size;
             
             // Use pre-allocated string with exact capacity
-            let mut optimized_url = String::with_capacity(new_capacity);
-            optimized_url.push_str(&full_url);
-            optimized_url.push_str(separator);
+            let mut configured_url = String::with_capacity(new_capacity);
+            configured_url.push_str(&full_url);
+            configured_url.push_str(separator);
             
             // Build query string directly into final URL without intermediate allocation
             for (i, (key, value)) in string_params.iter().enumerate() {
                 if i > 0 {
-                    optimized_url.push('&');
+                    configured_url.push('&');
                 }
-                optimized_url.push_str(key);
-                optimized_url.push('=');
-                optimized_url.push_str(value);
+                configured_url.push_str(key);
+                configured_url.push('=');
+                configured_url.push_str(value);
             }
             
-            full_url = optimized_url;
+            full_url = configured_url;
         }
     }
 
@@ -181,21 +178,21 @@ pub async fn build_and_send_request(
     let uri = Uri::from_str(&full_url)
         .map_err(|e| RequestError::new_err(format!("Invalid URI: {}", e)))?;
 
-    // ULTRA-OPTIMIZED: Use precompiled method lookup for EXTREME performance
-    let method = parse_method_optimized(method)
-        .map_err(|e| RequestError::new_err(e))?;
+    // Use precompiled method lookup for performance
+    let method = parse_method_configured(method)
+        .map_err(RequestError::new_err)?;
 
     // PERFORMANCE OPTIMIZATION: Merge headers with minimal allocations
-    let mut final_headers = if headers.is_some() {
-        let mut headers_map = HashMap::with_capacity(default_headers.len() + headers.as_ref().unwrap().len());
+    let mut final_headers = if let Some(ref headers) = headers {
+        let mut headers_map = HashMap::with_capacity(default_headers.len() + headers.len());
         headers_map.extend(default_headers.iter().map(|(k, v)| (k.clone(), v.clone())));
-        headers_map.extend(headers.as_ref().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())));
+        headers_map.extend(headers.iter().map(|(k, v)| (k.clone(), v.clone())));
         headers_map
     } else {
         default_headers.clone()
     };
 
-    // EXTREME OPTIMIZATION: Add cookies with zero-reallocation cookie string construction
+    // Add cookies with zero-reallocation cookie string construction
     if let Some(ref cookie_map) = cookies {
         if !cookie_map.is_empty() {
             // Pre-calculate exact capacity needed to avoid any reallocations
@@ -212,7 +209,7 @@ pub async fn build_and_send_request(
                 cookie_string.push_str(value);
             }
             
-            // Use precompiled header name for maximum performance
+            // Use precompiled header name for high performance
             final_headers.insert(crate::precompiled::normalize_header_name("cookie").to_string(), cookie_string);
         }
     }
@@ -224,7 +221,7 @@ pub async fn build_and_send_request(
         final_headers.insert("Authorization".to_string(), format!("Basic {}", encoded));
     }
 
-    // ULTRA-OPTIMIZATION: Prepare request body with true zero-copy optimization - priority: content > files > json > data
+    // Request body preparation with zero-copy optimization - priority: content > files > json > data
     let body = if let Some(content_bytes) = content {
         // TRUE ZERO-COPY: Direct Bytes creation without intermediate copying
         Some(Bytes::from(content_bytes))
@@ -245,10 +242,7 @@ pub async fn build_and_send_request(
             // Convert PyObject data back to HashMap for multipart handling
             let dict_data = if let Some(ref data_obj) = data {
                 Python::with_gil(|py| {
-                    match data_obj.extract::<HashMap<String, PyObject>>(py) {
-                        Ok(dict) => Some(dict),
-                        Err(_) => None, // If it's not a dict, skip data in multipart
-                    }
+                    data_obj.extract::<HashMap<String, PyObject>>(py).ok()
                 })
             } else {
                 None

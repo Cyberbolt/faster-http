@@ -1,11 +1,11 @@
-// ULTRA-OPTIMIZED: Precompiled HTTP methods and headers for A级 performance
+// Precompiled HTTP methods and headers
 // Eliminates runtime string parsing and provides O(1) lookups
 
 use hyper::Method;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-/// EXTREME OPTIMIZATION: Precompiled HTTP methods with direct Method instances
+/// Precompiled HTTP methods with direct Method instances
 #[allow(dead_code)]
 pub struct PrecompiledMethods {
     /// Direct method mapping for O(1) lookup
@@ -41,13 +41,13 @@ impl PrecompiledMethods {
         Self { methods, method_strings }
     }
 
-    /// ULTRA-FAST: Get Method from string with O(1) lookup
+    /// Get Method from string with O(1) lookup
     #[inline(always)]
     pub fn get_method(&self, method_str: &str) -> Option<&Method> {
         self.methods.get(method_str)
     }
 
-    /// ULTRA-FAST: Get string from Method with O(1) lookup  
+    /// Get string from Method with O(1) lookup
     #[inline(always)]
     pub fn get_method_string(&self, method: &Method) -> Option<&'static str> {
         self.method_strings.get(method).copied()
@@ -60,7 +60,7 @@ impl PrecompiledMethods {
     }
 }
 
-/// EXTREME OPTIMIZATION: Precompiled header names with case-insensitive lookup
+/// Precompiled header names with case-insensitive lookup
 #[allow(dead_code)]
 pub struct PrecompiledHeaders {
     /// Canonical header names
@@ -174,7 +174,7 @@ impl PrecompiledHeaders {
         }
     }
 
-    /// ULTRA-FAST: Get canonical header name with O(1) lookup
+    /// Get canonical header name with O(1) lookup
     #[inline(always)]
     pub fn get_canonical_name(&self, name: &str) -> &'static str {
         // Try direct lookup first
@@ -187,7 +187,7 @@ impl PrecompiledHeaders {
         self.lowercase_map.get(lowercase.as_str()).unwrap_or(&"Unknown-Header")
     }
 
-    /// ULTRA-FAST: Get canonical header value with O(1) lookup
+    /// Get canonical header value with O(1) lookup
     #[inline(always)]
     pub fn get_canonical_value<'a>(&self, value: &'a str) -> &'a str {
         self.common_values.get(value).unwrap_or(&value)
@@ -207,7 +207,7 @@ impl PrecompiledHeaders {
     }
 }
 
-/// EXTREME OPTIMIZATION: Precompiled URL schemes and ports
+/// Precompiled URL schemes and ports
 #[allow(dead_code)]
 pub struct PrecompiledSchemes {
     /// Default ports for schemes
@@ -256,7 +256,7 @@ impl PrecompiledSchemes {
     }
 }
 
-/// ULTRA-PERFORMANCE: Global precompiled instances for maximum speed
+/// Global precompiled instances
 static PRECOMPILED_METHODS: OnceLock<PrecompiledMethods> = OnceLock::new();
 static PRECOMPILED_HEADERS: OnceLock<PrecompiledHeaders> = OnceLock::new();
 #[allow(dead_code)]
@@ -281,9 +281,9 @@ pub fn get_precompiled_schemes() -> &'static PrecompiledSchemes {
     PRECOMPILED_SCHEMES.get_or_init(PrecompiledSchemes::new)
 }
 
-/// ULTRA-OPTIMIZED: Parse HTTP method with precompiled lookup
+/// Parse HTTP method with precompiled lookup
 #[inline(always)]
-pub fn parse_method_optimized(method_str: &str) -> Result<Method, String> {
+pub fn parse_method_configured(method_str: &str) -> Result<Method, String> {
     let precompiled = get_precompiled_methods();
     
     if let Some(method) = precompiled.get_method(method_str) {
@@ -295,23 +295,23 @@ pub fn parse_method_optimized(method_str: &str) -> Result<Method, String> {
     }
 }
 
-/// ULTRA-OPTIMIZED: Normalize header name with precompiled lookup
+/// Normalize header name with precompiled lookup
 #[inline(always)]
 pub fn normalize_header_name(name: &str) -> &'static str {
     get_precompiled_headers().get_canonical_name(name)
 }
 
-/// ULTRA-OPTIMIZED: Normalize header value with precompiled lookup
+/// Normalize header value with precompiled lookup
 #[inline(always)]
 pub fn normalize_header_value(value: &str) -> &str {
     get_precompiled_headers().get_canonical_value(value)
 }
 
-/// EXTREME OPTIMIZATION: Batch header processing for maximum performance
-pub fn process_headers_optimized(
+/// Batch header processing
+pub fn process_headers_configured(
     headers: &HashMap<String, String>
 ) -> HashMap<&'static str, String> {
-    let mut optimized_headers = HashMap::with_capacity(headers.len());
+    let mut configured_headers = HashMap::with_capacity(headers.len());
     let precompiled = get_precompiled_headers();
     
     for (name, value) in headers {
@@ -322,10 +322,10 @@ pub fn process_headers_optimized(
             value.clone()
         };
         
-        optimized_headers.insert(canonical_name, canonical_value);
+        configured_headers.insert(canonical_name, canonical_value);
     }
     
-    optimized_headers
+    configured_headers
 }
 
 #[cfg(test)]
@@ -357,10 +357,10 @@ mod tests {
 
     #[test]
     fn test_method_parsing() {
-        let method = parse_method_optimized("GET").unwrap();
+        let method = parse_method_configured("GET").unwrap();
         assert_eq!(method, Method::GET);
         
-        let method = parse_method_optimized("POST").unwrap();
+        let method = parse_method_configured("POST").unwrap();
         assert_eq!(method, Method::POST);
     }
 

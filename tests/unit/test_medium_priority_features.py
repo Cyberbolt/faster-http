@@ -58,7 +58,7 @@ class TestRequestObjectFeatures:
             assert isinstance(content, bytes)
 
 
-class TestClientAdvancedMethods:
+class TestClientExtendedMethods:
     """Test Client.build_request() and send() methods."""
 
     @pytest.fixture(autouse=True)

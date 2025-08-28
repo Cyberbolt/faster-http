@@ -190,10 +190,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.mode == "async":
-        # Enable uvloop for better performance if available
+        # Enable uvloop event loop if available
         if uvloop is not None:
             uvloop.install()
-            print("Using uvloop for enhanced performance")
+            print("Using uvloop event loop")
         else:
             print("uvloop not available, using default asyncio event loop")
 

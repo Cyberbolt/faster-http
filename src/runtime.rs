@@ -4,20 +4,20 @@ use std::sync::OnceLock;
 #[allow(dead_code)]
 static GLOBAL_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
-/// Get the BREAKTHROUGH performance global Tokio runtime for 11,297+ RPS async standard  
-/// ULTRA-optimized specifically for HTTP client async workloads
+/// Get the global Tokio runtime for async processing  
+/// Configured specifically for HTTP client async workloads
 /// Returns None if runtime creation fails
 #[allow(dead_code)]
 pub fn get_global_runtime() -> Option<&'static tokio::runtime::Runtime> {
     static RUNTIME_INIT_RESULT: std::sync::OnceLock<Option<tokio::runtime::Runtime>> = std::sync::OnceLock::new();
     
     let runtime_option = RUNTIME_INIT_RESULT.get_or_init(|| {
-        // BREAKTHROUGH PERFORMANCE: Create ULTRA-optimized async runtime
+        // Create async runtime
         let cpu_count = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(8); // Fallback to 8 cores
         
-        // ASYNC-OPTIMIZED: Use more worker threads for async HTTP workload
+        // ASYNC-CONFIGURED: Use more worker threads for async HTTP workload
         // HTTP clients benefit from more parallelism than CPU-bound tasks
         let worker_threads = (cpu_count * 2).min(16); // Double the workers, cap at 16
         let max_blocking_threads = 32; // Reduce blocking threads for async focus
@@ -28,17 +28,17 @@ pub fn get_global_runtime() -> Option<&'static tokio::runtime::Runtime> {
             .enable_all() // Enable all Tokio features
             .thread_name("faster-http-async") // Named threads for debugging
             .thread_stack_size(4 * 1024 * 1024) // 4MB stack - smaller for async efficiency
-            .global_queue_interval(7) // ULTRA-aggressive work stealing (smaller prime)
-            .event_interval(12) // FINE TUNING: Slight reduction from 13 to 12 for optimized event loop polling
-            .max_io_events_per_tick(10240) // FINE TUNING: Optimized increase from 8192 to 10240 I/O events per tick
+            .global_queue_interval(7) // Work stealing with small prime interval
+            .event_interval(12) // Tuned event loop polling interval
+            .max_io_events_per_tick(10240) // High I/O events per tick for async workloads
             .build() 
         {
-            eprintln!("BREAKTHROUGH Tokio Runtime initialized: {} worker threads, {} max blocking threads (ASYNC-OPTIMIZED)", 
+            eprintln!("Tokio Runtime initialized: {} worker threads, {} max blocking threads (async-tuned)", 
                      worker_threads, max_blocking_threads);
             return Some(runtime);
         }
         
-        // Fallback: Aggressive configuration
+        // Fallback: Configured runtime
         if let Ok(runtime) = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(cpu_count.max(4))
             .max_blocking_threads(16)
@@ -48,7 +48,7 @@ pub fn get_global_runtime() -> Option<&'static tokio::runtime::Runtime> {
             .max_io_events_per_tick(2048)
             .build() 
         {
-            eprintln!("Aggressive Tokio Runtime initialized: {} worker threads", cpu_count);
+            eprintln!("Configured Tokio Runtime initialized: {} worker threads", cpu_count);
             return Some(runtime);
         }
         
@@ -65,7 +65,7 @@ pub fn get_global_runtime() -> Option<&'static tokio::runtime::Runtime> {
         // Last fallback: Single-threaded runtime
         if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
             .enable_all()
-            .max_io_events_per_tick(512) // Enhanced single-thread I/O
+            .max_io_events_per_tick(512) // Higher I/O events for single-thread
             .build() 
         {
             eprintln!("Warning: Single-threaded Tokio Runtime initialized (performance may be limited)");

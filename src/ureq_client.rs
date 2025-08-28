@@ -10,6 +10,9 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
 
+// Type alias to simplify complex return types
+type UreqResult = Result<(u16, String, HashMap<String, String>, Bytes, f64), String>;
+
 // Custom certificate verifier that accepts all certificates (for verify=False)
 #[derive(Debug)]
 struct NoVerifier;
@@ -79,7 +82,7 @@ pub struct UreqClientConfig {
 impl Default for UreqClientConfig {
     fn default() -> Self {
         Self {
-            timeout: Some(Duration::from_secs(5)),  // ULTRA-fast timeout for A级 performance
+            timeout: Some(Duration::from_secs(5)),  // Standard timeout configuration
             follow_redirects: true,
             verify: true,  // Default to secure verification
             max_redirects: 21,  // Allow 20 redirects to complete
@@ -100,14 +103,14 @@ impl UreqHttpClient {
     pub fn new(config: UreqClientConfig) -> PyResult<Self> {
         let timeout_duration = config.timeout.unwrap_or(Duration::from_secs(30));
         
-        // ULTRA ureq agent configuration - EXTREME performance for A级 standard 
+        // Ureq agent configuration with parameter settings 
         // Always disable automatic redirects - we'll handle them manually to collect history
         let mut agent_builder = ureq::AgentBuilder::new()
             .timeout(timeout_duration)
-            .max_idle_connections(1200)  // EXTREME idle connections for maximum connection reuse (20% increase)
-            .max_idle_connections_per_host(250)  // EXTREME per-host connection pooling for A级 performance (25% increase)
+            .max_idle_connections(1200)  // Idle connections for connection reuse management
+            .max_idle_connections_per_host(250)  // Per-host connection pooling for performance (25% increase)
             .redirects(0)  // Always disable automatic redirects for manual handling
-            .user_agent("faster-http/ultra-performance"); // Optimized user agent
+            .user_agent("faster-http/1.0"); // User agent identifier
 
         // Configure TLS verification based on config
         if !config.verify {
@@ -166,7 +169,7 @@ impl UreqHttpClient {
                     current_url = if location.starts_with("http") {
                         location.clone()
                     } else {
-                        // Simple relative URL resolution - could be improved
+                        // Simple relative URL resolution - configurable
                         if location.starts_with('/') {
                             format!("{}://{}{}", 
                                 if current_url.starts_with("https") { "https" } else { "http" },
@@ -221,25 +224,25 @@ impl UreqHttpClient {
         body: Option<Bytes>,
         _timeout: Option<Duration>,
     ) -> PyResult<HttpResponse> {
-        // EXTREME GIL OPTIMIZATION: Complete isolation of HTTP processing from Python runtime
+        // GIL optimization: Complete isolation of HTTP processing from Python runtime
         // Pre-process all Python data to native Rust types before GIL release
         let method = method.to_string();
         let url = url.to_string();
         let headers = headers.clone();
         let body = body.clone();
         
-        // CRITICAL OPTIMIZATION: Clone agent outside GIL context for maximum performance
-        // ureq::Agent clone is cheap and shares the internal connection pool efficiently
+        // Clone agent outside GIL context
+        // ureq::Agent clone is cheap and shares the internal connection pool
         let agent = self.agent.clone();
         
-        // EXTREME GIL RELEASE: Execute entire HTTP request/response cycle without any GIL dependencies
+        // GIL release: Execute entire HTTP request/response cycle without any GIL dependencies
         let (status_code, url_str, headers_map, body_bytes, elapsed) = pyo3::Python::with_gil(|py| {
             // CRITICAL: Use allow_threads for true parallelism - releases GIL completely
-            py.allow_threads(|| -> Result<(u16, String, HashMap<String, String>, Bytes, f64), String> {
-                // EXTREME PERFORMANCE: High-resolution timing for microsecond accuracy
+            py.allow_threads(|| -> UreqResult {
+                // High-resolution timing for microsecond accuracy
                 let start = std::time::Instant::now();
                 
-                // OPTIMIZATION: Fast method matching with branch prediction optimization
+                // Method matching with request processing
                 let mut req = match method.to_uppercase().as_str() {
                     "GET" => agent.get(&url),         // Most common - optimize for branch prediction
                     "POST" => agent.post(&url),       // Second most common
@@ -253,7 +256,7 @@ impl UreqHttpClient {
                     _ => return Err(format!("Unsupported HTTP method: {}", method)),
                 };
 
-                // EXTREME OPTIMIZATION: Fast header addition with minimal allocations
+                // Header addition with memory management
                 if let Some(headers_map) = &headers {
                     for (key, value) in headers_map {
                         req = req.set(key, value);
@@ -267,14 +270,14 @@ impl UreqHttpClient {
                     req.call()
                 };
 
-                // EXTREME PERFORMANCE: Fast response handling with optimal error classification
+                // Response handling with error classification
                 let response = match response {
                     Ok(resp) => resp,
                     Err(ureq::Error::Status(_code, resp)) => {
                         resp // HTTP error status codes - still return response for user handling
                     },
                     Err(e) => {
-                        // OPTIMIZATION: Fast error type detection with branch prediction
+                        // Error type detection with status classification
                         let error_msg = e.to_string();
                         return Err(if error_msg.contains("timeout") || error_msg.contains("Timeout") || error_msg.contains("timed out") {
                             format!("TimeoutError:{}", error_msg)
@@ -292,12 +295,12 @@ impl UreqHttpClient {
                     },
                 };
 
-                // EXTREME OPTIMIZATION: Extract all response data while GIL remains released
+                // Extract all response data while GIL remains released
                 let status_code = response.status();
                 let url_str = response.get_url().to_string();
                 let elapsed = start.elapsed().as_secs_f64();
                 
-                // FAST HEADER EXTRACTION: Minimize allocations with pre-sized HashMap
+                // Header extraction with HashMap management
                 let header_names = response.headers_names();
                 let mut headers_map = HashMap::with_capacity(header_names.len());
                 for name in header_names {
@@ -306,7 +309,7 @@ impl UreqHttpClient {
                     }
                 }
 
-                // EXTREME PERFORMANCE: Fast body reading with optimized buffer handling
+                // Body reading with buffer handling
                 let mut body_bytes = Vec::new();
                 if let Err(e) = std::io::copy(&mut response.into_reader(), &mut body_bytes) {
                     let error_str = e.to_string();
@@ -327,7 +330,7 @@ impl UreqHttpClient {
                 Ok((status_code, url_str, headers_map, body_data, elapsed))
             })
         }).map_err(|e: String| {
-            // EXTREME OPTIMIZATION: Fast error type parsing with branch prediction
+            // Error type parsing with status classification
             if e.starts_with("TimeoutError:") {  // Most common error first
                 crate::error::TimeoutException::new_err(e.strip_prefix("TimeoutError:").unwrap_or(&e).to_string())
             } else if e.starts_with("ConnectError:") {
@@ -343,21 +346,21 @@ impl UreqHttpClient {
 
         let num_bytes_downloaded = body_bytes.len();
 
-        // EXTREME PERFORMANCE: Fast cookie extraction with minimal allocations
+        // Cookie extraction with memory management
         let cookies = crate::response::parse_cookies_from_headers(&headers_map);
 
-        // OPTIMIZATION: Static HTTP version string for maximum performance
+        // Optimization: Static HTTP version string for high performance
         let http_version = "HTTP/1.1".to_string();
 
-        // FAST REDIRECT DETECTION: Optimized status code matching
+        // Redirect detection with status code matching
         let is_redirect_status = matches!(status_code, 301 | 302 | 303 | 307 | 308);
 
         // CRITICAL GIL SAFETY: No nested GIL calls to prevent deadlock
         // Request object creation is deferred to Python layer for safety
         let request_obj = None;
 
-        // EXTREME OPTIMIZATION: Create highly optimized HttpResponse object
-        // All data is pre-processed for maximum performance
+        // Create HttpResponse object
+        // All data is pre-processed
         Ok(HttpResponse::new(
             status_code,
             headers_map,
@@ -664,9 +667,9 @@ impl UreqHttpClient {
             
             let dynamic_agent = ureq::AgentBuilder::new()
                 .timeout(timeout_duration.unwrap_or(Duration::from_secs(30)))
-                .max_idle_connections(1200)  // EXTREME idle connections for maximum performance (20% increase)
-                .max_idle_connections_per_host(250)  // EXTREME per-host pooling for A级 standard (25% increase)
-                .user_agent("faster-http/ultra-performance") // Optimized user agent
+                .max_idle_connections(1200)  // High idle connection pool for performance (20% increase)
+                .max_idle_connections_per_host(250)  // Per-host pooling for performance (25% increase)
+                .user_agent("faster-http/1.0") // User agent identifier
                 .redirects(redirect_count)
                 .build();
                 

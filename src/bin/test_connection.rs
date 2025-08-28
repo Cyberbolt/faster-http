@@ -19,7 +19,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test with different Rust HTTP clients
     test_with_hyper(base_url).await?;
     test_with_ureq(base_url).await?;
-    test_with_reqwest(base_url).await?;
     
     println!("\nAll tests completed!");
     Ok(())
@@ -106,31 +105,6 @@ async fn test_with_ureq(base_url: &str) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
-// Test with reqwest
-async fn test_with_reqwest(base_url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== Testing with reqwest ===");
-    
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
-    
-    let url = format!("{}/get", base_url);
-    
-    match client.get(&url)
-        .header("User-Agent", "Rust-Reqwest/1.0")
-        .send()
-        .await 
-    {
-        Ok(response) => {
-            println!("reqwest SUCCESS: HTTP {}", response.status().as_u16());
-        },
-        Err(e) => {
-            println!("reqwest ERROR: {}", e);
-        }
-    }
-    println!();
-    Ok(())
-}
 
 // Test server helper
 struct TestServer {

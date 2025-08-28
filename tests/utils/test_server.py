@@ -4,7 +4,7 @@ Local test HTTP server for faster-http testing.
 This module provides a lightweight HTTP test server that supports various
 scenarios for testing HTTP client functionality without depending on external services.
 
-Now uses FastAPI for improved performance and reliability.
+Now uses FastAPI for enhanced performance and reliability.
 """
 
 import pytest

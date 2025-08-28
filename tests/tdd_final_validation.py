@@ -40,7 +40,7 @@ class TestTDDFinalValidation:
             def get_data(self):
                 return "data"
 
-        # Refactored implementation (better quality)
+        # Refactored implementation (enhanced quality)
         class RefactoredImplementation:
             def __init__(self):
                 self._cache = {}
@@ -68,7 +68,7 @@ class TestTDDFinalValidation:
         tdd_phases = {
             "red": False,  # Test fails initially
             "green": True,  # Minimal implementation passes
-            "refactor": True,  # Improved implementation still passes
+            "refactor": True,  # Enhanced implementation still passes
         }
 
         # Validate each phase can be executed

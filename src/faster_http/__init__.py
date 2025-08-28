@@ -1,8 +1,7 @@
 """
-faster-http: A high-performance HTTP client for Python, powered by Rust's hyper library.
+faster-http: HTTP client compatible with httpx API, powered by Rust's hyper library.
 
-This library provides a drop-in replacement for httpx with significantly better performance
-by leveraging Rust's hyper library through PyO3 bindings.
+This library provides a drop-in replacement for httpx API, implemented using Rust's hyper library through PyO3 bindings.
 """
 
 __version__ = "0.1.0"
@@ -10,7 +9,14 @@ __version__ = "0.1.0"
 # Import specific classes for explicit re-export
 from ._core import (
     URL,
+    # 8 missing httpx core components - Critical API compatibility fix
+    USE_CLIENT_DEFAULT,
+    ASGITransport,
+    AsyncByteStream,
+    AsyncHTTPTransport,
+    BaseTransport,
     BasicAuth,
+    ByteStream,
     # Missing httpx-compatible exceptions
     CloseError,
     ConnectError,
@@ -24,6 +30,7 @@ from ._core import (
     # Exception hierarchy (only httpx-compatible ones)
     HTTPError,
     HTTPStatusError,
+    HTTPTransport,
     # Additional httpx-compatible exceptions
     InvalidURL,
     Limits,
@@ -46,6 +53,7 @@ from ._core import (
     StreamClosed,
     StreamConsumed,
     StreamError,
+    SyncByteStream,
     # Timeout imported separately below
     TimeoutException,
     TooManyRedirects,
@@ -53,6 +61,8 @@ from ._core import (
     UnsupportedProtocol,
     WriteError,
     WriteTimeout,
+    WSGITransport,
+    create_ssl_context,
     delete,
     # HTTP methods
     get,
@@ -87,7 +97,7 @@ from .codes import codes
 from .proxy import Proxy
 
 # All exception classes are now implemented in Rust and imported from _core
-# httpx-compatible exception aliases for better compatibility
+# httpx-compatible exception aliases for compatibility
 RequestTimeout = TimeoutException  # httpx uses RequestTimeout
 ConnectionError = ConnectError  # httpx uses ConnectionError
 # SSLError now imported directly from _core with proper implementation
@@ -100,8 +110,8 @@ _orig_http_status_error_init = HTTPStatusError.__init__
 _orig_request_error_init = RequestError.__init__
 
 
-def _enhanced_httpstatuserror_new(cls, message=None, *, request=None, response=None):
-    """Enhanced HTTPStatusError constructor with keyword argument support."""
+def _standard_httpstatuserror_new(cls, message=None, *, request=None, response=None):
+    """Standard HTTPStatusError constructor with keyword argument support."""
     if message is None:
         message = "HTTP status error"
     if request is not None or response is not None:
@@ -115,8 +125,8 @@ def _enhanced_httpstatuserror_new(cls, message=None, *, request=None, response=N
             return _orig_http_status_error_new(cls)
 
 
-def _enhanced_httpstatuserror_init(self, message=None, *, request=None, response=None):
-    """Enhanced HTTPStatusError initializer."""
+def _standard_httpstatuserror_init(self, message=None, *, request=None, response=None):
+    """Standard HTTPStatusError initializer."""
     if message is None:
         message = "HTTP status error"
     # Only initialize if not already done by factory function
@@ -124,8 +134,8 @@ def _enhanced_httpstatuserror_init(self, message=None, *, request=None, response
         _orig_http_status_error_init(self, message)
 
 
-def _enhanced_requesterror_init(self, message=None, *, request=None):
-    """Enhanced RequestError initializer with keyword argument support."""
+def _standard_requesterror_init(self, message=None, *, request=None):
+    """Standard RequestError initializer with keyword argument support."""
     if message is None:
         message = "Request error"
     _orig_request_error_init(self, message)
@@ -133,10 +143,10 @@ def _enhanced_requesterror_init(self, message=None, *, request=None):
         self.request = request
 
 
-# Apply enhancements to existing classes
-HTTPStatusError.__new__ = _enhanced_httpstatuserror_new
-HTTPStatusError.__init__ = _enhanced_httpstatuserror_init
-RequestError.__init__ = _enhanced_requesterror_init
+# Apply standard implementations to existing classes
+HTTPStatusError.__new__ = _standard_httpstatuserror_new
+HTTPStatusError.__init__ = _standard_httpstatuserror_init
+RequestError.__init__ = _standard_requesterror_init
 
 
 # Note: Transport and authentication classes are implemented in Rust
@@ -209,11 +219,22 @@ __all__ = [
     "put",
     "request",
     "stream",
+    # 8 missing httpx core components - Critical API compatibility fix
+    "USE_CLIENT_DEFAULT",
+    "BaseTransport",
+    "HTTPTransport",
+    "AsyncHTTPTransport",
+    "ByteStream",
+    "SyncByteStream",
+    "AsyncByteStream",
+    "ASGITransport",
+    "WSGITransport",
+    "create_ssl_context",
 ]
 
 if __name__ == "__main__":
     import sys
 
-    print("faster-http: High-performance HTTP client")
+    print("faster-http: HTTP client compatible with httpx")
     print("Usage: python -m faster_http")
     sys.exit(0)

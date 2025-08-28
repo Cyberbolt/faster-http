@@ -2,7 +2,7 @@ use bytes::Bytes;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 
-// Request object - Enhanced version with full httpx compatibility
+// Request object with httpx compatibility
 #[pyclass(module = "faster_http")]
 #[derive(Clone)]
 pub struct HttpRequest {

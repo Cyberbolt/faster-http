@@ -26,7 +26,7 @@ impl Default for HyperClientConfig {
         Self {
             follow_redirects: true,
             max_redirects: 20,
-            timeout: Some(Duration::from_millis(2000)), // BREAKTHROUGH 2s timeout for async performance
+            timeout: Some(Duration::from_millis(2000)), // 2s timeout for async performance
             http1_only: false,
             http2_only: false,
         }
@@ -37,17 +37,17 @@ impl Default for HyperClientConfig {
 /// Now uses connection pooling for optimal performance and connection reuse
 #[derive(Clone)]
 pub struct HyperHttpClient {
-    /// Connection pool for high-performance HTTP requests with connection reuse
+    /// Connection pool for HTTP requests with connection reuse
     pool: Arc<HttpConnectionPool>,
     config: HyperClientConfig,
 }
 
 impl HyperHttpClient {
     /// Create a new HyperHttpClient with the given configuration
-    /// Uses HYPER-ALPHA configuration for BALANCED 12,000+ RPS performance
+    /// Uses standard configuration for concurrent processing
     pub fn new(config: HyperClientConfig) -> PyResult<Self> {
-        // Use HYPER-ALPHA configuration for BALANCED 12,000+ RPS async performance
-        let mut pool_config = PoolConfig::hyper_alpha_async();
+        // Use standard configuration for concurrent async processing
+        let mut pool_config = PoolConfig::async_standard();
         
         // Override specific settings based on client config
         if let Some(timeout) = config.timeout {
@@ -61,7 +61,7 @@ impl HyperHttpClient {
     }
 
     /// Create a simple HTTP request using the connection pool
-    /// This method automatically reuses connections for maximum performance
+    /// This method automatically reuses connections
     pub async fn request(
         &self,
         method: Method,
@@ -86,7 +86,7 @@ impl HyperHttpClient {
         self.request_internal(method, uri, headers, body, start_time, timeout).await
     }
 
-    /// BREAKTHROUGH OPTIMIZATION: Ultra-fast internal request method with minimal allocations
+    /// Internal request method with memory management
     /// Uses connection pool for optimal performance and connection reuse
     async fn request_internal(
         &self,
@@ -97,16 +97,16 @@ impl HyperHttpClient {
         start_time: std::time::Instant,
         timeout: Option<Duration>,
     ) -> PyResult<HttpResponse> {
-        // ULTRA-OPTIMIZATION: Pre-allocate and reuse string to avoid repeated allocations
+        // Optimization: Pre-allocate and reuse string to avoid repeated allocations
         let url = uri.to_string();
         
-        // EXTREME OPTIMIZATION: Use Arc for shared data to minimize cloning overhead
+        // Use Arc for shared data to minimize cloning overhead
         let shared_method = std::sync::Arc::new(method.clone());
         let shared_headers = headers.as_ref().map(|h| std::sync::Arc::new(h.clone()));
         let shared_body = body.as_ref().map(|b| std::sync::Arc::new(b.clone()));
         let shared_uri = std::sync::Arc::new(uri.clone());
         
-        // BREAKTHROUGH: Direct request with optimized connection pool usage
+        // Direct request with connection pool
         let response = self.pool.request_with_timeout(method, uri, headers, body, timeout).await?;
 
         let elapsed = start_time.elapsed().as_secs_f64();
@@ -128,82 +128,82 @@ impl HyperHttpClient {
         }
     }
 
-    /// Handle GET request with ULTRA-OPTIMIZED precompiled method
+    /// Handle GET request with precompiled method
     pub async fn get(
         &self,
         uri: Uri,
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        // EXTREME OPTIMIZATION: Use precompiled GET method for A级 performance
+        // Use precompiled GET method for performance
         let method = crate::precompiled::get_precompiled_methods().get_method("GET").unwrap().clone();
         self.request(method, uri, headers, None).await
     }
 
-    /// Handle POST request with ULTRA-OPTIMIZED precompiled method
+    /// Handle POST request with precompiled method
     pub async fn post(
         &self,
         uri: Uri,
         headers: Option<HashMap<String, String>>,
         body: Option<Bytes>,
     ) -> PyResult<HttpResponse> {
-        // EXTREME OPTIMIZATION: Use precompiled POST method for A级 performance
+        // Use precompiled POST method for performance
         let method = crate::precompiled::get_precompiled_methods().get_method("POST").unwrap().clone();
         self.request(method, uri, headers, body).await
     }
 
-    /// Handle PUT request with ULTRA-OPTIMIZED precompiled method
+    /// Handle PUT request with precompiled method
     pub async fn put(
         &self,
         uri: Uri,
         headers: Option<HashMap<String, String>>,
         body: Option<Bytes>,
     ) -> PyResult<HttpResponse> {
-        // EXTREME OPTIMIZATION: Use precompiled PUT method for A级 performance
+        // Use precompiled PUT method for performance
         let method = crate::precompiled::get_precompiled_methods().get_method("PUT").unwrap().clone();
         self.request(method, uri, headers, body).await
     }
 
-    /// Handle PATCH request with ULTRA-OPTIMIZED precompiled method
+    /// Handle PATCH request with precompiled method
     pub async fn patch(
         &self,
         uri: Uri,
         headers: Option<HashMap<String, String>>,
         body: Option<Bytes>,
     ) -> PyResult<HttpResponse> {
-        // EXTREME OPTIMIZATION: Use precompiled PATCH method for A级 performance
+        // Use precompiled PATCH method for performance
         let method = crate::precompiled::get_precompiled_methods().get_method("PATCH").unwrap().clone();
         self.request(method, uri, headers, body).await
     }
 
-    /// Handle DELETE request with ULTRA-OPTIMIZED precompiled method
+    /// Handle DELETE request with precompiled method
     pub async fn delete(
         &self,
         uri: Uri,
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        // EXTREME OPTIMIZATION: Use precompiled DELETE method for A级 performance
+        // Use precompiled DELETE method for performance
         let method = crate::precompiled::get_precompiled_methods().get_method("DELETE").unwrap().clone();
         self.request(method, uri, headers, None).await
     }
 
-    /// Handle HEAD request with ULTRA-OPTIMIZED precompiled method
+    /// Handle HEAD request with precompiled method
     pub async fn head(
         &self,
         uri: Uri,
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        // EXTREME OPTIMIZATION: Use precompiled HEAD method for A级 performance
+        // Use precompiled HEAD method for performance
         let method = crate::precompiled::get_precompiled_methods().get_method("HEAD").unwrap().clone();
         self.request(method, uri, headers, None).await
     }
 
-    /// Handle OPTIONS request with ULTRA-OPTIMIZED precompiled method
+    /// Handle OPTIONS request with precompiled method
     pub async fn options(
         &self,
         uri: Uri,
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        // EXTREME OPTIMIZATION: Use precompiled OPTIONS method for A级 performance
+        // Use precompiled OPTIONS method for performance
         let method = crate::precompiled::get_precompiled_methods().get_method("OPTIONS").unwrap().clone();
         self.request(method, uri, headers, None).await
     }

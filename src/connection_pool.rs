@@ -1,9 +1,9 @@
-// High-performance HTTP connection pool implementation
-// Provides true connection reuse and Keep-Alive support for faster-http
+// HTTP connection pool with connection reuse and Keep-Alive support
+// Enables connection management for faster-http
 
 use hyper::Uri;
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
-// HTTPS support restored for production HTTPS functionality
+// HTTPS support restored for HTTPS functionality
 use hyper_rustls::HttpsConnector;
 use http_body_util::Full;
 use bytes::Bytes;
@@ -15,7 +15,7 @@ use crate::error::RequestError;
 use hyper_util::rt::TokioExecutor;
 // Removed unused imports
 
-// EXTREME PERFORMANCE: Branch prediction hints for A级 optimization
+// Branch prediction hints for performance optimization
 #[inline(always)]
 const fn likely(b: bool) -> bool {
     b
@@ -34,11 +34,11 @@ pub enum ConfigMode {
     Conservative,
     /// Balanced mode - good performance with reasonable resource usage
     Balanced,
-    /// Aggressive mode - maximum performance, higher resource usage
-    Aggressive,
-    /// ULTRA mode - EXTREME performance for A级 standard, maximum resource usage
+    /// Standard mode - configured for moderate resource usage
+    Standard,
+    /// High resource mode - configured for higher resource usage
     #[default]
-    Ultra,
+    ResourceIntensive,
 }
 
 /// Configuration for the connection pool
@@ -68,7 +68,7 @@ pub struct PoolConfig {
 
 impl Default for PoolConfig {
     fn default() -> Self {
-        Self::ultra()  // Use ULTRA mode by default for A级 performance
+        Self::standard()  // Use standard mode by default
     }
 }
 
@@ -90,7 +90,7 @@ impl PoolConfig {
     /// Create balanced configuration - good performance with reasonable resources
     pub fn balanced() -> Self {
         Self {
-            max_idle_per_host: 50,   // Balanced value for production stability
+            max_idle_per_host: 50,   // Balanced value for stability
             keep_alive_timeout: Duration::from_secs(90), // 1.5 minutes keep-alive
             max_total_connections: 500, // Reasonable total for most use cases
             connect_timeout: Duration::from_millis(5000),  // 5 second connection timeout
@@ -101,107 +101,107 @@ impl PoolConfig {
         }
     }
 
-    /// Create aggressive configuration - maximum performance
-    pub fn aggressive() -> Self {
+    /// Create high resource configuration with higher resource limits
+    pub fn resource_intensive() -> Self {
         Self {
-            max_idle_per_host: 200,   // High for maximum performance
+            max_idle_per_host: 200,   // High resource setting
             keep_alive_timeout: Duration::from_secs(300), // 5 minutes keep-alive
-            max_total_connections: 2000, // High total connections
-            connect_timeout: Duration::from_millis(2000),  // Fast connection timeout
-            request_timeout: Duration::from_secs(10), // Short request timeout for high throughput
+            max_total_connections: 2000, // High resource connection limit
+            connect_timeout: Duration::from_millis(2000),  // Standard connection timeout
+            request_timeout: Duration::from_secs(10), // Standard request timeout
             http2_only: false,
             http1_only: false,
-            mode: ConfigMode::Aggressive,
+            mode: ConfigMode::ResourceIntensive,
         }
     }
 
-    /// Create ULTRA configuration - EXTREME performance for A级 standard  
-    /// WARNING: This mode uses maximum resources and may impact system stability
-    pub fn ultra() -> Self {
+    /// Create standard configuration  
+    /// This mode provides standard performance with resource management
+    pub fn standard() -> Self {
         Self {
-            max_idle_per_host: 1000,   // ULTIMATE per-host connections for A级 async performance (4x increase)
-            keep_alive_timeout: Duration::from_secs(300), // 5 minutes keep-alive optimized for async
-            max_total_connections: 10000, // ULTIMATE total connections for A级 async performance (5x increase)
-            connect_timeout: Duration::from_millis(500),  // Super-fast connection timeout for async
-            request_timeout: Duration::from_secs(2), // Super-fast request timeout for async maximum throughput
+            max_idle_per_host: 1000,   // Standard per-host connections
+            keep_alive_timeout: Duration::from_secs(300), // 5 minutes keep-alive
+            max_total_connections: 10000, // Standard connection pool size
+            connect_timeout: Duration::from_millis(500),  // Standard connection timeout
+            request_timeout: Duration::from_secs(2), // Standard request timeout
             http2_only: false,
             http1_only: false,
-            mode: ConfigMode::Ultra,
+            mode: ConfigMode::ResourceIntensive,
         }
     }
 
-    /// Create HYPER-ULTRA configuration - OPTIMIZED for async A级 standard
-    /// BREAKTHROUGH: Further optimization for async 11,297 RPS target
-    pub fn hyper_ultra_async() -> Self {
+    /// Create async configuration for concurrent request processing
+    /// Configured for async workload patterns
+    pub fn async_configured() -> Self {
         Self {
-            max_idle_per_host: 100,    // Increased per-host connections for async burst traffic
-            keep_alive_timeout: Duration::from_secs(90), // Reduced to 1.5 min for faster async churn
-            max_total_connections: 800, // Increased total connections for async parallelism
-            connect_timeout: Duration::from_millis(200),  // Even faster connection timeout for async
-            request_timeout: Duration::from_millis(1200), // Tighter request timeout for async throughput
+            max_idle_per_host: 100,    // Configured per-host connections for async patterns
+            keep_alive_timeout: Duration::from_secs(90), // Configured for async connection lifecycle
+            max_total_connections: 800, // Configured for async concurrent processing
+            connect_timeout: Duration::from_millis(200),  // Standard connection timeout
+            request_timeout: Duration::from_millis(1200), // Configured for async processing
             http2_only: false,
-            http1_only: true, // HTTP/1.1 only for maximum async performance
-            mode: ConfigMode::Ultra,
+            http1_only: true, // HTTP/1.1 only for consistent async processing
+            mode: ConfigMode::ResourceIntensive,
         }
     }
 
-    /// Create MEGA-ULTRA configuration - EXTREME async optimization for A级+ performance
-    /// WARNING: Maximum resource usage for ultimate async performance
-    pub fn mega_ultra_async() -> Self {
+    /// Create async high resource configuration for concurrent processing
+    /// High resource settings for async workloads
+    pub fn async_extended_resources() -> Self {
         Self {
-            max_idle_per_host: 300,    // ULTIMATE per-host connections for async burst performance
-            keep_alive_timeout: Duration::from_secs(45), // Super-aggressive keepalive for async churn
-            max_total_connections: 2000, // ULTIMATE total connections for extreme async parallelism
-            connect_timeout: Duration::from_millis(100),  // Lightning-fast connection timeout
-            request_timeout: Duration::from_millis(800), // ULTIMATE tight request timeout for max throughput
+            max_idle_per_host: 300,    // High resource per-host connections for async patterns
+            keep_alive_timeout: Duration::from_secs(45), // High resource keepalive for async processing
+            max_total_connections: 2000, // High resource connections for async concurrent processing
+            connect_timeout: Duration::from_millis(100),  // Standard connection timeout
+            request_timeout: Duration::from_millis(800), // High resource request timeout
             http2_only: false,
-            http1_only: true, // HTTP/1.1 only for absolute maximum async performance
-            mode: ConfigMode::Ultra,
+            http1_only: true, // HTTP/1.1 only for async processing
+            mode: ConfigMode::ResourceIntensive,
         }
     }
 
-    /// Create ULTIMATE-ALPHA configuration - BREAKTHROUGH async optimization for 11,297+ RPS
-    /// OPTIMIZED: Balanced for maximum performance with stability
-    pub fn ultimate_alpha_async() -> Self {
+    /// Create balanced async configuration for concurrent processing
+    /// Balanced settings for async processing with resource efficiency
+    pub fn async_balanced() -> Self {
         Self {
-            max_idle_per_host: 150,    // Optimized per-host connections for ultimate async stability
-            keep_alive_timeout: Duration::from_secs(60), // Balanced keepalive for async performance
-            max_total_connections: 1000, // Optimized total connections for ultimate parallelism
-            connect_timeout: Duration::from_millis(500),  // Balanced connection timeout for stability
-            request_timeout: Duration::from_millis(1500), // Optimized request timeout for performance
+            max_idle_per_host: 150,    // Balanced per-host connections for async processing
+            keep_alive_timeout: Duration::from_secs(60), // Balanced keepalive for async patterns
+            max_total_connections: 1000, // Balanced connections for concurrent processing
+            connect_timeout: Duration::from_millis(500),  // Balanced connection timeout
+            request_timeout: Duration::from_millis(1500), // Balanced request timeout
             http2_only: false,
-            http1_only: true, // HTTP/1.1 only for absolute BREAKTHROUGH performance
-            mode: ConfigMode::Ultra,
+            http1_only: true, // HTTP/1.1 only for async processing
+            mode: ConfigMode::ResourceIntensive,
         }
     }
 
-    /// Create BREAKTHROUGH-EXTREME configuration - BEYOND 11,297 RPS async optimization
-    /// ULTRA-aggressive configuration specifically for async HTTP client workloads
-    pub fn breakthrough_extreme_async() -> Self {
+    /// Create concurrent async configuration for high-volume processing
+    /// Concurrent settings for async HTTP client workloads
+    pub fn async_concurrent() -> Self {
         Self {
-            max_idle_per_host: 400,    // EXTREME per-host connections for async burst capacity
-            keep_alive_timeout: Duration::from_secs(30), // Aggressive keepalive for fast async churn
-            max_total_connections: 3000, // EXTREME total connections for unlimited async parallelism
-            connect_timeout: Duration::from_millis(200),  // Lightning-fast connection timeout
-            request_timeout: Duration::from_millis(800), // Ultra-tight request timeout for max async throughput
+            max_idle_per_host: 400,    // Concurrent per-host connection pool for async patterns
+            keep_alive_timeout: Duration::from_secs(30), // Concurrent keepalive for async processing
+            max_total_connections: 3000, // Concurrent connection limit for async processing
+            connect_timeout: Duration::from_millis(200),  // Standard connection timeout
+            request_timeout: Duration::from_millis(800), // Concurrent request timeout for async processing
             http2_only: false,
-            http1_only: true, // HTTP/1.1 only for absolute maximum async performance
-            mode: ConfigMode::Ultra,
+            http1_only: true, // HTTP/1.1 only for async processing
+            mode: ConfigMode::ResourceIntensive,
         }
     }
 
-    /// Create HYPER-ALPHA configuration - OPTIMIZED TUNING for async 11,297+ RPS target
-    /// PRECISE OPTIMIZATION: Fine-tuned for maximum performance without instability
-    pub fn hyper_alpha_async() -> Self {
+    /// Create standard async configuration for reliable high-volume processing
+    /// Standard settings: Configured for async workloads
+    pub fn async_standard() -> Self {
         Self {
-            max_idle_per_host: 260,    // PRECISE TUNING: Increase from 240 to 260 for better burst capacity
-            keep_alive_timeout: Duration::from_secs(30), // PRECISE TUNING: Slight reduction from 32s to 30s
-            max_total_connections: 1600, // PRECISE: Moderate increase for better parallelism
-            connect_timeout: Duration::from_millis(280),  // PRECISE: Slight reduction for faster response
-            request_timeout: Duration::from_millis(800), // PRECISE TUNING: Slight reduction from 850ms to 800ms
+            max_idle_per_host: 260,    // Standard configuration: Configured for capacity
+            keep_alive_timeout: Duration::from_secs(30), // Standard configuration: Configured for connection lifecycle
+            max_total_connections: 1600, // Standard configuration: Configured for parallelism
+            connect_timeout: Duration::from_millis(280),  // Standard configuration: Configured for response
+            request_timeout: Duration::from_millis(800), // Standard configuration: Configured response timeout
             http2_only: false,
-            http1_only: true, // HTTP/1.1 only for proven async performance
-            mode: ConfigMode::Ultra,
+            http1_only: true, // HTTP/1.1 only for async processing
+            mode: ConfigMode::ResourceIntensive,
         }
     }
 
@@ -212,7 +212,7 @@ impl PoolConfig {
         }
         if self.max_idle_per_host > 2000 {
             return Err(format!(
-                "WARNING: max_idle_per_host ({}) is extremely high and may cause resource exhaustion. Consider using a value <= 500.",
+                "WARNING: max_idle_per_host ({}) is very high and may cause resource exhaustion. Consider using a value <= 500.",
                 self.max_idle_per_host
             ));
         }
@@ -221,7 +221,7 @@ impl PoolConfig {
         }
         if self.max_total_connections > 10000 {
             return Err(format!(
-                "WARNING: max_total_connections ({}) is extremely high and may cause system instability. Consider using a value <= 5000.",
+                "WARNING: max_total_connections ({}) is very high and may cause system instability. Consider using a value <= 5000.",
                 self.max_total_connections
             ));
         }
@@ -254,11 +254,11 @@ impl PoolConfig {
             ConfigMode::Balanced => {
                 // Balanced mode is flexible, no specific warnings
             }
-            ConfigMode::Aggressive => {
-                eprintln!("WARNING: Aggressive mode is configured for maximum performance. Monitor resource usage carefully.");
+            ConfigMode::Standard => {
+                eprintln!("Standard mode active: Configured with moderate resource usage.");
             }
-            ConfigMode::Ultra => {
-                eprintln!("ULTRA MODE ACTIVE: EXTREME performance optimization for A级 standard. Maximum resource usage. System stability may be impacted.");
+            ConfigMode::ResourceIntensive => {
+                eprintln!("Resource intensive mode active: Configured with resource management.");
             }
         }
         
@@ -275,8 +275,8 @@ pub struct SmartHttpClient {
     https_client: Client<HttpsConnector<HttpConnector>, Full<Bytes>>,
 }
 
-/// A high-performance HTTP connection pool that reuses connections
-/// This enables Keep-Alive and connection reuse for maximum performance
+/// HTTP connection pool that reuses connections
+/// This enables Keep-Alive and connection reuse
 #[derive(Clone)]
 pub struct HttpConnectionPool {
     /// Smart client container with both HTTP and HTTPS clients
@@ -338,53 +338,53 @@ impl HttpConnectionPool {
                 .ok(); // Ignore error if already installed
         });
 
-        // Create HTTP-only connector for localhost connections - Optimized for A级 standard with stability
+        // Create HTTP-only connector for localhost connections
         let create_http_only_connector = || {
             let mut connector = HttpConnector::new();
             connector.enforce_http(true);  // Force HTTP-only for localhost
-            connector.set_connect_timeout(Some(Duration::from_millis(1000))); // Balanced timeout for localhost
+            connector.set_connect_timeout(Some(Duration::from_millis(1000))); // Standard timeout for localhost
             connector.set_nodelay(true);  // Enable TCP_NODELAY for minimum latency
-            connector.set_keepalive(Some(Duration::from_secs(300))); // Stable keepalive for optimal connection reuse
+            connector.set_keepalive(Some(Duration::from_secs(300))); // Standard keepalive for connection reuse
             connector.set_reuse_address(true); // Enable socket reuse
-            connector.set_send_buffer_size(Some(2 * 1024 * 1024)); // 2MB send buffer for high throughput
-            connector.set_recv_buffer_size(Some(2 * 1024 * 1024)); // 2MB receive buffer for high throughput  
-            connector.set_happy_eyeballs_timeout(Some(Duration::from_millis(10))); // Balanced IPv6/IPv4 fallback
-            connector.set_local_address(None); // Let system choose optimal interface
+            connector.set_send_buffer_size(Some(2 * 1024 * 1024)); // 2MB send buffer
+            connector.set_recv_buffer_size(Some(2 * 1024 * 1024)); // 2MB receive buffer
+            connector.set_happy_eyeballs_timeout(Some(Duration::from_millis(10))); // IPv6/IPv4 fallback
+            connector.set_local_address(None); // Let system choose interface
             connector
         };
 
-        // Create HTTP connector for HTTPS wrapper (allows both HTTP and HTTPS) - Optimized for A级 standard with stability
+        // Create HTTP connector for HTTPS wrapper (allows both HTTP and HTTPS)
         let _create_https_base_connector = || {
             let mut connector = HttpConnector::new();
             connector.enforce_http(false);  // Allow both HTTP and HTTPS
             connector.set_connect_timeout(Some(config.connect_timeout));
             connector.set_nodelay(true);  // Enable TCP_NODELAY for minimum latency
-            connector.set_keepalive(Some(Duration::from_secs(300))); // Stable keepalive for optimal connection reuse
+            connector.set_keepalive(Some(Duration::from_secs(300))); // Standard keepalive for connection reuse
             connector.set_reuse_address(true); // Enable socket reuse
-            connector.set_send_buffer_size(Some(2 * 1024 * 1024)); // 2MB send buffer for high throughput
-            connector.set_recv_buffer_size(Some(2 * 1024 * 1024)); // 2MB receive buffer for high throughput
-            connector.set_happy_eyeballs_timeout(Some(Duration::from_millis(10))); // Balanced IPv6/IPv4 fallback
-            connector.set_local_address(None); // Let system choose optimal interface
+            connector.set_send_buffer_size(Some(2 * 1024 * 1024)); // 2MB send buffer
+            connector.set_recv_buffer_size(Some(2 * 1024 * 1024)); // 2MB receive buffer
+            connector.set_happy_eyeballs_timeout(Some(Duration::from_millis(10))); // Standard IPv6/IPv4 fallback
+            connector.set_local_address(None); // Let system choose interface
             connector
         };
 
-        // Create HTTP-only client (for localhost and plain HTTP) - Optimized for A级 standard with stability
+        // Create HTTP-only client (for localhost and plain HTTP)
         let http_client = Client::builder(TokioExecutor::new())
-            .pool_idle_timeout(config.keep_alive_timeout) // Use optimized config timeout
-            .pool_max_idle_per_host(config.max_idle_per_host) // Use optimized config pooling 
-            .http1_title_case_headers(false) // Optimize HTTP/1.1 headers for performance
-            .http1_preserve_header_case(false) // Optimize header case for speed
-            .http1_read_buf_exact_size(8 * 1024 * 1024) // 8MB read buffer for BREAKTHROUGH performance (8x increase)
-            .http1_max_buf_size(8 * 1024 * 1024) // 8MB max buffer for BREAKTHROUGH performance (8x increase)
-            .http2_only(false)  // Allow HTTP/1.1 for maximum compatibility and speed
-            .http1_writev(true) // Enable vectored writes for better performance
-            .http2_initial_stream_window_size(Some(16 * 1024 * 1024)) // 16MB HTTP/2 stream window for EXTREME performance
-            .http2_initial_connection_window_size(Some(32 * 1024 * 1024)) // 32MB HTTP/2 connection window for EXTREME performance
-            .http2_max_frame_size(Some(64 * 1024)) // 64KB max frame size for ULTRA throughput
-            .http2_max_concurrent_reset_streams(1000) // Allow 1000 concurrent reset streams for extreme parallelism
+            .pool_idle_timeout(config.keep_alive_timeout) // Use config timeout
+            .pool_max_idle_per_host(config.max_idle_per_host) // Use config pooling
+            .http1_title_case_headers(false) // Configure HTTP/1.1 headers for efficiency
+            .http1_preserve_header_case(false) // Configure header case for processing speed
+            .http1_read_buf_exact_size(8 * 1024 * 1024) // 8MB read buffer
+            .http1_max_buf_size(8 * 1024 * 1024) // 8MB max buffer
+            .http2_only(false)  // Allow HTTP/1.1 for compatibility and processing speed
+            .http1_writev(true) // Enable vectored writes
+            .http2_initial_stream_window_size(Some(16 * 1024 * 1024)) // 16MB HTTP/2 stream window
+            .http2_initial_connection_window_size(Some(32 * 1024 * 1024)) // 32MB HTTP/2 connection window
+            .http2_max_frame_size(Some(64 * 1024)) // 64KB max frame size
+            .http2_max_concurrent_reset_streams(1000) // Allow 1000 concurrent reset streams for concurrent processing
             .build(create_http_only_connector());
 
-        // HTTPS connector restored for production HTTPS functionality
+        // HTTPS connector restored for HTTPS functionality
         let https_connector = match hyper_rustls::HttpsConnectorBuilder::new()
             .with_native_roots() 
         {
@@ -407,20 +407,20 @@ impl HttpConnectionPool {
             }
         };
         
-        // HTTPS client restored for production HTTPS functionality
+        // HTTPS client configured for HTTPS functionality
         let https_client = Client::builder(TokioExecutor::new())
-            .pool_idle_timeout(config.keep_alive_timeout) // Use optimized config timeout
-            .pool_max_idle_per_host(config.max_idle_per_host) // Use optimized config pooling
-            .http1_title_case_headers(false) // Optimize HTTP/1.1 headers for performance
-            .http1_preserve_header_case(false) // Optimize header case for speed
-            .http1_read_buf_exact_size(4 * 1024 * 1024) // 4MB read buffer for EXTREME performance (4x increase)
-            .http1_max_buf_size(4 * 1024 * 1024) // 4MB max buffer for EXTREME performance (4x increase)
-            .http1_writev(true) // Enable vectored writes for better performance
-            .http2_only(false) // Allow both HTTP/1.1 and HTTP/2 for maximum speed
-            .http2_initial_stream_window_size(Some(16 * 1024 * 1024)) // 16MB HTTP/2 stream window for EXTREME performance (8x increase)
-            .http2_initial_connection_window_size(Some(32 * 1024 * 1024)) // 32MB HTTP/2 connection window for EXTREME performance (8x increase)
-            .http2_max_frame_size(Some(64 * 1024)) // 64KB max frame size for ULTRA throughput (4x increase)
-            .http2_max_concurrent_reset_streams(1000) // Allow 1000 concurrent reset streams for extreme parallelism
+            .pool_idle_timeout(config.keep_alive_timeout) // Use config timeout
+            .pool_max_idle_per_host(config.max_idle_per_host) // Use config pooling
+            .http1_title_case_headers(false) // Configure HTTP/1.1 headers for efficiency
+            .http1_preserve_header_case(false) // Configure header case for processing speed
+            .http1_read_buf_exact_size(4 * 1024 * 1024) // 4MB read buffer
+            .http1_max_buf_size(4 * 1024 * 1024) // 4MB max buffer
+            .http1_writev(true) // Enable vectored writes
+            .http2_only(false) // Allow both HTTP/1.1 and HTTP/2 for processing speed
+            .http2_initial_stream_window_size(Some(16 * 1024 * 1024)) // 16MB HTTP/2 stream window
+            .http2_initial_connection_window_size(Some(32 * 1024 * 1024)) // 32MB HTTP/2 connection window
+            .http2_max_frame_size(Some(64 * 1024)) // 64KB max frame size
+            .http2_max_concurrent_reset_streams(1000) // Allow 1000 concurrent reset streams for concurrent processing
             .build(https_connector);
 
         let pool = Self {
@@ -445,7 +445,7 @@ impl HttpConnectionPool {
 
     /// Make an HTTP request using the connection pool
     /// This method will reuse existing connections when possible
-    #[inline(always)]  // Force inline for hot path optimization
+    #[inline(always)]  // Force inline for critical path
     pub async fn request(
         &self,
         method: hyper::Method,
@@ -458,7 +458,7 @@ impl HttpConnectionPool {
 
     /// Make an HTTP request with a specific timeout
     /// This method will reuse existing connections when possible
-    #[inline(always)]  // Force inline for maximum hot path performance
+    #[inline(always)]  // Force inline for critical path processing
     pub async fn request_with_timeout(
         &self,
         method: hyper::Method,
@@ -467,7 +467,7 @@ impl HttpConnectionPool {
         body: Option<Bytes>,
         timeout: Option<Duration>,
     ) -> PyResult<hyper::Response<hyper::body::Incoming>> {
-        // EXTREME OPTIMIZATION: Fast method validation using match for branch prediction
+        // Method validation using request processing
         let method_str = method.as_str();
         if !matches!(method_str, "GET" | "POST" | "PUT" | "DELETE" | "HEAD" | "OPTIONS" | "PATCH" | "TRACE" | "CONNECT") {
             return Err(crate::error::RequestError::new_err(
@@ -475,13 +475,13 @@ impl HttpConnectionPool {
             ));
         }
 
-        // EXTREME OPTIMIZATION: Fast client selection with branch prediction
+        // Client selection with configuration handling
         let scheme = uri.scheme_str();
         let use_http_client = likely(scheme == Some("http")); // Most common case is HTTP
         
         // Client selection logic complete
 
-        // ULTRA OPTIMIZATION: Fast stats update with fewer lock acquisitions
+        // Stats update with lock management
         if let Ok(mut stats) = self.stats.try_write() {
             stats.total_requests += 1;
         }
@@ -500,7 +500,7 @@ impl HttpConnectionPool {
 
         // Add appropriate Connection header based on client type  
         if use_http_client {
-            // For localhost HTTP, use keep-alive for better performance
+            // For localhost HTTP, use keep-alive connections
             request_builder = request_builder.header("Connection", "keep-alive");
         } else {
             // For remote HTTPS, use keep-alive for connection reuse
@@ -588,7 +588,7 @@ impl HttpConnectionPool {
                 })?
         };
 
-        // ULTRA OPTIMIZATION: Fast connection reuse stats update
+        // Connection reuse stats tracking
         if let Ok(mut stats) = self.stats.try_write() {
             stats.connection_reuses += 1;
         }
@@ -703,18 +703,18 @@ pub fn create_balanced_pool() -> PyResult<Arc<HttpConnectionPool>> {
     Ok(Arc::new(HttpConnectionPool::new(PoolConfig::balanced())?))
 }
 
-/// Create an aggressive connection pool - maximum performance with higher resource usage
-pub fn create_aggressive_pool() -> PyResult<Arc<HttpConnectionPool>> {
-    Ok(Arc::new(HttpConnectionPool::new(PoolConfig::aggressive())?))
+/// Create a high resource connection pool with higher resource usage
+pub fn create_resource_intensive_pool() -> PyResult<Arc<HttpConnectionPool>> {
+    Ok(Arc::new(HttpConnectionPool::new(PoolConfig::resource_intensive())?))
 }
 
-/// Create an ULTRA connection pool - EXTREME performance for A级 standard
-/// WARNING: This mode uses maximum resources and may impact system stability
-pub fn create_ultra_pool() -> PyResult<Arc<HttpConnectionPool>> {
-    Ok(Arc::new(HttpConnectionPool::new(PoolConfig::ultra())?))
+/// Create a standard connection pool
+/// This mode provides standard performance with resource management
+pub fn create_standard_pool() -> PyResult<Arc<HttpConnectionPool>> {
+    Ok(Arc::new(HttpConnectionPool::new(PoolConfig::standard())?))
 }
 
-/// Calculate connection pool health score (0.0 = unhealthy, 1.0 = perfect health)
+/// Calculate connection pool health score (0.0 = unhealthy, 1.0 = healthy)
 /// Based on error rates, response times, and overall performance
 fn calculate_health_score(
     failed_requests: u64,
@@ -723,10 +723,10 @@ fn calculate_health_score(
     error_count: u64,
 ) -> f64 {
     if total_requests == 0 {
-        return 1.0;  // Perfect score for new pools
+        return 1.0;  // Default health score for newly created pools
     }
     
-    // Error rate score (0.0 - 1.0, higher is better)
+    // Error rate score (0.0 - 1.0, higher values indicate fewer errors)
     let error_rate = failed_requests as f64 / total_requests as f64;
     let error_score = (1.0 - error_rate).max(0.0);
     
@@ -751,7 +751,7 @@ fn calculate_health_score(
     };
     
     // Weighted average (error rate is most important)
-    (error_score * 0.5 + response_time_score * 0.3 + error_frequency_score * 0.2).max(0.0).min(1.0)
+    (error_score * 0.5 + response_time_score * 0.3 + error_frequency_score * 0.2).clamp(0.0, 1.0)
 }
 
 /// Additional monitoring and diagnostic methods for the connection pool
@@ -803,9 +803,9 @@ impl HttpConnectionPool {
         
         // Reset error counters if health is critically low
         if stats.health_score < 0.3 {
-            stats.failed_requests = stats.failed_requests / 2;  // Reduce by half
-            stats.timeout_errors = stats.timeout_errors / 2;
-            stats.connection_errors = stats.connection_errors / 2;
+            stats.failed_requests /= 2;  // Reduce by half
+            stats.timeout_errors /= 2;
+            stats.connection_errors /= 2;
             stats.health_score = calculate_health_score(
                 stats.failed_requests,
                 stats.total_requests,
@@ -821,7 +821,6 @@ impl HttpConnectionPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
 
     #[tokio::test]
     async fn test_connection_pool_creation() {
@@ -845,14 +844,14 @@ mod tests {
         assert!(balanced.validate().is_ok());
         assert!(matches!(balanced.mode, ConfigMode::Balanced));
         
-        // Test aggressive mode
-        let aggressive = PoolConfig::aggressive();
-        assert!(aggressive.validate().is_ok());
-        assert!(matches!(aggressive.mode, ConfigMode::Aggressive));
+        // Test standard mode
+        let standard = PoolConfig::standard();
+        assert!(standard.validate().is_ok());
+        assert!(matches!(standard.mode, ConfigMode::ResourceIntensive));
         
-        // Verify conservative < balanced < aggressive in resource usage
+        // Verify conservative < balanced < standard in resource usage
         assert!(conservative.max_idle_per_host <= balanced.max_idle_per_host);
-        assert!(balanced.max_idle_per_host <= aggressive.max_idle_per_host);
+        assert!(balanced.max_idle_per_host <= standard.max_idle_per_host);
     }
 
     #[tokio::test]

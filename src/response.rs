@@ -6,7 +6,8 @@ use pyo3::types::{IntoPyDict, PyBytes};
 use serde_json::Value;
 use std::collections::HashMap;
 
-// Response object - production version, fully aligned with httpx
+
+// Response object - fully aligned with httpx
 #[pyclass(module = "faster_http")]
 #[derive(Clone, Debug)]
 pub struct HttpResponse {
@@ -103,7 +104,7 @@ impl HttpResponse {
                     None,
                     None,
                     None,
-                ).ok().map(|req| Py::new(py, req).ok().map(|obj| obj.to_object(py))).flatten()
+                ).ok().and_then(|req| Py::new(py, req).ok().map(|obj| obj.to_object(py)))
             })
         });
 
@@ -145,6 +146,7 @@ impl HttpResponse {
         history = None,
         default_encoding = "utf-8"
     ))]
+    #[allow(clippy::too_many_arguments)]
     pub fn py_new(
         status_code: u16,
         headers: Option<HashMap<String, String>>,
@@ -182,7 +184,7 @@ impl HttpResponse {
             body,
             "http://example.com".to_string(), // Default URL for mock responses
             0.0, // elapsed
-            status_code >= 300 && status_code < 400, // is_redirect_status
+            (300..400).contains(&status_code), // is_redirect_status
             "HTTP/1.1".to_string(),
             HashMap::new(), // cookies
             Some(default_encoding.to_string()),
@@ -198,7 +200,7 @@ impl HttpResponse {
 
         Ok(response)
     }
-    // ==================== Basic properties - optimized version ====================
+    // ==================== Basic properties ====================
     #[getter]
     pub fn status_code(&self) -> u16 {
         self.status_code
@@ -366,7 +368,7 @@ impl HttpResponse {
             .map_err(|e| PyValueError::new_err(format!("Failed to convert JSON to Python: {e}")))
     }
 
-    // ==================== Streaming methods - production implementation ====================
+    // ==================== Streaming methods ====================
     pub fn iter_bytes(&self, chunk_size: Option<usize>) -> PyResult<PyObject> {
         let chunk_size = chunk_size.unwrap_or(8192);
         let body = self.body.clone();
@@ -384,7 +386,7 @@ iter_bytes_impl(data, chunk_size)
             let locals = pyo3::types::PyDict::new(py);
             locals.set_item("data", pyo3::types::PyBytes::new(py, &body))?;
             locals.set_item("chunk_size", chunk_size)?;
-            py.run(&code, None, Some(locals))?;
+            py.run(code, None, Some(locals))?;
             Ok(locals
                 .get_item("iter_bytes_impl")?
                 .ok_or_else(|| crate::error::InternalError::new_err("Failed to get iter_bytes_impl from locals"))?
@@ -410,7 +412,7 @@ iter_text_impl(text, chunk_size)
             let locals = pyo3::types::PyDict::new(py);
             locals.set_item("text", text.clone())?;
             locals.set_item("chunk_size", chunk_size)?;
-            py.run(&code, None, Some(locals))?;
+            py.run(code, None, Some(locals))?;
             Ok(locals
                 .get_item("iter_text_impl")?
                 .ok_or_else(|| crate::error::InternalError::new_err("Failed to get iter_text_impl from locals"))?
@@ -437,7 +439,7 @@ iter_lines_impl(lines)
 
             let locals = pyo3::types::PyDict::new(py);
             locals.set_item("lines", py_lines.clone())?;
-            py.run(&code, None, Some(locals))?;
+            py.run(code, None, Some(locals))?;
             Ok(locals
                 .get_item("iter_lines_impl")?
                 .ok_or_else(|| crate::error::InternalError::new_err("Failed to get iter_lines_impl from locals"))?
@@ -774,7 +776,7 @@ pub fn parse_cookies_from_headers(headers: &HashMap<String, String>) -> HashMap<
     cookies
 }
 
-// Detect encoding - production implementation
+// Detect encoding
 #[allow(dead_code)]
 pub fn detect_encoding(headers: &HashMap<String, String>) -> Option<String> {
     // 1. First check Content-Type header

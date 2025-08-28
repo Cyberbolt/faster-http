@@ -1,17 +1,17 @@
 #!/bin/bash
 
-# ULTRA PERFORMANCE BENCHMARK SCRIPT
-# Optimized for A-grade performance testing with multi-core support
+# Performance Benchmark Script
+# Multi-core benchmark testing
 
-echo "🚀 ULTRA Performance Benchmark - A-grade Standards"
-echo "=================================================="
+echo "Performance Benchmark - Testing Framework"
+echo "========================================="
 
 # Get CPU info
 cores=$(nproc)
-echo "💻 System has $cores CPU cores available"
+echo "System has $cores CPU cores available"
 
-# Optimize system for performance testing
-echo "🔧 Optimizing system for ultra performance..."
+# Configure system for benchmark testing
+echo "Configuring system for benchmark testing..."
 
 # Set CPU frequency governor to performance (if available)
 if command -v cpufreq-set &> /dev/null; then
@@ -24,22 +24,22 @@ fi
 # Disable CPU scaling (if available)
 echo 'performance' | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor 2>/dev/null || true
 
-# Set process priority and affinity for maximum performance
+# Set process priority and affinity for testing
 export OMP_NUM_THREADS=$cores
 export GOMAXPROCS=$cores
 export UV_THREADPOOL_SIZE=$((cores * 2))
 
-echo "🎯 Performance optimizations applied:"
+echo "System configurations applied:"
 echo "   - CPU cores: $cores"
 echo "   - Thread pool size: $((cores * 2))"
 echo "   - Process priority: high"
 
 # Multi-core async test
 echo ""
-echo "🔥 Running ASYNC test with FULL multi-core support..."
-echo "Using ALL $cores CPU cores for maximum throughput"
+echo "Running ASYNC test with multi-core support..."
+echo "Using $cores CPU cores for concurrent processing"
 
-# Use ALL cores for async test (no taskset restriction)
+# Use all cores for async test (no taskset restriction)
 timeout 60s env PYTHONPATH=/project/faster-http \
     nice -n -10 \
     uv run python -c "
@@ -49,26 +49,26 @@ import asyncio
 import time
 from benchmarks.faster_http_test import test
 
-# Set optimal concurrency for multi-core
+# Set concurrency for multi-core
 optimal_concurrency = $cores * 8  # 8 tasks per core
 
 async def main():
-    print(f'🚀 Starting ASYNC test with {optimal_concurrency} concurrent tasks')
+    print(f'Starting ASYNC test with {optimal_concurrency} concurrent tasks')
     print(f'   Duration: 30 seconds')
-    print(f'   Target: ≥11,297 RPS for A-grade')
+    print(f'   Target: 11,297 RPS')
     
     rps = await test(duration=30, concurrency=optimal_concurrency)
     
     print('')
-    print('📊 ASYNC RESULTS:')
+    print('ASYNC RESULTS:')
     print(f'   RPS: {rps:.0f}')
     print(f'   Target: 11,297 RPS')
     if rps >= 11297:
-        print('   ✅ A-GRADE ACHIEVED!')
+        print('   Target achieved')
     else:
         deficit = 11297 - rps
         percentage = (deficit / 11297) * 100
-        print(f'   ❌ Need {deficit:.0f} more RPS ({percentage:.1f}%)')
+        print(f'   Need {deficit:.0f} more RPS ({percentage:.1f}%)')
     
     return rps
 
@@ -76,10 +76,10 @@ asyncio.run(main())
 "
 
 echo ""
-echo "🔥 Running SYNC test with FULL multi-core support..."
-echo "Using ALL $cores CPU cores for maximum throughput"
+echo "Running SYNC test with multi-core support..."
+echo "Using $cores CPU cores for concurrent processing"
 
-# Multi-core sync test - use ALL cores
+# Multi-core sync test - use all cores
 timeout 60s env PYTHONPATH=/project/faster-http \
     nice -n -10 \
     uv run python -c "
@@ -88,27 +88,27 @@ sys.path.insert(0, '/project/faster-http')
 import time
 from benchmarks.faster_http_test import sync_test
 
-# Set optimal concurrency for multi-core sync
+# Set concurrency for multi-core sync
 optimal_concurrency = $cores * 6  # 6 threads per core for sync
 
-print(f'🚀 Starting SYNC test with {optimal_concurrency} concurrent threads')
+print(f'Starting SYNC test with {optimal_concurrency} concurrent threads')
 print(f'   Duration: 30 seconds')
-print(f'   Target: ≥16,016 RPS for A-grade')
+print(f'   Target: 16,016 RPS')
 
 rps = sync_test(duration=30, concurrency=optimal_concurrency)
 
 print('')
-print('📊 SYNC RESULTS:')
+print('SYNC RESULTS:')
 print(f'   RPS: {rps:.0f}')
 print(f'   Target: 16,016 RPS')
 if rps >= 16016:
-    print('   ✅ A-GRADE ACHIEVED!')
+    print('   Target achieved')
 else:
     deficit = 16016 - rps
     percentage = (deficit / 16016) * 100
-    print(f'   ❌ Need {deficit:.0f} more RPS ({percentage:.1f}%)')
+    print(f'   Need {deficit:.0f} more RPS ({percentage:.1f}%)')
 "
 
 echo ""
-echo "🎯 ULTRA Performance Benchmark Complete!"
-echo "========================================"
+echo "Performance Benchmark Complete"
+echo "============================="

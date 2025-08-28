@@ -245,7 +245,7 @@ def test_feature(self):
 
 ### 4. Use Fixtures Effectively
 
-Leverage provided fixtures for consistent test setup:
+Use provided fixtures for consistent test setup:
 
 ```python
 def test_with_fixtures(self, test_server, sample_headers, data_generator):

@@ -26,7 +26,7 @@ where
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .thread_name("faster-http-streaming")
-            .worker_threads(2) // Optimized for streaming performance
+            .worker_threads(2) // Configured for streaming processing
             .build()
             .map_err(|e| format!("Failed to create streaming runtime: {}", e))
     });
@@ -43,7 +43,7 @@ where
 #[allow(dead_code)]
 static STREAMING_CLIENT_POOL: OnceLock<Result<Arc<Mutex<HyperHttpClient>>, String>> = OnceLock::new();
 
-/// Get or create the global shared streaming client for performance
+/// Get or create the global shared streaming client for efficiency
 /// Uses safe OnceLock pattern without unsafe code
 #[allow(dead_code)]
 fn get_shared_streaming_client() -> PyResult<Arc<Mutex<HyperHttpClient>>> {

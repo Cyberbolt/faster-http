@@ -1,4 +1,4 @@
-// ULTRA-OPTIMIZED: Deep GIL optimization for A级 performance
+// GIL-free processing
 // Implements complete Python-free request processing chains in Rust
 
 use crate::config::ClientConfig;
@@ -6,8 +6,8 @@ use crate::error::RequestError;
 use crate::response::HttpResponse;
 use crate::hyper_client::HyperHttpClient;
 use crate::ureq_client::UreqHttpClient;
-use crate::precompiled::{parse_method_optimized, process_headers_optimized};
-use crate::zero_copy::ZeroCopyBuffer;
+use crate::precompiled::{parse_method_configured, process_headers_configured};
+// use crate::zero_copy::ZeroCopyBuffer; // Removed - over-engineered
 use pyo3::prelude::*;
 use pyo3::{PyObject, Python};
 use std::collections::HashMap;
@@ -17,7 +17,7 @@ use bytes::Bytes;
 use hyper::Uri;
 use std::str::FromStr;
 
-/// EXTREME OPTIMIZATION: GIL-free request context
+/// GIL-free request context
 /// All request data pre-processed and stored in Rust-native types
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -29,7 +29,7 @@ pub struct GilFreeRequestContext {
     /// Pre-processed headers
     pub headers: HashMap<String, String>,
     /// Zero-copy content buffer
-    pub content: Option<ZeroCopyBuffer>,
+    pub content: Option<Bytes>,
     /// Pre-processed timeout
     pub timeout: Option<Duration>,
     /// Request ID for tracking
@@ -47,22 +47,21 @@ impl GilFreeRequestContext {
         timeout: Option<f64>,
     ) -> Result<Self, String> {
         // Parse method using precompiled lookup
-        let method = parse_method_optimized(&method)?;
+        let method = parse_method_configured(&method)?;
         
         // Parse URI
         let uri = Uri::from_str(&url)
             .map_err(|e| format!("Invalid URI: {}", e))?;
         
-        // Process headers using precompiled optimization
-        let processed_headers = process_headers_optimized(&headers)
+        // Process headers using precompiled configuration
+        let processed_headers = process_headers_configured(&headers)
             .into_iter()
             .map(|(k, v)| (k.to_string(), v))
             .collect();
         
         // Create zero-copy content buffer
         let content_buffer = content.map(|data| {
-            let bytes = Bytes::from(data);
-            ZeroCopyBuffer::from_bytes(bytes)
+            Bytes::from(data)
         });
         
         // Convert timeout
@@ -103,13 +102,13 @@ impl GilFreeRequestContext {
 
         // Process data WITHOUT GIL
         Self::from_raw_data(method, url, headers, content, timeout)
-            .map_err(|e| RequestError::new_err(e))
+            .map_err(RequestError::new_err)
     }
 
     /// Get content as slice without copying
     #[inline(always)]
     pub fn content_slice(&self) -> Option<&[u8]> {
-        self.content.as_ref().map(|buf| buf.as_slice())
+        self.content.as_ref().map(|buf| buf.as_ref())
     }
 
     /// Get content size without copying
@@ -119,7 +118,7 @@ impl GilFreeRequestContext {
     }
 }
 
-/// ULTRA-PERFORMANCE: GIL-free async request processor
+/// GIL-free async request processor
 #[allow(dead_code)]
 pub struct GilFreeAsyncProcessor {
     client: HyperHttpClient,
@@ -138,7 +137,7 @@ impl GilFreeAsyncProcessor {
         })
     }
 
-    /// EXTREME OPTIMIZATION: Process request completely without GIL
+    /// Process request completely without GIL
     pub async fn process_request_gil_free(
         &self,
         context: GilFreeRequestContext,
@@ -152,7 +151,7 @@ impl GilFreeAsyncProcessor {
                 context.method,
                 context.uri,
                 Some(context.headers),
-                context.content.map(|buf| buf.to_bytes()),
+                context.content,
                 context.timeout,
             )
             .await
@@ -170,7 +169,7 @@ impl GilFreeAsyncProcessor {
     }
 }
 
-/// ULTRA-PERFORMANCE: GIL-free sync request processor  
+/// GIL-free sync request processor  
 #[allow(dead_code)]
 pub struct GilFreeSyncProcessor {
     client: UreqHttpClient,
@@ -194,7 +193,7 @@ impl GilFreeSyncProcessor {
         })
     }
 
-    /// EXTREME OPTIMIZATION: Process request completely without GIL
+    /// Process request completely without GIL
     pub fn process_request_gil_free(
         &self,
         context: &GilFreeRequestContext,
@@ -207,7 +206,7 @@ impl GilFreeSyncProcessor {
         let url_str = context.uri.to_string();
         
         // Process request entirely in Rust without Python interaction
-        let content_bytes = context.content.as_ref().map(|buf| buf.to_bytes());
+        let content_bytes = context.content.clone();
         
         let result = self.client
             .request(
@@ -231,7 +230,7 @@ impl GilFreeSyncProcessor {
     }
 }
 
-/// EXTREME OPTIMIZATION: Batch GIL-free processor for maximum throughput
+/// Batch GIL-free request processor
 pub struct BatchGilFreeProcessor {
     async_processor: GilFreeAsyncProcessor,
     sync_processor: GilFreeSyncProcessor,
@@ -246,7 +245,7 @@ impl BatchGilFreeProcessor {
         Ok(Self {
             async_processor,
             sync_processor,
-            max_concurrent: num_cpus::get() * 8, // Ultra-aggressive concurrency
+            max_concurrent: num_cpus::get() * 8, // Concurrent processing configuration
         })
     }
 
@@ -270,7 +269,7 @@ impl BatchGilFreeProcessor {
                             context.method,
                             context.uri,
                             Some(context.headers),
-                            context.content.map(|buf| buf.to_bytes()),
+                            context.content,
                             context.timeout,
                         )
                         .await
@@ -308,9 +307,9 @@ fn generate_request_id() -> u64 {
     REQUEST_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as u64
 }
 
-/// Python-facing GIL-optimized request API
+/// Python-facing GIL-free request API
 #[pyfunction]
-pub fn gil_optimized_request(
+pub fn gil_processed_request(
     py_request: PyObject,
     use_async: Option<bool>,
 ) -> PyResult<PyObject> {
@@ -332,7 +331,7 @@ pub fn gil_optimized_request(
                 
                 let processor = GilFreeAsyncProcessor::new(config)?;
                 let result = processor.process_request_gil_free(context).await
-                    .map_err(|e| RequestError::new_err(e))?;
+                    .map_err(RequestError::new_err)?;
                 
                 Ok(result)
             })?.to_object(py))
@@ -346,22 +345,22 @@ pub fn gil_optimized_request(
         
         let processor = GilFreeSyncProcessor::new(&config)?;
         let result = processor.process_request_gil_free(&context)
-            .map_err(|e| RequestError::new_err(e))?;
+            .map_err(RequestError::new_err)?;
         
         Python::with_gil(|py| Ok(result.to_object(py)))
     }
 }
 
-/// BREAKTHROUGH OPTIMIZATION: Async-specific GIL-optimized request API
-/// Specifically designed for MAXIMUM async performance without future_into_py overhead
+/// Async-specific GIL-free request API
+/// Designed for async processing without future_into_py overhead
 #[pyfunction]
-pub fn gil_optimized_async_request<'py>(
+pub fn gil_processed_async_request<'py>(
     py: Python<'py>,
     py_request: PyObject,
 ) -> PyResult<&'py PyAny> {
     use pyo3_asyncio::tokio::future_into_py;
     
-    // ULTRA-FAST: Extract data from Python with minimal GIL time
+    // Data extraction from Python with GIL management
     let (method, url, headers, content, timeout) = Python::with_gil(|py| {
         let method = py_request.getattr(py, "method")?.extract::<String>(py)?;
         let url = py_request.getattr(py, "url")?.extract::<String>(py)?;
@@ -382,14 +381,14 @@ pub fn gil_optimized_async_request<'py>(
         PyResult::Ok((method, url, headers, content, timeout))
     })?;
     
-    // BREAKTHROUGH: Process request with minimal GIL interaction
+    // Process request with minimal GIL interaction
     future_into_py(py, async move {
-        // Create ultra-fast GIL-free context
+        // Create GIL-free context
         let context = GilFreeRequestContext::from_raw_data(
             method, url, headers, content, timeout
-        ).map_err(|e| RequestError::new_err(e))?;
+        ).map_err(RequestError::new_err)?;
         
-        // ULTRA-OPTIMIZED: Create ephemeral config for single request with BREAKTHROUGH settings
+        // Create ephemeral config for single request
         let config = ClientConfig::new(
             None, None, None, None, None, None, None, None, None,
             None, None, None, None, None, None, None, None, None, None, None
@@ -397,15 +396,15 @@ pub fn gil_optimized_async_request<'py>(
         
         let processor = GilFreeAsyncProcessor::new(config)?;
         let result = processor.process_request_gil_free(context).await
-            .map_err(|e| RequestError::new_err(e))?;
+            .map_err(RequestError::new_err)?;
         
         Ok(result)
     })
 }
 
-/// Python-facing batch GIL-optimized request API
+/// Python-facing batch GIL-free request API
 #[pyfunction]
-pub fn gil_optimized_batch_request(
+pub fn gil_processed_batch_request(
     py_requests: Vec<PyObject>,
     use_async: Option<bool>,
 ) -> PyResult<PyObject> {

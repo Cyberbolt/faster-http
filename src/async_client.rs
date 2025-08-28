@@ -149,7 +149,7 @@ impl AsyncHttpClient {
     pub fn send<'py>(&self, py: Python<'py>, request: &HttpRequest) -> PyResult<&'py PyAny> {
         self.check_not_closed()?;
 
-        // ULTRA OPTIMIZATION: Minimize cloning by extracting only what we need
+        // Optimization: Minimize cloning by extracting only what we need
         let client = self.client.clone();
         let config = self.config.clone();
         
@@ -601,8 +601,8 @@ impl AsyncHttpClient {
         Ok(())
     }
 
-    /// ULTRA-FAST header merging for performance critical path
-    fn merge_headers_fast(&self, request_headers: Option<HashMap<String, String>>) -> HashMap<String, String> {
+    /// Header merging for request processing
+    fn merge_headers_standard(&self, request_headers: Option<HashMap<String, String>>) -> HashMap<String, String> {
         match request_headers {
             Some(req_headers) if !self.config.default_headers.is_empty() => {
                 let mut merged = HashMap::with_capacity(self.config.default_headers.len() + req_headers.len());
@@ -644,14 +644,14 @@ impl AsyncHttpClient {
     ) -> PyResult<&'py PyAny> {
         self.check_not_closed()?;
 
-        // BREAKTHROUGH OPTIMIZATION: Try direct send path first for simple requests
+        // Try direct send path first for simple requests
         if data.is_none() && json.is_none() && files.is_none() && 
            auth.is_none() && follow_redirects.is_none() {
             
-            // ULTRA-FAST PATH: Direct send with minimal processing
+            // Direct path: Send request with standard processing
             let client = self.client.clone();
             let method_owned = method.to_string();
-            let headers_merged = self.merge_headers_fast(headers);
+            let headers_merged = self.merge_headers_standard(headers);
             let effective_timeout = timeout.map(Duration::from_secs_f64).or(self.config.default_timeout);
             
             // Build full URL with base_url if needed
@@ -686,7 +686,7 @@ impl AsyncHttpClient {
 
         // FALLBACK: Full processing path
         
-        // ULTRA OPTIMIZATION: Pre-extract needed config values to minimize cloning
+        // Optimization: Pre-extract needed config values to minimize cloning
         let base_url = self.config.base_url.clone();
         let default_headers = self.config.default_headers.clone();
         let default_timeout = self.config.default_timeout;
@@ -704,7 +704,7 @@ impl AsyncHttpClient {
             None
         };
 
-        // ULTRA OPTIMIZATION: Fast cookie merge with minimal allocation
+        // Cookie merge with memory management
         let merged_cookies = {
             let default_cookies = &self.config.default_cookies;
             let jar_cookies_opt = self.config.cookie_jar.lock().ok().map(|jar| jar.clone());
@@ -754,7 +754,7 @@ impl AsyncHttpClient {
         let auth_option = extract_auth(&final_auth);
         let follow_redirects = follow_redirects.unwrap_or(config_follow_redirects);
 
-        // ULTRA OPTIMIZATION: Clone only essential config data instead of entire config
+        // Optimization: Clone only essential config data instead of entire config
         let method_owned = method.to_string();
         let config = self.config.clone(); // Still need full config for build_and_send_request
 

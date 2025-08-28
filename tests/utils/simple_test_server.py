@@ -2,7 +2,7 @@
 Simple HTTP test server for faster-http testing.
 
 This module provides a simple and reliable HTTP test server using Python's
-built-in http.server module, optimized for testing HTTP client functionality.
+built-in http.server module for testing HTTP client functionality.
 """
 
 import base64
@@ -25,7 +25,7 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 class SimpleHTTPTestHandler(BaseHTTPRequestHandler):
-    """Optimized HTTP request handler for test server."""
+    """HTTP request handler for test server."""
 
     def log_message(self, format, *args):
         """Suppress default logging."""
@@ -478,10 +478,10 @@ class SimpleHTTPTestServer:
             return
 
         try:
-            # Use threading server for better performance
+            # Use threading server for enhanced performance
             self.server = ThreadingHTTPServer((self.host, self.port), SimpleHTTPTestHandler)
 
-            # Set socket options for better reliability
+            # Set socket options for enhanced reliability
             self.server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             # Set timeout to prevent hanging connections
             self.server.timeout = 10.0

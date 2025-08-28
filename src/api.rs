@@ -4,6 +4,18 @@ use crate::streaming_stub::StreamingClient;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 
+// Structure to group common request parameters
+#[derive(Default)]
+pub struct RequestParams {
+    pub params: Option<HashMap<String, PyObject>>,
+    pub headers: Option<HashMap<String, String>>,
+    pub timeout: Option<f64>,
+    pub auth: Option<PyObject>,
+    pub follow_redirects: Option<bool>,
+    pub cookies: Option<HashMap<String, String>>,
+    pub verify: Option<PyObject>,
+}
+
 
 // Unified synchronous request execution
 #[allow(clippy::too_many_arguments)]
@@ -136,7 +148,7 @@ fn create_ephemeral_config(
     )
 }
 
-// Enhanced ephemeral config creation with verify support
+// Ephemeral config creation with parameter handling
 fn create_ephemeral_config_with_verify(
     cookies: Option<HashMap<String, String>>,
     timeout: Option<f64>,
@@ -171,6 +183,8 @@ fn create_ephemeral_config_with_verify(
 
 // Top-level API functions that create ephemeral clients (matching httpx behavior)
 #[pyfunction]
+#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (url, *, params=None, headers=None, timeout=None, auth=None, follow_redirects=None, cookies=None, verify=None))]
 pub fn get(
     url: &str,
     params: Option<HashMap<String, PyObject>>,
@@ -181,15 +195,29 @@ pub fn get(
     cookies: Option<HashMap<String, String>>,
     verify: Option<PyObject>,
 ) -> PyResult<HttpResponse> {
+    let request_params = RequestParams {
+        params,
+        headers,
+        timeout,
+        auth,
+        follow_redirects,
+        cookies,
+        verify,
+    };
+    execute_get_request(url, request_params)
+}
+
+// Helper function for GET requests
+fn execute_get_request(url: &str, params: RequestParams) -> PyResult<HttpResponse> {
     // Extract auth parameter
-    let auth_tuple = extract_auth_parameter(auth)?;
+    let auth_tuple = extract_auth_parameter(params.auth)?;
 
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
-        cookies.clone(), 
-        timeout, 
-        follow_redirects.unwrap_or(false),
-        verify.as_ref()
+        params.cookies.clone(), 
+        params.timeout, 
+        params.follow_redirects.unwrap_or(false),
+        params.verify.as_ref()
     )?;
 
     execute_request_with_sync_client(
@@ -200,12 +228,12 @@ pub fn get(
         None,
         None,
         None,
-        params,
-        headers,
-        timeout,
+        params.params,
+        params.headers,
+        params.timeout,
         auth_tuple,
-        follow_redirects.unwrap_or(false),
-        cookies,
+        params.follow_redirects.unwrap_or(false),
+        params.cookies,
     )
 }
 
@@ -343,6 +371,8 @@ pub fn patch(
 }
 
 #[pyfunction]
+#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (url, *, params=None, headers=None, timeout=None, auth=None, follow_redirects=None, cookies=None, verify=None))]
 pub fn delete(
     url: &str,
     params: Option<HashMap<String, PyObject>>,
@@ -353,15 +383,28 @@ pub fn delete(
     cookies: Option<HashMap<String, String>>,
     verify: Option<PyObject>,
 ) -> PyResult<HttpResponse> {
+    let request_params = RequestParams {
+        params,
+        headers,
+        timeout,
+        auth,
+        follow_redirects,
+        cookies,
+        verify,
+    };
+    execute_delete_request(url, request_params)
+}
+
+fn execute_delete_request(url: &str, params: RequestParams) -> PyResult<HttpResponse> {
     // Extract auth parameter
-    let auth_tuple = extract_auth_parameter(auth)?;
+    let auth_tuple = extract_auth_parameter(params.auth)?;
 
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
-        cookies.clone(), 
-        timeout, 
-        follow_redirects.unwrap_or(false),
-        verify.as_ref()
+        params.cookies.clone(), 
+        params.timeout, 
+        params.follow_redirects.unwrap_or(false),
+        params.verify.as_ref()
     )?;
 
     execute_request_with_sync_client(
@@ -372,16 +415,17 @@ pub fn delete(
         None,
         None,
         None,
-        params,
-        headers,
-        timeout,
+        params.params,
+        params.headers,
+        params.timeout,
         auth_tuple,
-        follow_redirects.unwrap_or(false),
-        cookies,
+        params.follow_redirects.unwrap_or(false),
+        params.cookies,
     )
 }
 
 #[pyfunction]
+#[allow(clippy::too_many_arguments)]
 pub fn head(
     url: &str,
     params: Option<HashMap<String, PyObject>>,
@@ -421,6 +465,7 @@ pub fn head(
 }
 
 #[pyfunction]
+#[allow(clippy::too_many_arguments)]
 pub fn options(
     url: &str,
     params: Option<HashMap<String, PyObject>>,
@@ -506,7 +551,7 @@ pub fn request(
     )
 }
 
-// Enhanced streaming request function with ephemeral config
+// Streaming request function with ephemeral config management
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 pub fn stream(

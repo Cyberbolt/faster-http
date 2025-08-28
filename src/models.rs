@@ -1047,3 +1047,188 @@ impl HttpNetRCAuth {
         "<NetRCAuth>".to_string()
     }
 }
+
+// Missing httpx core components
+
+/// USE_CLIENT_DEFAULT sentinel value for httpx compatibility
+#[pyclass(module = "faster_http")]
+#[derive(Clone, Debug)]
+pub struct UseClientDefault;
+
+#[pymethods]
+impl UseClientDefault {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+    
+    fn __repr__(&self) -> String {
+        "USE_CLIENT_DEFAULT".to_string()
+    }
+    
+    fn __str__(&self) -> String {
+        "USE_CLIENT_DEFAULT".to_string()
+    }
+}
+
+/// Global USE_CLIENT_DEFAULT instance
+#[allow(dead_code)]
+pub static USE_CLIENT_DEFAULT: UseClientDefault = UseClientDefault;
+
+/// BaseTransport base class for httpx compatibility
+#[pyclass(module = "faster_http")]
+#[derive(Clone, Debug)]
+pub struct BaseTransport;
+
+#[pymethods]
+impl BaseTransport {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+    
+    fn __repr__(&self) -> String {
+        "<BaseTransport>".to_string()
+    }
+}
+
+/// HTTPTransport for httpx compatibility
+#[pyclass(module = "faster_http")]
+#[derive(Clone, Debug)]
+pub struct HTTPTransport;
+
+#[pymethods]
+impl HTTPTransport {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+    
+    fn __repr__(&self) -> String {
+        "<HTTPTransport>".to_string()
+    }
+}
+
+/// AsyncHTTPTransport for httpx compatibility
+#[pyclass(module = "faster_http")]
+#[derive(Clone, Debug)]
+pub struct AsyncHTTPTransport;
+
+#[pymethods]
+impl AsyncHTTPTransport {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+    
+    fn __repr__(&self) -> String {
+        "<AsyncHTTPTransport>".to_string()
+    }
+}
+
+/// ByteStream base class for httpx compatibility
+#[pyclass(module = "faster_http")]
+#[derive(Clone, Debug)]
+pub struct ByteStream;
+
+#[pymethods]
+impl ByteStream {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+    
+    fn __repr__(&self) -> String {
+        "<ByteStream>".to_string()
+    }
+}
+
+/// SyncByteStream for httpx compatibility
+#[pyclass(module = "faster_http")]
+#[derive(Clone, Debug)]
+pub struct SyncByteStream;
+
+#[pymethods]
+impl SyncByteStream {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+    
+    fn __repr__(&self) -> String {
+        "<SyncByteStream>".to_string()
+    }
+}
+
+/// AsyncByteStream for httpx compatibility
+#[pyclass(module = "faster_http")]
+#[derive(Clone, Debug)]
+pub struct AsyncByteStream;
+
+#[pymethods]
+impl AsyncByteStream {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+    
+    fn __repr__(&self) -> String {
+        "<AsyncByteStream>".to_string()
+    }
+}
+
+/// ASGITransport for httpx compatibility
+#[pyclass(module = "faster_http")]
+#[derive(Clone, Debug)]
+pub struct ASGITransport;
+
+#[pymethods]
+impl ASGITransport {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+    
+    fn __repr__(&self) -> String {
+        "<ASGITransport>".to_string()
+    }
+}
+
+/// WSGITransport for httpx compatibility
+#[pyclass(module = "faster_http")]
+#[derive(Clone, Debug)]
+pub struct WSGITransport;
+
+#[pymethods]
+impl WSGITransport {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+    
+    fn __repr__(&self) -> String {
+        "<WSGITransport>".to_string()
+    }
+}
+
+/// SSL context creation function for httpx compatibility
+#[pyfunction]
+pub fn create_ssl_context(
+    verify: Option<bool>,
+    _cert: Option<PyObject>,
+    _trust_env: Option<bool>,
+) -> PyResult<PyObject> {
+    Python::with_gil(|py| {
+        // Basic SSL context creation - placeholder implementation
+        let ssl_module = py.import("ssl")?;
+        let context = ssl_module.call_method0("create_default_context")?;
+        
+        if let Some(false) = verify {
+            context.setattr("check_hostname", false)?;
+            let ssl_cert_none = ssl_module.getattr("CERT_NONE")?;
+            context.setattr("verify_mode", ssl_cert_none)?;
+        }
+        
+        Ok(context.to_object(py))
+    })
+}

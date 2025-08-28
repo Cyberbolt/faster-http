@@ -128,7 +128,7 @@ pyo3::create_exception!(faster_http, CloseError, RequestError);
 pyo3::create_exception!(faster_http, RequestNotRead, RequestError);
 pyo3::create_exception!(faster_http, ResponseNotRead, RequestError);
 
-// Internal system exceptions (should be rare in production)
+// Internal system exceptions (should be rare in normal operation)
 pyo3::create_exception!(faster_http, InternalError, HTTPError);  // For locks and internal state errors
 pyo3::create_exception!(faster_http, ConnectionPoolInitFailed, InternalError);
 pyo3::create_exception!(faster_http, RuntimeInitFailed, InternalError);

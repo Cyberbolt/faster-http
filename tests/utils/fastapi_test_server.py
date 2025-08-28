@@ -289,7 +289,7 @@ class FastAPITestServer:
         try:
             import asyncio
 
-            # Create server manually for better control
+            # Create server manually for enhanced control
             import socket
 
             if self.port == 0:
@@ -321,7 +321,7 @@ class FastAPITestServer:
             self.thread = threading.Thread(target=run_server, daemon=True)
             self.thread.start()
 
-            # Wait for server to start with better checking
+            # Wait for server to start with enhanced checking
             start_time = time.time()
             max_wait = 10.0
 

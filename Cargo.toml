@@ -18,7 +18,7 @@ path = "src/bin/test_connection.rs"
 # "abi3-py39" tells pyo3 (and maturin) to build using the stable ABI with minimum Python version 3.9
 pyo3 = { version = "0.20.3", features = ["extension-module", "abi3-py310"] }
 pyo3-asyncio = { version = "0.20.0", features = ["tokio-runtime"] }
-# Hyper ecosystem dependencies for ULTRA-HIGH-PERFORMANCE HTTP client (HTTP only for A-grade)
+# Hyper ecosystem dependencies for HTTP client
 hyper = { version = "1.0", features = ["client", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "http2", "tokio"] }
 # TLS dependencies for HTTPS support
@@ -45,29 +45,29 @@ http = "1.0"
 base64 = "0.22"
 uuid = { version = "1.0", features = ["v4"] }
 multipart = "0.18"
-# Synchronous HTTP client for ULTRA performance (with TLS support)
+# Synchronous HTTP client (with TLS support)
 ureq = { version = "2.10", default-features = false, features = ["json", "tls"] }
-# reqwest = { version = "0.12", features = ["blocking", "json"] }  # Removed for A-grade optimization
-# Performance optimization dependencies
+# reqwest = { version = "0.12", features = ["blocking", "json"] }  # Removed to reduce dependencies
+# System information dependencies
 num_cpus = "1.16"
 
-# EXTREME PERFORMANCE OPTIMIZATION - A级标准要求
+# Release build configuration
 [profile.release]
 debug = 0
-lto = "fat"  # Use fat LTO for maximum optimization
+lto = "fat"  # Use fat LTO for link-time optimization
 codegen-units = 1
 opt-level = 3
-panic = "abort"  # Abort on panic for better performance
-# Performance optimizations for production builds (balanced with security)
+panic = "abort"  # Abort on panic in release builds
+# Release build settings (balanced with security)
 overflow-checks = true  # Keep overflow checks for safety
-debug-assertions = false  # Disable debug assertions for performance
-incremental = false  # Disable incremental compilation for better optimization
+debug-assertions = false  # Disable debug assertions in release
+incremental = false  # Disable incremental compilation in release
 rpath = false  # Disable rpath for smaller binaries
 split-debuginfo = "off"  # Disable debug info for smaller binary
-# EXTREME OPTIMIZATION FLAGS FOR A级 PERFORMANCE
-strip = true  # Strip symbols for smaller binary and better cache performance
+# Release build flags
+strip = true  # Strip symbols for smaller binary
 
-# Target-specific optimizations for maximum performance
+# Target-specific configuration
 [profile.release.build-override]
 opt-level = 3
 codegen-units = 1
@@ -75,8 +75,8 @@ codegen-units = 1
 [profile.dev]
 panic = "unwind"
 
-# EXTREME PERFORMANCE: Additional CPU-specific optimizations for A级 standard
+# CPU-specific configuration for target architecture
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 # Architecture-specific optimizations will be handled via RUSTFLAGS
 
-# EXTREME PERFORMANCE: These flags are set via environment variables in build scripts
+# Build flags configured via environment variables

@@ -1,5 +1,5 @@
-// ULTRA-OPTIMIZED: Batch request processing for A级 performance
-// Reduces Python-Rust boundary calls and enables massive parallelization
+// Batch request processing
+// Reduces Python-Rust boundary calls and enables parallel processing
 
 use crate::config::ClientConfig;
 use crate::response::HttpResponse;
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use tokio::task::JoinSet;
 use bytes::Bytes;
 
-/// Batch request definition - optimized for zero-copy processing
+/// Batch request definition for zero-copy processing
 #[derive(Debug, Clone)]
 pub struct BatchRequest {
     pub method: String,
@@ -20,7 +20,7 @@ pub struct BatchRequest {
     pub timeout: Option<f64>,
 }
 
-/// Batch request result with optimal memory layout
+/// Batch request result
 #[derive(Debug)]
 pub struct BatchResult {
     pub index: usize,
@@ -28,7 +28,7 @@ pub struct BatchResult {
     pub timing_ms: f64,
 }
 
-/// EXTREME OPTIMIZATION: Batch processor with zero-allocation request scheduling
+/// Batch processor with request scheduling
 #[derive(Clone)]
 pub struct BatchProcessor {
     client: HyperHttpClient,
@@ -37,17 +37,17 @@ pub struct BatchProcessor {
 }
 
 impl BatchProcessor {
-    /// Create new batch processor with optimal configuration
+    /// Create new batch processor
     pub fn new(config: ClientConfig) -> PyResult<Self> {
         let client = config.build_client(None)?;
         Ok(Self {
             client,
             config,
-            max_concurrent_requests: num_cpus::get() * 4, // Optimize for CPU count
+            max_concurrent_requests: num_cpus::get() * 4, // Scale with CPU count
         })
     }
 
-    /// ULTRA-FAST: Process batch requests with maximum parallelization
+    /// Process batch requests with parallelization
     pub async fn process_batch(
         &self, 
         requests: Vec<BatchRequest>
@@ -70,7 +70,7 @@ impl BatchProcessor {
                 join_set.spawn(async move {
                     let start_time = std::time::Instant::now();
                     
-                    // ZERO-COPY optimization: Use request data directly
+                    // ZERO-COPY: Use request data directly
                     let content_slice = request.content.as_ref().map(|b| b.as_ref());
                     
                     let response = send_request_direct(
@@ -106,7 +106,7 @@ impl BatchProcessor {
         results
     }
 
-    /// Process single batch optimized for small request counts
+    /// Process single batch for small request counts
     pub async fn process_small_batch(
         &self,
         requests: Vec<BatchRequest>
@@ -147,7 +147,7 @@ impl BatchProcessor {
     }
 }
 
-/// Python-facing batch request API with EXTREME optimization
+/// Python-facing batch request API
 #[pyfunction]
 pub fn batch_request(
     py: Python<'_>,
@@ -172,7 +172,7 @@ pub fn batch_request(
     pyo3_asyncio::tokio::future_into_py(py, async move {
         let processor = BatchProcessor::new(config)?;
         
-        // Choose optimal processing strategy based on batch size
+        // Choose processing strategy based on batch size
         let results = if batch_requests.len() <= 10 {
             processor.process_small_batch(batch_requests).await
         } else {
@@ -191,7 +191,7 @@ pub fn batch_request(
     })
 }
 
-/// Convert Python request object to optimized BatchRequest
+/// Convert Python request object to BatchRequest
 fn convert_python_to_batch_request(
     py: Python<'_>,
     py_request: PyObject
@@ -236,7 +236,7 @@ fn convert_python_to_batch_request(
     })
 }
 
-/// ULTRA-OPTIMIZED: Smart request batching for Python client
+/// Smart request batching for Python client
 /// Automatically groups requests for optimal performance
 #[pyclass(module = "faster_http")]
 pub struct SmartBatcher {
@@ -252,7 +252,7 @@ impl SmartBatcher {
     pub fn new(batch_size: Option<usize>, flush_timeout_ms: Option<u64>) -> Self {
         Self {
             pending_requests: Vec::new(),
-            batch_size: batch_size.unwrap_or(32), // Optimal batch size for A级 performance
+            batch_size: batch_size.unwrap_or(32), // Optimal batch size for performance
             flush_timeout_ms: flush_timeout_ms.unwrap_or(100), // 100ms max batching delay
             last_flush: std::time::Instant::now(),
         }
