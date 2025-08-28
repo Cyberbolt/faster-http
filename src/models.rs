@@ -838,6 +838,23 @@ impl HttpBasicAuth {
         })
     }
 
+    // Additional httpx-compatible auth methods
+    fn sync_auth_flow(&self, request: PyObject) -> PyResult<PyObject> {
+        self.auth_flow(request)
+    }
+
+    fn async_auth_flow(&self, request: PyObject) -> PyResult<PyObject> {
+        self.auth_flow(request)
+    }
+
+    fn requires_request_body(&self) -> bool {
+        false
+    }
+
+    fn requires_response_body(&self) -> bool {
+        false
+    }
+
     fn __repr__(&self) -> String {
         format!("<BasicAuth [username={:?}]>", self.username)
     }
@@ -905,6 +922,23 @@ impl HttpDigestAuth {
             )?;
             Ok(iter.to_object(py))
         })
+    }
+
+    // Additional httpx-compatible auth methods
+    fn sync_auth_flow(&self, request: PyObject) -> PyResult<PyObject> {
+        self.auth_flow(request)
+    }
+
+    fn async_auth_flow(&self, request: PyObject) -> PyResult<PyObject> {
+        self.auth_flow(request)
+    }
+
+    fn requires_request_body(&self) -> bool {
+        false
+    }
+
+    fn requires_response_body(&self) -> bool {
+        true  // Digest auth typically needs response body for challenge
     }
 
     fn __repr__(&self) -> String {
@@ -990,6 +1024,23 @@ impl HttpNetRCAuth {
             )?;
             Ok(iter.to_object(py))
         })
+    }
+
+    // Additional httpx-compatible auth methods
+    fn sync_auth_flow(&self, request: PyObject) -> PyResult<PyObject> {
+        self.auth_flow(request)
+    }
+
+    fn async_auth_flow(&self, request: PyObject) -> PyResult<PyObject> {
+        self.auth_flow(request)
+    }
+
+    fn requires_request_body(&self) -> bool {
+        false
+    }
+
+    fn requires_response_body(&self) -> bool {
+        false
     }
 
     fn __repr__(&self) -> String {

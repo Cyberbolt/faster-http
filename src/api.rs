@@ -104,7 +104,9 @@ fn extract_auth_parameter(auth: Option<PyObject>) -> PyResult<Option<(String, St
     }
 }
 
-// Create a new client config for each request, mirroring httpx's behavior
+// Legacy ephemeral config creation - replaced by create_ephemeral_config_with_verify
+// Keeping for potential future use cases without verify parameter
+#[allow(dead_code)]
 fn create_ephemeral_config(
     cookies: Option<HashMap<String, String>>,
     timeout: Option<f64>,
@@ -134,6 +136,39 @@ fn create_ephemeral_config(
     )
 }
 
+// Enhanced ephemeral config creation with verify support
+fn create_ephemeral_config_with_verify(
+    cookies: Option<HashMap<String, String>>,
+    timeout: Option<f64>,
+    follow_redirects: bool,
+    verify: Option<&PyObject>,
+) -> PyResult<ClientConfig> {
+    Python::with_gil(|py| {
+        ClientConfig::new(
+            None,                               // base_url
+            extract_timeout_parameter(timeout), // timeout - convert f64 to PyObject
+            None,                               // headers
+            verify.map(|v| v.as_ref(py)),      // verify - convert to &PyAny
+            Some(follow_redirects),             // follow_redirects
+            None,                               // auth
+            None,                               // proxy
+            None,                               // proxies
+            cookies,                            // cookies
+            None,                               // http1
+            None,                               // http2
+            None,                               // event_hooks
+            None,                               // cert
+            None,                               // trust_env
+            None,                               // transport
+            None,                               // mounts
+            None,                               // limits
+            None,                               // max_redirects
+            None,                               // default_encoding
+            None,                               // params
+        )
+    })
+}
+
 // Top-level API functions that create ephemeral clients (matching httpx behavior)
 #[pyfunction]
 pub fn get(
@@ -144,13 +179,18 @@ pub fn get(
     auth: Option<PyObject>,
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
+    verify: Option<PyObject>,
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
 
-    // Create ephemeral config for this request only
-    let config =
-        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+    // Create ephemeral config for this request only with verify support
+    let config = create_ephemeral_config_with_verify(
+        cookies.clone(), 
+        timeout, 
+        follow_redirects.unwrap_or(false),
+        verify.as_ref()
+    )?;
 
     execute_request_with_sync_client(
         &config,
@@ -183,13 +223,18 @@ pub fn post(
     auth: Option<PyObject>,
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
+    verify: Option<PyObject>,
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
 
-    // Create ephemeral config for this request only
-    let config =
-        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+    // Create ephemeral config for this request only with verify support
+    let config = create_ephemeral_config_with_verify(
+        cookies.clone(), 
+        timeout, 
+        follow_redirects.unwrap_or(false),
+        verify.as_ref()
+    )?;
 
     let extracted_headers = extract_headers(headers)?;
     execute_request_with_sync_client(
@@ -223,13 +268,18 @@ pub fn put(
     auth: Option<PyObject>,
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
+    verify: Option<PyObject>,
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
 
-    // Create ephemeral config for this request only
-    let config =
-        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+    // Create ephemeral config for this request only with verify support
+    let config = create_ephemeral_config_with_verify(
+        cookies.clone(), 
+        timeout, 
+        follow_redirects.unwrap_or(false),
+        verify.as_ref()
+    )?;
 
     execute_request_with_sync_client(
         &config,
@@ -262,13 +312,18 @@ pub fn patch(
     auth: Option<PyObject>,
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
+    verify: Option<PyObject>,
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
 
-    // Create ephemeral config for this request only
-    let config =
-        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+    // Create ephemeral config for this request only with verify support
+    let config = create_ephemeral_config_with_verify(
+        cookies.clone(), 
+        timeout, 
+        follow_redirects.unwrap_or(false),
+        verify.as_ref()
+    )?;
 
     execute_request_with_sync_client(
         &config,
@@ -296,13 +351,18 @@ pub fn delete(
     auth: Option<PyObject>,
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
+    verify: Option<PyObject>,
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
 
-    // Create ephemeral config for this request only
-    let config =
-        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+    // Create ephemeral config for this request only with verify support
+    let config = create_ephemeral_config_with_verify(
+        cookies.clone(), 
+        timeout, 
+        follow_redirects.unwrap_or(false),
+        verify.as_ref()
+    )?;
 
     execute_request_with_sync_client(
         &config,
@@ -330,13 +390,18 @@ pub fn head(
     auth: Option<PyObject>,
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
+    verify: Option<PyObject>,
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
 
-    // Create ephemeral config for this request only
-    let config =
-        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+    // Create ephemeral config for this request only with verify support
+    let config = create_ephemeral_config_with_verify(
+        cookies.clone(), 
+        timeout, 
+        follow_redirects.unwrap_or(false),
+        verify.as_ref()
+    )?;
 
     execute_request_with_sync_client(
         &config,
@@ -364,13 +429,18 @@ pub fn options(
     auth: Option<PyObject>,
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
+    verify: Option<PyObject>,
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
 
-    // Create ephemeral config for this request only
-    let config =
-        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+    // Create ephemeral config for this request only with verify support
+    let config = create_ephemeral_config_with_verify(
+        cookies.clone(), 
+        timeout, 
+        follow_redirects.unwrap_or(false),
+        verify.as_ref()
+    )?;
 
     execute_request_with_sync_client(
         &config,
@@ -405,13 +475,18 @@ pub fn request(
     auth: Option<PyObject>,
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
+    verify: Option<PyObject>,
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
 
-    // Create ephemeral config for this request only
-    let config =
-        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+    // Create ephemeral config for this request only with verify support
+    let config = create_ephemeral_config_with_verify(
+        cookies.clone(), 
+        timeout, 
+        follow_redirects.unwrap_or(false),
+        verify.as_ref()
+    )?;
 
     let extracted_headers = extract_headers(headers)?;
     execute_request_with_sync_client(
@@ -447,13 +522,18 @@ pub fn stream(
     auth: Option<PyObject>,
     follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
+    verify: Option<PyObject>,
 ) -> PyResult<StreamingClient> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
 
-    // Create ephemeral config for this request only
-    let config =
-        create_ephemeral_config(cookies.clone(), timeout, follow_redirects.unwrap_or(false))?;
+    // Create ephemeral config for this request only with verify support
+    let config = create_ephemeral_config_with_verify(
+        cookies.clone(), 
+        timeout, 
+        follow_redirects.unwrap_or(false),
+        verify.as_ref()
+    )?;
 
     Ok(StreamingClient::new(
         config,

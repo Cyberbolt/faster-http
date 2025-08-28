@@ -27,6 +27,7 @@ mod runtime;
 mod ssl_config_stub; // Temporary stub for SSL configuration
 mod streaming_stub; // Temporary stub for streaming functionality
 mod sync_core; // Synchronous HTTP client implementation
+mod transport; // Transport implementations including MockTransport
 mod transport_stub; // Temporary stub for transport configuration
 mod utils;
 mod zero_copy; // ULTRA-OPTIMIZED: Zero-copy data transfer for A级 performance
@@ -53,6 +54,13 @@ pub use models::{
 // Python module definition
 #[pymodule]
 fn _core(py: Python, m: &PyModule) -> PyResult<()> {
+    // Initialize Rustls CryptoProvider to avoid runtime panics
+    std::sync::Once::new().call_once(|| {
+        rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .ok();
+    });
+
     // Add classes (httpx-compatible only)
     m.add_class::<HttpRequest>()?;
     m.add_class::<HttpResponse>()?;
@@ -78,7 +86,7 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
 
     // Transport classes temporarily disabled during hyper migration
     // m.add_class::<transport::FasterhttpTransport>()?;
-    // m.add_class::<transport::MockTransport>()?;
+    m.add_class::<transport::MockTransport>()?;
     // m.add_class::<transport::HTTPSRedirectTransport>()?;
 
     // Add API functions

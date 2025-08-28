@@ -129,30 +129,74 @@ impl HttpResponse {
 
 #[pymethods]
 impl HttpResponse {
-    // Python constructor for creating mock Response objects in tests
+    // Python constructor for creating mock Response objects - httpx compatible
     #[new]
-    #[pyo3(signature = (status_code = 200, headers = None, content = None, url = None))]
+    #[pyo3(signature = (
+        status_code,
+        *,
+        headers = None,
+        content = None,
+        text = None,
+        html = None,
+        json = None,
+        _stream = None,
+        request = None,
+        extensions = None,
+        history = None,
+        default_encoding = "utf-8"
+    ))]
     pub fn py_new(
-        status_code: Option<u16>,
+        status_code: u16,
         headers: Option<HashMap<String, String>>,
         content: Option<Vec<u8>>,
-        url: Option<String>,
-    ) -> Self {
-        let body = content.map(Bytes::from).unwrap_or_else(|| Bytes::from(""));
-        HttpResponse::new(
-            status_code.unwrap_or(200),
+        text: Option<String>,
+        html: Option<String>,
+        json: Option<PyObject>,
+        _stream: Option<PyObject>,
+        request: Option<PyObject>,
+        extensions: Option<HashMap<String, PyObject>>,
+        history: Option<Vec<PyObject>>,
+        default_encoding: &str,
+    ) -> PyResult<Self> {
+        // Determine content based on parameters (text, html, json, or content)
+        let body = if let Some(content_bytes) = content {
+            Bytes::from(content_bytes)
+        } else if let Some(text_str) = text {
+            Bytes::from(text_str.as_bytes().to_vec())
+        } else if let Some(html_str) = html {
+            Bytes::from(html_str.as_bytes().to_vec())
+        } else if let Some(json_obj) = json {
+            // Convert JSON object to bytes
+            Python::with_gil(|py| -> PyResult<Bytes> {
+                let json_str = py.import("json")?.call_method1("dumps", (json_obj,))?;
+                let json_bytes = json_str.extract::<String>()?;
+                Ok(Bytes::from(json_bytes.as_bytes().to_vec()))
+            })?
+        } else {
+            Bytes::from("")
+        };
+
+        let mut response = HttpResponse::new(
+            status_code,
             headers.unwrap_or_default(),
             body,
-            url.unwrap_or_else(|| "http://example.com".to_string()),
+            "http://example.com".to_string(), // Default URL for mock responses
             0.0, // elapsed
-            false, // is_redirect_status
+            status_code >= 300 && status_code < 400, // is_redirect_status
             "HTTP/1.1".to_string(),
             HashMap::new(), // cookies
-            Some("utf-8".to_string()), // encoding
-            Vec::new(), // history
-            None, // request
+            Some(default_encoding.to_string()),
+            history.unwrap_or_default(),
+            request,
             0, // num_bytes_downloaded
-        )
+        );
+
+        // Set extensions if provided
+        if let Some(ext) = extensions {
+            response.extensions = ext;
+        }
+
+        Ok(response)
     }
     // ==================== Basic properties - optimized version ====================
     #[getter]
@@ -211,7 +255,8 @@ impl HttpResponse {
     // ==================== httpx standard properties ====================
     #[getter]
     pub fn is_redirect(&self) -> bool {
-        self.is_redirect_status
+        // HTTP redirect status codes: 3xx series
+        matches!(self.status_code, 300..=399)
     }
 
     // Removed: ok() method - httpx uses is_success() instead
@@ -322,42 +367,86 @@ impl HttpResponse {
     }
 
     // ==================== Streaming methods - production implementation ====================
-    pub fn iter_bytes(&self, chunk_size: Option<usize>) -> PyResult<Vec<Py<PyBytes>>> {
+    pub fn iter_bytes(&self, chunk_size: Option<usize>) -> PyResult<PyObject> {
         let chunk_size = chunk_size.unwrap_or(8192);
-        let mut chunks = Vec::new();
+        let body = self.body.clone();
 
         Python::with_gil(|py| {
-            for chunk in self.body.chunks(chunk_size) {
-                chunks.push(PyBytes::new(py, chunk).into());
-            }
-            Ok(chunks)
+            // Create a Python generator that yields bytes chunks
+            let code = r#"
+def iter_bytes_impl(data, chunk_size):
+    for i in range(0, len(data), chunk_size):
+        yield data[i:i+chunk_size]
+
+iter_bytes_impl(data, chunk_size)
+"#;
+
+            let locals = pyo3::types::PyDict::new(py);
+            locals.set_item("data", pyo3::types::PyBytes::new(py, &body))?;
+            locals.set_item("chunk_size", chunk_size)?;
+            py.run(&code, None, Some(locals))?;
+            Ok(locals
+                .get_item("iter_bytes_impl")?
+                .ok_or_else(|| crate::error::InternalError::new_err("Failed to get iter_bytes_impl from locals"))?
+                .call1((pyo3::types::PyBytes::new(py, &body), chunk_size))?
+                .to_object(py))
         })
     }
 
-    pub fn iter_text(&self, chunk_size: Option<usize>) -> PyResult<Vec<String>> {
+    pub fn iter_text(&self, chunk_size: Option<usize>) -> PyResult<PyObject> {
         let chunk_size = chunk_size.unwrap_or(8192);
         let text = self.text()?;
-        let mut text_chunks = Vec::new();
-        let chars: Vec<char> = text.chars().collect();
 
-        let mut pos = 0;
-        while pos < chars.len() {
-            let end = std::cmp::min(pos + chunk_size, chars.len());
-            let chunk: String = chars[pos..end].iter().collect();
-            text_chunks.push(chunk);
-            pos = end;
-        }
+        Python::with_gil(|py| {
+            // Create a Python generator that yields text chunks
+            let code = r#"
+def iter_text_impl(text, chunk_size):
+    for i in range(0, len(text), chunk_size):
+        yield text[i:i+chunk_size]
 
-        Ok(text_chunks)
+iter_text_impl(text, chunk_size)
+"#;
+
+            let locals = pyo3::types::PyDict::new(py);
+            locals.set_item("text", text.clone())?;
+            locals.set_item("chunk_size", chunk_size)?;
+            py.run(&code, None, Some(locals))?;
+            Ok(locals
+                .get_item("iter_text_impl")?
+                .ok_or_else(|| crate::error::InternalError::new_err("Failed to get iter_text_impl from locals"))?
+                .call1((text, chunk_size))?
+                .to_object(py))
+        })
     }
 
-    pub fn iter_lines(&self) -> PyResult<Vec<String>> {
+    pub fn iter_lines(&self) -> PyResult<PyObject> {
         let text = self.text()?;
-        let lines: Vec<String> = text.lines().map(|line| line.to_string()).collect();
-        Ok(lines)
+
+        Python::with_gil(|py| {
+            // Create a Python generator that yields lines
+            let lines: Vec<String> = text.lines().map(|line| line.to_string()).collect();
+            let py_lines = lines.to_object(py);
+
+            let code = r#"
+def iter_lines_impl(lines):
+    for line in lines:
+        yield line
+
+iter_lines_impl(lines)
+"#;
+
+            let locals = pyo3::types::PyDict::new(py);
+            locals.set_item("lines", py_lines.clone())?;
+            py.run(&code, None, Some(locals))?;
+            Ok(locals
+                .get_item("iter_lines_impl")?
+                .ok_or_else(|| crate::error::InternalError::new_err("Failed to get iter_lines_impl from locals"))?
+                .call1((py_lines,))?
+                .to_object(py))
+        })
     }
 
-    pub fn iter_raw(&self, chunk_size: Option<usize>) -> PyResult<Vec<Py<PyBytes>>> {
+    pub fn iter_raw(&self, chunk_size: Option<usize>) -> PyResult<PyObject> {
         // iter_raw is the same as iter_bytes, representing raw unencoded data
         self.iter_bytes(chunk_size)
     }

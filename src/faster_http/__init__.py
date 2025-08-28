@@ -29,7 +29,7 @@ from ._core import (
     Limits,
     LocalProtocolError,
     # Transport classes temporarily disabled during hyper migration
-    # MockTransport,
+    MockTransport,
     NetRCAuth,
     NetworkError,  # Re-added - exists in httpx and now properly implemented
     PoolTimeout,
@@ -170,6 +170,7 @@ __all__ = [
     "InvalidURL",
     "Limits",
     "LocalProtocolError",
+    "MockTransport",
     "NetRCAuth",
     "NetworkError",
     "PoolTimeout",

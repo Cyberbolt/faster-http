@@ -3,8 +3,8 @@
 
 use hyper::Uri;
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
-// HTTPS support temporarily removed for A-grade HTTP performance optimization
-// use hyper_rustls::HttpsConnector;
+// HTTPS support restored for production HTTPS functionality
+use hyper_rustls::HttpsConnector;
 use http_body_util::Full;
 use bytes::Bytes;
 use std::collections::HashMap;
@@ -271,8 +271,8 @@ impl PoolConfig {
 pub struct SmartHttpClient {
     /// HTTP-only client for localhost and plain HTTP
     http_client: Client<HttpConnector, Full<Bytes>>,
-    // HTTPS client temporarily disabled for A-grade HTTP performance
-    // https_client: Client<HttpsConnector<HttpConnector>, Full<Bytes>>,
+    /// HTTPS client for secure connections
+    https_client: Client<HttpsConnector<HttpConnector>, Full<Bytes>>,
 }
 
 /// A high-performance HTTP connection pool that reuses connections
@@ -331,12 +331,12 @@ impl HttpConnectionPool {
             }
         }
 
-        // HTTPS crypto provider temporarily disabled for A-grade HTTP performance
-        // std::sync::Once::new().call_once(|| {
-        //     rustls::crypto::ring::default_provider()
-        //         .install_default()
-        //         .ok(); // Ignore error if already installed
-        // });
+        // Initialize HTTPS crypto provider for TLS support
+        std::sync::Once::new().call_once(|| {
+            rustls::crypto::aws_lc_rs::default_provider()
+                .install_default()
+                .ok(); // Ignore error if already installed
+        });
 
         // Create HTTP-only connector for localhost connections - Optimized for A级 standard with stability
         let create_http_only_connector = || {
@@ -384,50 +384,49 @@ impl HttpConnectionPool {
             .http2_max_concurrent_reset_streams(1000) // Allow 1000 concurrent reset streams for extreme parallelism
             .build(create_http_only_connector());
 
-        // HTTPS connector temporarily disabled for A-grade HTTP performance
-        // let https_connector = match hyper_rustls::HttpsConnectorBuilder::new()
-        //     .with_native_roots() 
-        // {
-        //     Ok(builder) => {
-        //         // Successfully loaded native roots
-        //         builder
-        //             .https_or_http()
-        //             .enable_http1()
-        //             .enable_http2()
-        //             .wrap_connector(create_https_base_connector())
-        //     }
-        //     Err(_) => {
-        //         // Fallback: Use webpki roots if native roots fail
-        //         hyper_rustls::HttpsConnectorBuilder::new()
-        //             .with_webpki_roots()
-        //             .https_or_http()
-        //             .enable_http1()
-        //             .enable_http2()
-        //             .wrap_connector(create_https_base_connector())
-        //     }
-        // };
+        // HTTPS connector restored for production HTTPS functionality
+        let https_connector = match hyper_rustls::HttpsConnectorBuilder::new()
+            .with_native_roots() 
+        {
+            Ok(builder) => {
+                // Successfully loaded native roots
+                builder
+                    .https_or_http()
+                    .enable_http1()
+                    .enable_http2()
+                    .wrap_connector(_create_https_base_connector())
+            }
+            Err(_) => {
+                // Fallback: Use webpki roots if native roots fail
+                hyper_rustls::HttpsConnectorBuilder::new()
+                    .with_webpki_roots()
+                    .https_or_http()
+                    .enable_http1()
+                    .enable_http2()
+                    .wrap_connector(_create_https_base_connector())
+            }
+        };
         
-        // HTTPS client temporarily disabled for A-grade HTTP performance
-        // let https_client = Client::builder(TokioExecutor::new())
-        //     .pool_idle_timeout(config.keep_alive_timeout) // Use optimized config timeout
-        //     .pool_max_idle_per_host(config.max_idle_per_host) // Use optimized config pooling
-        //     .http1_title_case_headers(false) // Optimize HTTP/1.1 headers for performance
-        //     .http1_preserve_header_case(false) // Optimize header case for speed
-        //     .http1_read_buf_exact_size(4 * 1024 * 1024) // 4MB read buffer for EXTREME performance (4x increase)
-        //     .http1_max_buf_size(4 * 1024 * 1024) // 4MB max buffer for EXTREME performance (4x increase)
-        //     .http1_writev(true) // Enable vectored writes for better performance
-        //     .http2_only(false) // Allow both HTTP/1.1 and HTTP/2 for maximum speed
-        //     .http2_initial_stream_window_size(Some(16 * 1024 * 1024)) // 16MB HTTP/2 stream window for EXTREME performance (8x increase)
-        //     .http2_initial_connection_window_size(Some(32 * 1024 * 1024)) // 32MB HTTP/2 connection window for EXTREME performance (8x increase)
-        //     .http2_max_frame_size(Some(64 * 1024)) // 64KB max frame size for ULTRA throughput (4x increase)
-        //     .http2_max_concurrent_reset_streams(1000) // Allow 1000 concurrent reset streams for extreme parallelism
-        //     .build(https_connector);
+        // HTTPS client restored for production HTTPS functionality
+        let https_client = Client::builder(TokioExecutor::new())
+            .pool_idle_timeout(config.keep_alive_timeout) // Use optimized config timeout
+            .pool_max_idle_per_host(config.max_idle_per_host) // Use optimized config pooling
+            .http1_title_case_headers(false) // Optimize HTTP/1.1 headers for performance
+            .http1_preserve_header_case(false) // Optimize header case for speed
+            .http1_read_buf_exact_size(4 * 1024 * 1024) // 4MB read buffer for EXTREME performance (4x increase)
+            .http1_max_buf_size(4 * 1024 * 1024) // 4MB max buffer for EXTREME performance (4x increase)
+            .http1_writev(true) // Enable vectored writes for better performance
+            .http2_only(false) // Allow both HTTP/1.1 and HTTP/2 for maximum speed
+            .http2_initial_stream_window_size(Some(16 * 1024 * 1024)) // 16MB HTTP/2 stream window for EXTREME performance (8x increase)
+            .http2_initial_connection_window_size(Some(32 * 1024 * 1024)) // 32MB HTTP/2 connection window for EXTREME performance (8x increase)
+            .http2_max_frame_size(Some(64 * 1024)) // 64KB max frame size for ULTRA throughput (4x increase)
+            .http2_max_concurrent_reset_streams(1000) // Allow 1000 concurrent reset streams for extreme parallelism
+            .build(https_connector);
 
         let pool = Self {
             client: SmartHttpClient {
                 http_client,
-                // https_client temporarily disabled for A-grade HTTP performance
-                // https_client,
+                https_client,
             },
             config,
             stats: Arc::new(RwLock::new(PoolStats::default())),
@@ -553,8 +552,8 @@ impl HttpConnectionPool {
                     crate::error::map_hyper_util_error(e)
                 })?
         } else {
-            // Use HTTP client for all requests (HTTPS temporarily disabled for A-grade performance)
-            tokio::time::timeout(timeout_duration, self.client.http_client.request(request))
+            // Use HTTPS client for secure requests (HTTPS functionality restored)
+            tokio::time::timeout(timeout_duration, self.client.https_client.request(request))
                 .await
                 .map_err(|_| {
                     // Update timeout statistics for HTTPS client  

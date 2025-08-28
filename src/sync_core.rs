@@ -44,6 +44,7 @@ impl SyncHttpClient {
             timeout: config.default_timeout,
             follow_redirects: config.follow_redirects,
             max_redirects: config.max_redirects as u32,
+            verify: config.ssl_config.verify,
         };
         
         let client = UreqHttpClient::new(ureq_config)?;
@@ -419,6 +420,7 @@ impl SyncHttpClient {
             timeout: config.default_timeout,
             follow_redirects: config.follow_redirects,
             max_redirects: config.max_redirects as u32,
+            verify: config.ssl_config.verify,
         };
         
         let client = UreqHttpClient::new(ureq_config)?;

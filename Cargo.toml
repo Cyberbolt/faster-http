@@ -21,14 +21,14 @@ pyo3-asyncio = { version = "0.20.0", features = ["tokio-runtime"] }
 # Hyper ecosystem dependencies for ULTRA-HIGH-PERFORMANCE HTTP client (HTTP only for A-grade)
 hyper = { version = "1.0", features = ["client", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "http2", "tokio"] }
-# TLS dependencies temporarily removed for A-grade performance optimization
-# hyper-rustls = { version = "0.27", features = ["http1", "http2", "webpki-tokio", "aws-lc-rs"] }
+# TLS dependencies for HTTPS support
+hyper-rustls = { version = "0.27", features = ["http1", "http2", "webpki-tokio", "aws-lc-rs"] }
 tower = { version = "0.4" }
 tower-service = "0.3"
 http-body-util = "0.1"
-# rustls = { version = "0.23", features = ["aws-lc-rs"], default-features = false }
-# rustls-webpki = { version = "0.103", features = ["aws-lc-rs"], default-features = false }
-# webpki-roots = "0.26"
+rustls = { version = "0.23", features = ["aws-lc-rs"], default-features = false }
+rustls-webpki = { version = "0.103", features = ["aws-lc-rs"], default-features = false }
+webpki-roots = "0.26"
 # Keep essential utilities
 mime = "0.3"
 mime_guess = "2.0"
@@ -45,8 +45,8 @@ http = "1.0"
 base64 = "0.22"
 uuid = { version = "1.0", features = ["v4"] }
 multipart = "0.18"
-# Synchronous HTTP client for ULTRA performance (HTTP only)
-ureq = { version = "2.10", default-features = false, features = ["json"] }
+# Synchronous HTTP client for ULTRA performance (with TLS support)
+ureq = { version = "2.10", default-features = false, features = ["json", "tls"] }
 # reqwest = { version = "0.12", features = ["blocking", "json"] }  # Removed for A-grade optimization
 # Performance optimization dependencies
 num_cpus = "1.16"
@@ -58,9 +58,9 @@ lto = "fat"  # Use fat LTO for maximum optimization
 codegen-units = 1
 opt-level = 3
 panic = "abort"  # Abort on panic for better performance
-# Performance optimizations for production builds
-overflow-checks = false  # Disable overflow checks for performance 
-debug-assertions = false  # Disable debug assertions
+# Performance optimizations for production builds (balanced with security)
+overflow-checks = true  # Keep overflow checks for safety
+debug-assertions = false  # Disable debug assertions for performance
 incremental = false  # Disable incremental compilation for better optimization
 rpath = false  # Disable rpath for smaller binaries
 split-debuginfo = "off"  # Disable debug info for smaller binary
