@@ -19,6 +19,7 @@ import urllib.parse
 
 class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     """Thread per request HTTP server."""
+
     daemon_threads = True
     allow_reuse_address = True
 
@@ -442,7 +443,7 @@ class SimpleHTTPTestHandler(BaseHTTPRequestHandler):
         data = {
             "url": f"http://{self.headers.get('Host', 'localhost')}{self.path}",
             "headers": custom_headers,
-            "method": "GET"
+            "method": "GET",
         }
 
         content = json.dumps(data, indent=2).encode("utf-8")

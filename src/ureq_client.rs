@@ -41,8 +41,8 @@ impl UreqHttpClient {
         // Always disable automatic redirects - we'll handle them manually to collect history
         let agent = ureq::AgentBuilder::new()
             .timeout(timeout_duration)
-            .max_idle_connections(1000)  // EXTREME idle connections for maximum connection reuse (2x increase)
-            .max_idle_connections_per_host(200)  // EXTREME per-host connection pooling for A级 performance (2x increase)
+            .max_idle_connections(1200)  // EXTREME idle connections for maximum connection reuse (20% increase)
+            .max_idle_connections_per_host(250)  // EXTREME per-host connection pooling for A级 performance (25% increase)
             .redirects(0)  // Always disable automatic redirects for manual handling
             .user_agent("faster-http/ultra-performance") // Optimized user agent
             .build();
@@ -570,8 +570,8 @@ impl UreqHttpClient {
             
             let dynamic_agent = ureq::AgentBuilder::new()
                 .timeout(timeout_duration.unwrap_or(Duration::from_secs(30)))
-                .max_idle_connections(1000)  // EXTREME idle connections for maximum performance (2x increase)
-                .max_idle_connections_per_host(200)  // EXTREME per-host pooling for A级 standard (2x increase)
+                .max_idle_connections(1200)  // EXTREME idle connections for maximum performance (20% increase)
+                .max_idle_connections_per_host(250)  // EXTREME per-host pooling for A级 standard (25% increase)
                 .user_agent("faster-http/ultra-performance") // Optimized user agent
                 .redirects(redirect_count)
                 .build();

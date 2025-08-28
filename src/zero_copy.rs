@@ -12,12 +12,14 @@ use std::sync::Mutex;
 
 /// ULTRA-PERFORMANCE: Zero-copy memory buffer with reference counting
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct ZeroCopyBuffer {
     data: Bytes,
     refs: Arc<AtomicUsize>,
     buffer_id: u64,
 }
 
+#[allow(dead_code)]
 impl ZeroCopyBuffer {
     /// Create new zero-copy buffer from bytes
     #[inline(always)]
@@ -108,6 +110,7 @@ fn generate_buffer_id() -> u64 {
 }
 
 /// EXTREME OPTIMIZATION: Shared memory pool for zero-copy operations
+#[allow(dead_code)]
 pub struct SharedMemoryPool {
     /// Active buffers indexed by ID
     active_buffers: Mutex<HashMap<u64, Weak<AtomicUsize>>>,
@@ -123,6 +126,7 @@ impl Default for SharedMemoryPool {
     }
 }
 
+#[allow(dead_code)]
 impl SharedMemoryPool {
     pub fn new() -> Self {
         const EMPTY_VEC: Mutex<Vec<BytesMut>> = Mutex::new(Vec::new());
@@ -165,7 +169,7 @@ impl SharedMemoryPool {
         let capacity = buf.capacity();
         
         // Find appropriate pool
-        if let Some((pool_idx, &pool_size)) = self.buffer_sizes
+        if let Some((pool_idx, &_pool_size)) = self.buffer_sizes
             .iter()
             .enumerate()
             .find(|(_, &pool_size)| capacity <= pool_size * 2) // Allow some overhead
@@ -204,11 +208,13 @@ pub fn get_shared_memory_pool() -> &'static SharedMemoryPool {
 }
 
 /// ULTRA-OPTIMIZED: Zero-copy request body builder
+#[allow(dead_code)]
 pub struct ZeroCopyRequestBuilder {
     content: Option<ZeroCopyBuffer>,
     headers: HashMap<String, String>,
 }
 
+#[allow(dead_code)]
 impl ZeroCopyRequestBuilder {
     pub fn new() -> Self {
         Self {
@@ -338,6 +344,7 @@ impl ZeroCopyUtils {
 }
 
 /// EXTREME OPTIMIZATION: Pre-compiled content types and headers
+#[allow(dead_code)]
 pub struct PrecompiledHeaders {
     /// Common content types as static strings
     pub content_types: &'static [&'static str],
@@ -345,6 +352,7 @@ pub struct PrecompiledHeaders {
     pub headers: &'static [&'static str],
 }
 
+#[allow(dead_code)]
 impl PrecompiledHeaders {
     pub const fn new() -> Self {
         Self {
@@ -390,6 +398,7 @@ impl PrecompiledHeaders {
 }
 
 /// Global precompiled headers instance
+#[allow(dead_code)]
 pub static PRECOMPILED_HEADERS: PrecompiledHeaders = PrecompiledHeaders::new();
 
 #[cfg(test)]

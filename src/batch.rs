@@ -150,10 +150,10 @@ impl BatchProcessor {
 /// Python-facing batch request API with EXTREME optimization
 #[pyfunction]
 pub fn batch_request(
-    py: Python,
+    py: Python<'_>,
     requests: Vec<PyObject>,
-    timeout: Option<f64>,
-    max_concurrent: Option<usize>,
+    _timeout: Option<f64>,
+    _max_concurrent: Option<usize>,
 ) -> PyResult<&PyAny> {
     // Convert Python requests to native BatchRequest objects
     let mut batch_requests = Vec::with_capacity(requests.len());
@@ -193,7 +193,7 @@ pub fn batch_request(
 
 /// Convert Python request object to optimized BatchRequest
 fn convert_python_to_batch_request(
-    py: Python,
+    py: Python<'_>,
     py_request: PyObject
 ) -> PyResult<BatchRequest> {
     // Extract method

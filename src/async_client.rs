@@ -6,6 +6,7 @@ use pyo3_asyncio::tokio::future_into_py;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::auth::extract_auth;
 use crate::core::{build_and_send_request, send_request_direct};
@@ -600,6 +601,20 @@ impl AsyncHttpClient {
         Ok(())
     }
 
+    /// ULTRA-FAST header merging for performance critical path
+    fn merge_headers_fast(&self, request_headers: Option<HashMap<String, String>>) -> HashMap<String, String> {
+        match request_headers {
+            Some(req_headers) if !self.config.default_headers.is_empty() => {
+                let mut merged = HashMap::with_capacity(self.config.default_headers.len() + req_headers.len());
+                merged.extend(self.config.default_headers.iter().map(|(k, v)| (k.clone(), v.clone())));
+                merged.extend(req_headers);
+                merged
+            }
+            Some(req_headers) => req_headers,
+            None => self.config.default_headers.clone(),
+        }
+    }
+
     // Create AsyncClient from existing config (for internal use by sync client)
     pub fn new_from_config(config: &ClientConfig) -> PyResult<Self> {
         let client = config.build_client(None)?;
@@ -629,6 +644,48 @@ impl AsyncHttpClient {
     ) -> PyResult<&'py PyAny> {
         self.check_not_closed()?;
 
+        // BREAKTHROUGH OPTIMIZATION: Try direct send path first for simple requests
+        if data.is_none() && json.is_none() && files.is_none() && 
+           auth.is_none() && follow_redirects.is_none() {
+            
+            // ULTRA-FAST PATH: Direct send with minimal processing
+            let client = self.client.clone();
+            let method_owned = method.to_string();
+            let headers_merged = self.merge_headers_fast(headers);
+            let effective_timeout = timeout.map(Duration::from_secs_f64).or(self.config.default_timeout);
+            
+            // Build full URL with base_url if needed
+            let full_url = if let Some(base) = &self.config.base_url {
+                if url.starts_with("http://") || url.starts_with("https://") {
+                    url
+                } else {
+                    format!(
+                        "{}/{}",
+                        base.trim_end_matches('/'),
+                        url.trim_start_matches('/')
+                    )
+                }
+            } else {
+                url
+            };
+            
+            let config = self.config.clone();
+            return future_into_py(py, async move {
+                crate::core::send_request_direct(
+                    &client,
+                    &method_owned,
+                    &full_url,
+                    &headers_merged,
+                    content.as_deref(),
+                    &config,
+                    effective_timeout.map(|d| d.as_secs_f64()),
+                )
+                .await
+            });
+        }
+
+        // FALLBACK: Full processing path
+        
         // ULTRA OPTIMIZATION: Pre-extract needed config values to minimize cloning
         let base_url = self.config.base_url.clone();
         let default_headers = self.config.default_headers.clone();
@@ -702,6 +759,13 @@ impl AsyncHttpClient {
         let config = self.config.clone(); // Still need full config for build_and_send_request
 
         future_into_py(py, async move {
+            // Don't pass base_url if URL is already absolute (prevents double URL building)
+            let base_url_param = if url.starts_with("http://") || url.starts_with("https://") {
+                &None
+            } else {
+                &base_url
+            };
+            
             build_and_send_request(
                 &config,
                 &method_owned,
@@ -713,7 +777,7 @@ impl AsyncHttpClient {
                 merged_params,
                 headers,
                 timeout,
-                &base_url,
+                base_url_param,
                 &default_headers,
                 default_timeout,
                 auth_option,

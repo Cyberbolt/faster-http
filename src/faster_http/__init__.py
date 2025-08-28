@@ -89,7 +89,7 @@ from .proxy import Proxy
 # All exception classes are now implemented in Rust and imported from _core
 # httpx-compatible exception aliases for better compatibility
 RequestTimeout = TimeoutException  # httpx uses RequestTimeout
-ConnectionError = ConnectError     # httpx uses ConnectionError
+ConnectionError = ConnectError  # httpx uses ConnectionError
 # SSLError now imported directly from _core with proper implementation
 
 # Enhance existing exception classes to support keyword arguments
@@ -98,6 +98,7 @@ ConnectionError = ConnectError     # httpx uses ConnectionError
 _orig_http_status_error_new = HTTPStatusError.__new__
 _orig_http_status_error_init = HTTPStatusError.__init__
 _orig_request_error_init = RequestError.__init__
+
 
 def _enhanced_httpstatuserror_new(cls, message=None, *, request=None, response=None):
     """Enhanced HTTPStatusError constructor with keyword argument support."""
@@ -113,13 +114,15 @@ def _enhanced_httpstatuserror_new(cls, message=None, *, request=None, response=N
         else:
             return _orig_http_status_error_new(cls)
 
+
 def _enhanced_httpstatuserror_init(self, message=None, *, request=None, response=None):
     """Enhanced HTTPStatusError initializer."""
     if message is None:
         message = "HTTP status error"
     # Only initialize if not already done by factory function
-    if not hasattr(self, 'args') or len(self.args) == 0:
+    if not hasattr(self, "args") or len(self.args) == 0:
         _orig_http_status_error_init(self, message)
+
 
 def _enhanced_requesterror_init(self, message=None, *, request=None):
     """Enhanced RequestError initializer with keyword argument support."""
@@ -128,6 +131,7 @@ def _enhanced_requesterror_init(self, message=None, *, request=None):
     _orig_request_error_init(self, message)
     if request is not None:
         self.request = request
+
 
 # Apply enhancements to existing classes
 HTTPStatusError.__new__ = _enhanced_httpstatuserror_new

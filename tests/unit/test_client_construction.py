@@ -33,14 +33,14 @@ class TestClientConstruction:
             assert str(client.base_url) == server.base_url
 
             # Test request with base_url
-            resp = client.get('/get')
+            resp = client.get("/get")
             assert resp.status_code == 200
 
             client.close()
 
     def test_client_with_headers(self):
         """Test Client with custom headers."""
-        headers = {'User-Agent': 'test-client', 'Custom': 'value'}
+        headers = {"User-Agent": "test-client", "Custom": "value"}
         client = http.Client(headers=headers)
 
         # Headers should be accessible
@@ -56,12 +56,12 @@ class TestClientConstruction:
         client1.close()
 
         # Test with dict timeout (httpx style)
-        client2 = http.Client(timeout={'connect': 5.0, 'read': 10.0})
+        client2 = http.Client(timeout={"connect": 5.0, "read": 10.0})
         client2.close()
 
     def test_client_with_auth(self):
         """Test Client with authentication."""
-        auth = ('username', 'password')
+        auth = ("username", "password")
         client = http.Client(auth=auth)
 
         # Auth should be accessible
@@ -71,7 +71,7 @@ class TestClientConstruction:
 
     def test_client_with_cookies(self):
         """Test Client with cookies."""
-        cookies = {'session': 'abc123', 'user': 'test'}
+        cookies = {"session": "abc123", "user": "test"}
         client = http.Client(cookies=cookies)
 
         # Cookies should be accessible
@@ -108,10 +108,10 @@ class TestClientConstruction:
     def test_client_with_all_parameters(self):
         """Test Client with all constructor parameters."""
         client = http.Client(
-            auth=('user', 'pass'),
-            params={'key': 'value'},
-            headers={'User-Agent': 'test'},
-            cookies={'session': 'test'},
+            auth=("user", "pass"),
+            params={"key": "value"},
+            headers={"User-Agent": "test"},
+            cookies={"session": "test"},
             verify=True,
             cert=None,
             http1=True,
@@ -138,7 +138,7 @@ class TestClientConstruction:
         with HTTPTestServer() as server:
             with http.Client(base_url=server.base_url) as client:
                 # Client should be usable within context
-                resp = client.get('/get')
+                resp = client.get("/get")
                 assert resp.status_code == 200
 
         # Client should be closed after context
@@ -159,10 +159,10 @@ class TestClientConstruction:
             client = http.Client(base_url=server.base_url)
 
             # Test build_request
-            request = client.build_request('GET', '/get')
+            request = client.build_request("GET", "/get")
             assert request is not None
-            assert request.method == 'GET'
-            assert '/get' in str(request.url)
+            assert request.method == "GET"
+            assert "/get" in str(request.url)
 
             client.close()
 
@@ -172,15 +172,15 @@ class TestClientConstruction:
 
         # Test with different parameters
         request = client.build_request(
-            'POST',
-            'http://example.com/api',
-            headers={'Content-Type': 'application/json'},
-            json={'key': 'value'},
-            params={'param': 'value'}
+            "POST",
+            "http://example.com/api",
+            headers={"Content-Type": "application/json"},
+            json={"key": "value"},
+            params={"param": "value"},
         )
 
         assert request is not None
-        assert request.method == 'POST'
+        assert request.method == "POST"
 
         client.close()
 
@@ -190,7 +190,7 @@ class TestClientConstruction:
             client = http.Client(base_url=server.base_url)
 
             # Build and send request
-            request = client.build_request('GET', '/get')
+            request = client.build_request("GET", "/get")
             response = client.send(request)
 
             assert response.status_code == 200
@@ -199,11 +199,7 @@ class TestClientConstruction:
 
     def test_client_property_access(self):
         """Test Client property access for httpx compatibility."""
-        client = http.Client(
-            base_url="http://example.com",
-            headers={'Custom': 'value'},
-            cookies={'session': 'test'}
-        )
+        client = http.Client(base_url="http://example.com", headers={"Custom": "value"}, cookies={"session": "test"})
 
         # Test property access
         assert client.base_url is not None
@@ -230,6 +226,7 @@ class TestAsyncClientConstruction:
 
     def test_async_client_with_base_url(self):
         """Test AsyncClient with base_url parameter."""
+
         async def test():
             with HTTPTestServer() as server:
                 client = http.AsyncClient(base_url=server.base_url)
@@ -237,7 +234,7 @@ class TestAsyncClientConstruction:
                 assert str(client.base_url) == server.base_url
 
                 # Test request with base_url
-                resp = await client.get('/get')
+                resp = await client.get("/get")
                 assert resp.status_code == 200
 
                 await client.aclose()
@@ -246,12 +243,10 @@ class TestAsyncClientConstruction:
 
     def test_async_client_with_parameters(self):
         """Test AsyncClient with various parameters."""
+
         async def test():
             client = http.AsyncClient(
-                headers={'User-Agent': 'test-async'},
-                timeout=10.0,
-                verify=True,
-                follow_redirects=False
+                headers={"User-Agent": "test-async"}, timeout=10.0, verify=True, follow_redirects=False
             )
 
             # Verify basic functionality
@@ -262,11 +257,12 @@ class TestAsyncClientConstruction:
 
     def test_async_client_context_manager(self):
         """Test AsyncClient as async context manager."""
+
         async def test():
             with HTTPTestServer() as server:
                 async with http.AsyncClient(base_url=server.base_url) as client:
                     # Client should be usable within context
-                    resp = await client.get('/get')
+                    resp = await client.get("/get")
                     assert resp.status_code == 200
 
                 # Client should be closed after context
@@ -275,6 +271,7 @@ class TestAsyncClientConstruction:
 
     def test_async_client_aclose_method(self):
         """Test AsyncClient.aclose() method."""
+
         async def test():
             client = http.AsyncClient()
 
@@ -288,15 +285,16 @@ class TestAsyncClientConstruction:
 
     def test_async_client_build_request_method(self):
         """Test AsyncClient.build_request() method."""
+
         async def test():
             with HTTPTestServer() as server:
                 client = http.AsyncClient(base_url=server.base_url)
 
                 # Test build_request
-                request = client.build_request('GET', '/get')
+                request = client.build_request("GET", "/get")
                 assert request is not None
-                assert request.method == 'GET'
-                assert '/get' in str(request.url)
+                assert request.method == "GET"
+                assert "/get" in str(request.url)
 
                 await client.aclose()
 
@@ -304,12 +302,13 @@ class TestAsyncClientConstruction:
 
     def test_async_client_send_method(self):
         """Test AsyncClient.send() method with built request."""
+
         async def test():
             with HTTPTestServer() as server:
                 client = http.AsyncClient(base_url=server.base_url)
 
                 # Build and send request
-                request = client.build_request('GET', '/get')
+                request = client.build_request("GET", "/get")
                 response = await client.send(request)
 
                 assert response.status_code == 200
@@ -320,12 +319,13 @@ class TestAsyncClientConstruction:
 
     def test_async_client_with_all_parameters(self):
         """Test AsyncClient with all constructor parameters."""
+
         async def test():
             client = http.AsyncClient(
-                auth=('user', 'pass'),
-                params={'key': 'value'},
-                headers={'User-Agent': 'test'},
-                cookies={'session': 'test'},
+                auth=("user", "pass"),
+                params={"key": "value"},
+                headers={"User-Agent": "test"},
+                cookies={"session": "test"},
                 verify=True,
                 cert=None,
                 http1=True,
@@ -351,11 +351,10 @@ class TestAsyncClientConstruction:
 
     def test_async_client_property_access(self):
         """Test AsyncClient property access for httpx compatibility."""
+
         async def test():
             client = http.AsyncClient(
-                base_url="http://example.com",
-                headers={'Custom': 'value'},
-                cookies={'session': 'test'}
+                base_url="http://example.com", headers={"Custom": "value"}, cookies={"session": "test"}
             )
 
             # Test property access
@@ -378,20 +377,21 @@ class TestClientResourceManagement:
             # Test nested context managers
             with http.Client(base_url=server.base_url) as client1:
                 with http.Client(base_url=server.base_url) as client2:
-                    resp1 = client1.get('/get')
-                    resp2 = client2.get('/get')
+                    resp1 = client1.get("/get")
+                    resp2 = client2.get("/get")
                     assert resp1.status_code == 200
                     assert resp2.status_code == 200
 
     def test_async_client_multiple_context_managers(self):
         """Test multiple AsyncClient context managers."""
+
         async def test():
             with HTTPTestServer() as server:
                 # Test nested async context managers
                 async with http.AsyncClient(base_url=server.base_url) as client1:
                     async with http.AsyncClient(base_url=server.base_url) as client2:
-                        resp1 = await client1.get('/get')
-                        resp2 = await client2.get('/get')
+                        resp1 = await client1.get("/get")
+                        resp2 = await client2.get("/get")
                         assert resp1.status_code == 200
                         assert resp2.status_code == 200
 
@@ -411,6 +411,7 @@ class TestClientResourceManagement:
 
     def test_async_client_reuse_after_close(self):
         """Test that AsyncClient cannot be reused after close."""
+
         async def test():
             client = http.AsyncClient()
             await client.aclose()

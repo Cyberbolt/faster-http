@@ -17,12 +17,12 @@ class Timeout:
 
     def __init__(
         self,
-        timeout = _UNSET,  # Sentinel: _UNSET means "not provided"
+        timeout=_UNSET,  # Sentinel: _UNSET means "not provided"
         *,
-        connect = _UNSET,  # Sentinel: _UNSET means "not provided"
-        read = _UNSET,     # Sentinel: _UNSET means "not provided"
-        write = _UNSET,    # Sentinel: _UNSET means "not provided"
-        pool = _UNSET      # Sentinel: _UNSET means "not provided"
+        connect=_UNSET,  # Sentinel: _UNSET means "not provided"
+        read=_UNSET,  # Sentinel: _UNSET means "not provided"
+        write=_UNSET,  # Sentinel: _UNSET means "not provided"
+        pool=_UNSET,  # Sentinel: _UNSET means "not provided"
     ):
         """
         Initialize timeout configuration.
@@ -36,23 +36,15 @@ class Timeout:
         """
 
         # Convert parameters for Rust side
-        timeout_val = (float('nan') if timeout is None else float(timeout)) if timeout is not _UNSET else -1.0
+        timeout_val = (float("nan") if timeout is None else float(timeout)) if timeout is not _UNSET else -1.0
 
-        connect_val = (-1.0 if connect is _UNSET else
-                      (float('nan') if connect is None else float(connect)))
-        read_val = (-1.0 if read is _UNSET else
-                   (float('nan') if read is None else float(read)))
-        write_val = (-1.0 if write is _UNSET else
-                    (float('nan') if write is None else float(write)))
-        pool_val = (-1.0 if pool is _UNSET else
-                   (float('nan') if pool is None else float(pool)))
+        connect_val = -1.0 if connect is _UNSET else (float("nan") if connect is None else float(connect))
+        read_val = -1.0 if read is _UNSET else (float("nan") if read is None else float(read))
+        write_val = -1.0 if write is _UNSET else (float("nan") if write is None else float(write))
+        pool_val = -1.0 if pool is _UNSET else (float("nan") if pool is None else float(pool))
 
         self._inner = _core.Timeout(
-            timeout=timeout_val,
-            connect=connect_val,
-            read=read_val,
-            write=write_val,
-            pool=pool_val
+            timeout=timeout_val, connect=connect_val, read=read_val, write=write_val, pool=pool_val
         )
 
     @property
@@ -84,4 +76,3 @@ class Timeout:
         if isinstance(other, Timeout):
             return self._inner.__eq__(other._inner)
         return False
-

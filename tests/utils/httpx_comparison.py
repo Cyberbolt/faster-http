@@ -283,7 +283,6 @@ def compare_exceptions(httpx_exception, faster_http_exception) -> ComparisonResu
         # URL and protocol errors
         "UnsupportedProtocol": ["InvalidURL", "UnsupportedProtocol"],
         "InvalidURL": ["InvalidURL", "UnsupportedProtocol"],
-
         # Timeout errors - httpx has fine-grained timeout types
         "ReadTimeout": ["TimeoutException", "ReadTimeout"],
         "WriteTimeout": ["TimeoutException", "WriteTimeout"],
@@ -291,37 +290,29 @@ def compare_exceptions(httpx_exception, faster_http_exception) -> ComparisonResu
         "PoolTimeout": ["TimeoutException", "PoolTimeout"],
         "RequestTimeout": ["TimeoutException", "RequestTimeout"],
         "TimeoutException": ["TimeoutException", "ReadTimeout", "WriteTimeout", "ConnectTimeout"],
-
         # Connection errors
         "ConnectError": ["ConnectError", "NetworkError"],
         "NetworkError": ["NetworkError", "ConnectError"],
         "ConnectionError": ["ConnectError", "ConnectionError", "NetworkError"],
-
         # HTTP status errors (should match exactly)
         "HTTPStatusError": ["HTTPStatusError"],
-
         # Redirect errors
         "TooManyRedirects": ["TooManyRedirects"],
-
         # Transport and protocol errors
         "TransportError": ["TransportError", "ProtocolError", "NetworkError"],
         "ProtocolError": ["ProtocolError", "TransportError"],
         "LocalProtocolError": ["LocalProtocolError", "ProtocolError"],
         "RemoteProtocolError": ["RemoteProtocolError", "ProtocolError"],
-
         # SSL errors
         "SSLError": ["SSLError"],
-
         # Stream errors
         "StreamError": ["StreamError"],
         "StreamClosed": ["StreamClosed", "StreamError"],
         "StreamConsumed": ["StreamConsumed", "StreamError"],
-
         # Request/Response errors
         "RequestError": ["RequestError", "HTTPError"],
         "RequestNotRead": ["RequestNotRead"],
         "ResponseNotRead": ["ResponseNotRead"],
-
         # Generic errors
         "HTTPError": ["HTTPError", "RequestError"],
     }
@@ -344,8 +335,14 @@ def compare_exceptions(httpx_exception, faster_http_exception) -> ComparisonResu
 
     # For certain exception types, we're more lenient with message comparison
     lenient_message_types = {
-        "TimeoutException", "ReadTimeout", "WriteTimeout", "ConnectTimeout",
-        "ConnectError", "NetworkError", "InvalidURL", "UnsupportedProtocol"
+        "TimeoutException",
+        "ReadTimeout",
+        "WriteTimeout",
+        "ConnectTimeout",
+        "ConnectError",
+        "NetworkError",
+        "InvalidURL",
+        "UnsupportedProtocol",
     }
 
     if faster_http_type not in lenient_message_types:
@@ -463,7 +460,9 @@ def httpx_compatibility_test(
                     }
 
                     if httpx_type not in acceptable_httpx_only_exceptions:
-                        raise AssertionError(f"httpx raised {httpx_type} but faster-http didn't. Expected faster-http to raise compatible exception: {httpx_exception}")
+                        raise AssertionError(
+                            f"httpx raised {httpx_type} but faster-http didn't. Expected faster-http to raise compatible exception: {httpx_exception}"
+                        )
                 elif faster_http_exception and not httpx_exception:
                     # Only faster-http raised exception - check if this is acceptable
                     faster_http_type = type(faster_http_exception).__name__
@@ -471,11 +470,14 @@ def httpx_compatibility_test(
                     # Some cases where it's acceptable for faster_http to raise but httpx not to:
                     acceptable_faster_http_only_exceptions = {
                         # Connection errors might be detected differently
-                        "ConnectError", "NetworkError",
+                        "ConnectError",
+                        "NetworkError",
                     }
 
                     if faster_http_type not in acceptable_faster_http_only_exceptions:
-                        raise AssertionError(f"faster-http raised {faster_http_type} but httpx didn't. This suggests faster-http is more strict: {faster_http_exception}")
+                        raise AssertionError(
+                            f"faster-http raised {faster_http_type} but httpx didn't. This suggests faster-http is more strict: {faster_http_exception}"
+                        )
                 else:
                     # Both succeeded - compare results if they are responses
                     if hasattr(httpx_result, "status_code") and hasattr(faster_http_result, "status_code"):
@@ -560,17 +562,22 @@ def httpx_compatibility_test(
                     }
 
                     if httpx_type not in acceptable_httpx_only_exceptions:
-                        raise AssertionError(f"httpx raised {httpx_type} but faster-http didn't. Expected faster-http to raise compatible exception: {httpx_exception}")
+                        raise AssertionError(
+                            f"httpx raised {httpx_type} but faster-http didn't. Expected faster-http to raise compatible exception: {httpx_exception}"
+                        )
                 elif faster_http_exception and not httpx_exception:
                     # Only faster-http raised exception - check if this is acceptable
                     faster_http_type = type(faster_http_exception).__name__
 
                     acceptable_faster_http_only_exceptions = {
-                        "ConnectError", "NetworkError",
+                        "ConnectError",
+                        "NetworkError",
                     }
 
                     if faster_http_type not in acceptable_faster_http_only_exceptions:
-                        raise AssertionError(f"faster-http raised {faster_http_type} but httpx didn't. This suggests faster-http is more strict: {faster_http_exception}")
+                        raise AssertionError(
+                            f"faster-http raised {faster_http_type} but httpx didn't. This suggests faster-http is more strict: {faster_http_exception}"
+                        )
                 else:
                     if hasattr(httpx_result, "status_code") and hasattr(faster_http_result, "status_code"):
                         comparison = compare_responses(httpx_result, faster_http_result)

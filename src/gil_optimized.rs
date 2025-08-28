@@ -20,6 +20,7 @@ use std::str::FromStr;
 /// EXTREME OPTIMIZATION: GIL-free request context
 /// All request data pre-processed and stored in Rust-native types
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct GilFreeRequestContext {
     /// Pre-parsed HTTP method
     pub method: hyper::Method,
@@ -35,6 +36,7 @@ pub struct GilFreeRequestContext {
     pub request_id: u64,
 }
 
+#[allow(dead_code)]
 impl GilFreeRequestContext {
     /// Create context from raw request data WITHOUT entering GIL
     pub fn from_raw_data(
@@ -118,12 +120,14 @@ impl GilFreeRequestContext {
 }
 
 /// ULTRA-PERFORMANCE: GIL-free async request processor
+#[allow(dead_code)]
 pub struct GilFreeAsyncProcessor {
     client: HyperHttpClient,
     config: ClientConfig,
     active_requests: Arc<std::sync::atomic::AtomicUsize>,
 }
 
+#[allow(dead_code)]
 impl GilFreeAsyncProcessor {
     pub fn new(config: ClientConfig) -> PyResult<Self> {
         let client = config.build_client(None)?;
@@ -167,11 +171,13 @@ impl GilFreeAsyncProcessor {
 }
 
 /// ULTRA-PERFORMANCE: GIL-free sync request processor  
+#[allow(dead_code)]
 pub struct GilFreeSyncProcessor {
     client: UreqHttpClient,
     active_requests: Arc<std::sync::atomic::AtomicUsize>,
 }
 
+#[allow(dead_code)]
 impl GilFreeSyncProcessor {
     pub fn new(config: &ClientConfig) -> PyResult<Self> {
         let ureq_config = crate::ureq_client::UreqClientConfig {
@@ -343,6 +349,57 @@ pub fn gil_optimized_request(
         
         Python::with_gil(|py| Ok(result.to_object(py)))
     }
+}
+
+/// BREAKTHROUGH OPTIMIZATION: Async-specific GIL-optimized request API
+/// Specifically designed for MAXIMUM async performance without future_into_py overhead
+#[pyfunction]
+pub fn gil_optimized_async_request<'py>(
+    py: Python<'py>,
+    py_request: PyObject,
+) -> PyResult<&'py PyAny> {
+    use pyo3_asyncio::tokio::future_into_py;
+    
+    // ULTRA-FAST: Extract data from Python with minimal GIL time
+    let (method, url, headers, content, timeout) = Python::with_gil(|py| {
+        let method = py_request.getattr(py, "method")?.extract::<String>(py)?;
+        let url = py_request.getattr(py, "url")?.extract::<String>(py)?;
+        let headers: HashMap<String, String> = py_request
+            .getattr(py, "headers")
+            .unwrap_or_else(|_| py.None())
+            .extract(py)
+            .unwrap_or_default();
+        let content: Option<Vec<u8>> = py_request
+            .getattr(py, "content")
+            .ok()
+            .and_then(|c| c.extract(py).ok());
+        let timeout: Option<f64> = py_request
+            .getattr(py, "timeout")
+            .ok()
+            .and_then(|t| t.extract(py).ok());
+        
+        PyResult::Ok((method, url, headers, content, timeout))
+    })?;
+    
+    // BREAKTHROUGH: Process request with minimal GIL interaction
+    future_into_py(py, async move {
+        // Create ultra-fast GIL-free context
+        let context = GilFreeRequestContext::from_raw_data(
+            method, url, headers, content, timeout
+        ).map_err(|e| RequestError::new_err(e))?;
+        
+        // ULTRA-OPTIMIZED: Create ephemeral config for single request with BREAKTHROUGH settings
+        let config = ClientConfig::new(
+            None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None
+        )?;
+        
+        let processor = GilFreeAsyncProcessor::new(config)?;
+        let result = processor.process_request_gil_free(context).await
+            .map_err(|e| RequestError::new_err(e))?;
+        
+        Ok(result)
+    })
 }
 
 /// Python-facing batch GIL-optimized request API

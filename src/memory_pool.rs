@@ -47,6 +47,7 @@ impl Default for PoolConfig {
 
 impl PoolConfig {
     /// Conservative configuration - lower memory usage
+    #[allow(dead_code)]
     pub fn conservative() -> Self {
         Self {
             max_small_buffers: 16,
@@ -60,6 +61,7 @@ impl PoolConfig {
     }
 
     /// Balanced configuration - good performance with reasonable memory
+    #[allow(dead_code)]
     pub fn balanced() -> Self {
         Self {
             max_small_buffers: 32,
@@ -175,6 +177,7 @@ impl ByteBufferPool {
 
     /// Return buffer to pool for reuse
     #[inline(always)]  // Critical hot path - force inline
+    #[allow(dead_code)]
     pub fn return_buffer(&self, mut buffer: Vec<u8>) {
         let capacity = buffer.capacity();
         buffer.clear(); // Clear data but keep capacity
@@ -234,6 +237,7 @@ impl ByteBufferPool {
     }
 
     /// Get pool statistics for monitoring
+    #[allow(dead_code)]
     pub fn get_stats(&self) -> PoolStats {
         let small_count = self.small_buffers.lock().map(|s| s.len()).unwrap_or(0);
         let medium_count = self.medium_buffers.lock().map(|m| m.len()).unwrap_or(0);
@@ -259,6 +263,7 @@ impl ByteBufferPool {
 
 /// Memory pool statistics
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PoolStats {
     pub small_buffers_available: usize,
     pub medium_buffers_available: usize,
@@ -281,6 +286,7 @@ pub fn get_global_memory_pool() -> &'static ByteBufferPool {
 
 /// Pre-allocated string pool for common HTTP headers and values
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct StringPool {
     /// Common header names
     common_headers: Arc<[&'static str; 32]>,
@@ -294,6 +300,7 @@ impl Default for StringPool {
     }
 }
 
+#[allow(dead_code)]
 impl StringPool {
     pub fn new() -> Self {
         Self {

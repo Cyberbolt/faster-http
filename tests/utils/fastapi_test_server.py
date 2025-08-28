@@ -231,10 +231,7 @@ class FastAPITestServer:
             auth_header = request.headers.get("authorization", "")
 
             if not auth_header.startswith("Basic "):
-                raise HTTPException(
-                    status_code=401,
-                    headers={"WWW-Authenticate": 'Basic realm="Test"'}
-                )
+                raise HTTPException(status_code=401, headers={"WWW-Authenticate": 'Basic realm="Test"'})
 
             try:
                 credentials = base64.b64decode(auth_header[6:]).decode("utf-8")
@@ -243,15 +240,9 @@ class FastAPITestServer:
                 if auth_username == username and auth_password == password:
                     return {"authenticated": True, "user": auth_username}
                 else:
-                    raise HTTPException(
-                        status_code=401,
-                        headers={"WWW-Authenticate": 'Basic realm="Test"'}
-                    )
+                    raise HTTPException(status_code=401, headers={"WWW-Authenticate": 'Basic realm="Test"'})
             except Exception:
-                raise HTTPException(
-                    status_code=401,
-                    headers={"WWW-Authenticate": 'Basic realm="Test"'}
-                )
+                raise HTTPException(status_code=401, headers={"WWW-Authenticate": 'Basic realm="Test"'})
 
         # Digest auth endpoint
         @app.get("/digest-auth/{qop}/{username}/{password}")
@@ -266,15 +257,13 @@ class FastAPITestServer:
                 # Send digest challenge
                 nonce = hashlib.md5(str(random.random()).encode()).hexdigest()
                 challenge = f'Digest realm="Test", nonce="{nonce}", qop="{qop}"'
-                raise HTTPException(
-                    status_code=401,
-                    headers={"WWW-Authenticate": challenge}
-                )
+                raise HTTPException(status_code=401, headers={"WWW-Authenticate": challenge})
 
         # Stream endpoint
         @app.get("/stream/{count}")
         async def handle_stream(count: int):
             """Handle /stream/<count> endpoint."""
+
             async def generate_stream():
                 for i in range(count):
                     line = json.dumps({"line": i, "data": f"Line {i} data"}) + "\n"
@@ -302,6 +291,7 @@ class FastAPITestServer:
 
             # Create server manually for better control
             import socket
+
             if self.port == 0:
                 # Find available port manually
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -314,9 +304,9 @@ class FastAPITestServer:
                 host=self.host,
                 port=self.port,
                 log_level="critical",  # Reduce logging even more
-                access_log=False,      # Disable access logging
-                server_header=False,   # Disable server header
-                date_header=False,     # Disable date header
+                access_log=False,  # Disable access logging
+                server_header=False,  # Disable server header
+                date_header=False,  # Disable date header
             )
 
             self.server = uvicorn.Server(config)

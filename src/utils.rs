@@ -22,9 +22,11 @@ pub fn python_object_to_string(py: Python, obj: &PyObject) -> PyResult<String> {
 }
 
 /// Convert Python params dict to string params dict
+/// FINAL TUNING: Pre-allocate capacity for optimal memory usage
 pub fn convert_params_to_strings(params: &HashMap<String, PyObject>) -> PyResult<HashMap<String, String>> {
     Python::with_gil(|py| {
-        let mut string_params = HashMap::new();
+        // MEMORY OPTIMIZATION: Pre-allocate exact capacity to avoid rehashing
+        let mut string_params = HashMap::with_capacity(params.len());
         for (key, value) in params {
             let value_str = python_object_to_string(py, value)?;
             string_params.insert(key.clone(), value_str);
@@ -56,17 +58,26 @@ pub fn build_url(
     // Add query parameters
     if let Some(params_map) = params {
         if !params_map.is_empty() {
-            let query_string: Vec<String> = params_map
+            // MEMORY OPTIMIZATION: Calculate exact capacity needed and build directly
+            let estimated_query_size: usize = params_map
                 .iter()
-                .map(|(key, value)| format!("{}={}", urlencoding::encode(key), urlencoding::encode(value)))
-                .collect();
-
-            if final_url.contains('?') {
-                final_url.push('&');
-            } else {
-                final_url.push('?');
+                .map(|(k, v)| k.len() + v.len() + 3) // key=value& format
+                .sum::<usize>();
+            
+            // Reserve exact capacity to avoid reallocations
+            let separator = if final_url.contains('?') { "&" } else { "?" };
+            final_url.reserve_exact(separator.len() + estimated_query_size);
+            final_url.push_str(separator);
+            
+            // FINAL TUNING: Build query string directly without intermediate allocations
+            for (i, (key, value)) in params_map.iter().enumerate() {
+                if i > 0 {
+                    final_url.push('&');
+                }
+                final_url.push_str(&urlencoding::encode(key));
+                final_url.push('=');
+                final_url.push_str(&urlencoding::encode(value));
             }
-            final_url.push_str(&query_string.join("&"));
         }
     }
 
@@ -101,7 +112,11 @@ pub fn build_multipart_body(
     let boundary_bytes = format!("--{}", boundary);
     let end_boundary_bytes = format!("--{}--", boundary);
     
-    let mut body = Vec::new();
+    // MEMORY OPTIMIZATION: Pre-allocate with reasonable initial capacity
+    // Estimate ~1KB per field/file for headers + data
+    let estimated_capacity = (files_data.as_ref().map(|f| f.len()).unwrap_or(0) + 
+                             form_data.as_ref().map(|d| d.len()).unwrap_or(0)) * 1024;
+    let mut body = Vec::with_capacity(estimated_capacity);
     
     Python::with_gil(|py| -> PyResult<()> {
         // Add form data fields first if any

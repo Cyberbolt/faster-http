@@ -182,10 +182,7 @@ def sync_test(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="HTTP performance test for faster-http")
     parser.add_argument(
-        "--mode",
-        choices=["async", "sync"],
-        default="async",
-        help="Test mode: async or sync (default: async)"
+        "--mode", choices=["async", "sync"], default="async", help="Test mode: async or sync (default: async)"
     )
     parser.add_argument("--duration", type=int, default=10, help="Test duration in seconds (default: 10)")
     parser.add_argument("--concurrency", type=int, default=50, help="Concurrency level (default: 50)")

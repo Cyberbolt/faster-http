@@ -101,6 +101,7 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
 
     // Add ULTRA-OPTIMIZED GIL-free processing for A级 performance
     m.add_function(wrap_pyfunction!(gil_optimized::gil_optimized_request, m)?)?;
+    m.add_function(wrap_pyfunction!(gil_optimized::gil_optimized_async_request, m)?)?;
     m.add_function(wrap_pyfunction!(gil_optimized::gil_optimized_batch_request, m)?)?;
 
     // Add exception factory functions

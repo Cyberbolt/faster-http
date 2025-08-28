@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 /// EXTREME OPTIMIZATION: Precompiled HTTP methods with direct Method instances
+#[allow(dead_code)]
 pub struct PrecompiledMethods {
     /// Direct method mapping for O(1) lookup
     methods: HashMap<&'static str, Method>,
@@ -13,6 +14,7 @@ pub struct PrecompiledMethods {
     method_strings: HashMap<Method, &'static str>,
 }
 
+#[allow(dead_code)]
 impl PrecompiledMethods {
     pub fn new() -> Self {
         let mut methods = HashMap::new();
@@ -59,6 +61,7 @@ impl PrecompiledMethods {
 }
 
 /// EXTREME OPTIMIZATION: Precompiled header names with case-insensitive lookup
+#[allow(dead_code)]
 pub struct PrecompiledHeaders {
     /// Canonical header names
     canonical_names: HashMap<&'static str, &'static str>,
@@ -68,6 +71,7 @@ pub struct PrecompiledHeaders {
     common_values: HashMap<&'static str, &'static str>,
 }
 
+#[allow(dead_code)]
 impl PrecompiledHeaders {
     pub fn new() -> Self {
         let header_pairs = [
@@ -204,6 +208,7 @@ impl PrecompiledHeaders {
 }
 
 /// EXTREME OPTIMIZATION: Precompiled URL schemes and ports
+#[allow(dead_code)]
 pub struct PrecompiledSchemes {
     /// Default ports for schemes
     default_ports: HashMap<&'static str, u16>,
@@ -211,6 +216,7 @@ pub struct PrecompiledSchemes {
     secure_schemes: &'static [&'static str],
 }
 
+#[allow(dead_code)]
 impl PrecompiledSchemes {
     pub fn new() -> Self {
         let mut default_ports = HashMap::new();
@@ -253,6 +259,7 @@ impl PrecompiledSchemes {
 /// ULTRA-PERFORMANCE: Global precompiled instances for maximum speed
 static PRECOMPILED_METHODS: OnceLock<PrecompiledMethods> = OnceLock::new();
 static PRECOMPILED_HEADERS: OnceLock<PrecompiledHeaders> = OnceLock::new();
+#[allow(dead_code)]
 static PRECOMPILED_SCHEMES: OnceLock<PrecompiledSchemes> = OnceLock::new();
 
 /// Get global precompiled methods instance
@@ -269,6 +276,7 @@ pub fn get_precompiled_headers() -> &'static PrecompiledHeaders {
 
 /// Get global precompiled schemes instance
 #[inline(always)]
+#[allow(dead_code)]
 pub fn get_precompiled_schemes() -> &'static PrecompiledSchemes {
     PRECOMPILED_SCHEMES.get_or_init(PrecompiledSchemes::new)
 }

@@ -54,7 +54,7 @@ num_cpus = "1.16"
 # EXTREME PERFORMANCE OPTIMIZATION - A级标准要求
 [profile.release]
 debug = 0
-lto = "thin"  # Use thin LTO for compatibility with all dependencies
+lto = "fat"  # Use fat LTO for maximum optimization
 codegen-units = 1
 opt-level = 3
 panic = "abort"  # Abort on panic for better performance
@@ -74,5 +74,9 @@ codegen-units = 1
 
 [profile.dev]
 panic = "unwind"
+
+# EXTREME PERFORMANCE: Additional CPU-specific optimizations for A级 standard
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+# Architecture-specific optimizations will be handled via RUSTFLAGS
 
 # EXTREME PERFORMANCE: These flags are set via environment variables in build scripts

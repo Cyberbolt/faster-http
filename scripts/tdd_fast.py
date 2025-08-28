@@ -24,7 +24,10 @@ def main():
 
     # Build pytest command
     cmd = [
-        "uv", "run", "-m", "pytest",
+        "uv",
+        "run",
+        "-m",
+        "pytest",
         "tests/unit/",
         "-v",
         "--tb=short",
@@ -46,6 +49,7 @@ def main():
     except KeyboardInterrupt:
         print("\n⏹️ TDD session interrupted")
         return 130
+
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -25,20 +25,20 @@ class TestStreamingBasics:
 
     def test_top_level_stream_function_exists(self):
         """Test that the top-level stream function exists and is callable."""
-        assert hasattr(faster_http, 'stream')
+        assert hasattr(faster_http, "stream")
         assert callable(faster_http.stream)
 
     def test_client_stream_method_exists(self):
         """Test that Client.stream method exists."""
         client = faster_http.Client()
-        assert hasattr(client, 'stream')
+        assert hasattr(client, "stream")
         assert callable(client.stream)
         client.close()
 
     def test_async_client_stream_method_exists(self):
         """Test that AsyncClient.stream method exists."""
         client = faster_http.AsyncClient()
-        assert hasattr(client, 'stream')
+        assert hasattr(client, "stream")
         assert callable(client.stream)
 
     def test_stream_response_type(self):
@@ -46,12 +46,12 @@ class TestStreamingBasics:
         url = f"{self.base_url}/json"
 
         # Test top-level stream function
-        with faster_http.stream('GET', url) as response:
+        with faster_http.stream("GET", url) as response:
             # Should return StreamingClient, not regular Response
-            assert type(response).__name__ == 'StreamingClient'
-            assert hasattr(response, 'iter_bytes')
-            assert hasattr(response, 'iter_lines')
-            assert hasattr(response, 'status_code')
+            assert type(response).__name__ == "StreamingClient"
+            assert hasattr(response, "iter_bytes")
+            assert hasattr(response, "iter_lines")
+            assert hasattr(response, "status_code")
 
 
 class TestStreamingContextManager:
@@ -66,7 +66,7 @@ class TestStreamingContextManager:
         """Test that streaming responses work as context managers."""
         url = f"{self.base_url}/json"
 
-        with faster_http.stream('GET', url) as response:
+        with faster_http.stream("GET", url) as response:
             assert response.status_code == 200
             assert response.is_ready
             assert not response.is_closed
@@ -79,7 +79,7 @@ class TestStreamingContextManager:
         url = f"{self.base_url}/json"
 
         with faster_http.Client() as client:
-            with client.stream('GET', url, timeout=10.0) as response:
+            with client.stream("GET", url, timeout=10.0) as response:
                 assert response.status_code == 200
                 assert response.is_ready
 
@@ -89,7 +89,7 @@ class TestStreamingContextManager:
         """Test manually closing streaming response."""
         url = f"{self.base_url}/json"
 
-        with faster_http.stream('GET', url) as response:
+        with faster_http.stream("GET", url) as response:
             assert not response.is_closed
             response.close()
             assert response.is_closed
@@ -107,7 +107,7 @@ class TestStreamingIterators:
         """Test iter_bytes streaming iterator."""
         url = f"{self.base_url}/json"
 
-        with faster_http.stream('GET', url) as response:
+        with faster_http.stream("GET", url) as response:
             chunks = []
             total_bytes = 0
 
@@ -125,7 +125,7 @@ class TestStreamingIterators:
         """Test iter_text streaming iterator."""
         url = f"{self.base_url}/json"
 
-        with faster_http.stream('GET', url) as response:
+        with faster_http.stream("GET", url) as response:
             text_chunks = []
 
             for chunk in response.iter_text(chunk_size=20):
@@ -141,7 +141,7 @@ class TestStreamingIterators:
         # Use the get endpoint which should return some content we can split into lines
         url = f"{self.base_url}/get"
 
-        with faster_http.stream('GET', url) as response:
+        with faster_http.stream("GET", url) as response:
             lines = []
 
             for line in response.iter_lines():
@@ -154,7 +154,7 @@ class TestStreamingIterators:
         """Test iter_raw streaming iterator."""
         url = f"{self.base_url}/json"
 
-        with faster_http.stream('GET', url) as response:
+        with faster_http.stream("GET", url) as response:
             raw_chunks = []
 
             for chunk in response.iter_raw(chunk_size=15):
@@ -180,11 +180,7 @@ class TestStreamingHttpxCompatibility:
 
         # Test with httpx-style parameters
         with faster_http.stream(
-            'GET',
-            url,
-            headers={'User-Agent': 'test'},
-            timeout=10.0,
-            follow_redirects=True
+            "GET", url, headers={"User-Agent": "test"}, timeout=10.0, follow_redirects=True
         ) as response:
             assert response.status_code == 200
 
@@ -192,13 +188,13 @@ class TestStreamingHttpxCompatibility:
         """Test that streaming response has httpx-compatible properties."""
         url = f"{self.base_url}/json"
 
-        with faster_http.stream('GET', url) as response:
+        with faster_http.stream("GET", url) as response:
             # Basic properties
-            assert hasattr(response, 'status_code')
-            assert hasattr(response, 'headers')
-            assert hasattr(response, 'url_obj')
-            assert hasattr(response, 'elapsed')
-            assert hasattr(response, 'is_success')
+            assert hasattr(response, "status_code")
+            assert hasattr(response, "headers")
+            assert hasattr(response, "url_obj")
+            assert hasattr(response, "elapsed")
+            assert hasattr(response, "is_success")
 
             # Check property values
             assert isinstance(response.status_code, int)
@@ -213,7 +209,7 @@ class TestStreamingHttpxCompatibility:
         regular_response = faster_http.get(url)
 
         # Streaming response
-        with faster_http.stream('GET', url) as stream_response:
+        with faster_http.stream("GET", url) as stream_response:
             # Both should have similar basic properties
             assert regular_response.status_code == stream_response.status_code
             assert regular_response.is_success == stream_response.is_success
@@ -232,7 +228,7 @@ class TestStreamingErrorHandling:
         url = f"{self.base_url}/json"
 
         response = None
-        with faster_http.stream('GET', url) as resp:
+        with faster_http.stream("GET", url) as resp:
             response = resp
             assert not response.is_closed
 
@@ -246,14 +242,14 @@ class TestStreamingErrorHandling:
     def test_stream_invalid_url(self):
         """Test streaming with invalid URL."""
         with pytest.raises((faster_http.NetworkError, faster_http.ConnectError)):
-            with faster_http.stream('GET', 'http://invalid-domain-12345.com') as response:
+            with faster_http.stream("GET", "http://invalid-domain-12345.com") as response:
                 list(response.iter_bytes())
 
     def test_stream_network_error_handling(self):
         """Test handling of network errors during streaming."""
         # Test with a URL that will cause connection issues
         with pytest.raises((faster_http.NetworkError, faster_http.ConnectError)):
-            with faster_http.stream('GET', 'http://127.0.0.1:99999') as response:
+            with faster_http.stream("GET", "http://127.0.0.1:99999") as response:
                 list(response.iter_lines())
 
 
@@ -269,7 +265,7 @@ class TestStreamingMemoryEfficiency:
         """Test that streaming respects chunk size settings."""
         url = f"{self.base_url}/json"
 
-        with faster_http.stream('GET', url) as response:
+        with faster_http.stream("GET", url) as response:
             chunk_count = 0
             max_chunk_size = 0
 
@@ -287,5 +283,5 @@ class TestStreamingMemoryEfficiency:
             assert max_chunk_size <= 100
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

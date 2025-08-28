@@ -25,21 +25,23 @@ def get_exception_class(client_factory, exception_name):
     Returns:
         The exception class from the appropriate library
     """
-    if client_factory.library == 'httpx':
+    if client_factory.library == "httpx":
         import httpx
+
         # Map faster_http exception names to httpx exception names
         exception_mapping = {
-            'TimeoutException': 'ReadTimeout',  # httpx uses more specific timeout exceptions
-            'ConnectError': 'ConnectError',
-            'HTTPStatusError': 'HTTPStatusError',
-            'InvalidURL': 'UnsupportedProtocol',  # httpx uses different name for URL errors
-            'TooManyRedirects': 'TooManyRedirects',
+            "TimeoutException": "ReadTimeout",  # httpx uses more specific timeout exceptions
+            "ConnectError": "ConnectError",
+            "HTTPStatusError": "HTTPStatusError",
+            "InvalidURL": "UnsupportedProtocol",  # httpx uses different name for URL errors
+            "TooManyRedirects": "TooManyRedirects",
         }
         httpx_exception_name = exception_mapping.get(exception_name, exception_name)
         return getattr(httpx, httpx_exception_name)
     else:
         # faster_http
         import faster_http
+
         return getattr(faster_http, exception_name)
 
 
@@ -567,7 +569,7 @@ class TestResponseCoreAttributes(TDDTestCase):
 
         # Test client error raises exception
         response = client_factory.get(f"{self.base_url}/status/404")
-        expected_exception = get_exception_class(client_factory, 'HTTPStatusError')
+        expected_exception = get_exception_class(client_factory, "HTTPStatusError")
         with pytest.raises(expected_exception):
             response.raise_for_status()
 
@@ -707,7 +709,7 @@ class TestBasicParameterSupport(TDDTestCase):
     def test_timeout_support(self, client_factory):
         """Test timeout configuration support."""
         # Get the appropriate timeout exception class
-        timeout_exception_class = get_exception_class(client_factory, 'TimeoutException')
+        timeout_exception_class = get_exception_class(client_factory, "TimeoutException")
 
         # Test basic timeout setting
         try:

@@ -30,9 +30,11 @@ class TestAuth:
         # Create appropriate auth object based on the client type
         if client_factory.client_type == "httpx":
             import httpx
+
             auth = httpx.BasicAuth("user", "pass")
         else:
             import faster_http
+
             auth = faster_http.BasicAuth("user", "pass")
 
         with client_factory(auth=auth) as client:
@@ -56,9 +58,11 @@ class TestAuth:
         # Create appropriate auth object based on the client type
         if client_factory.client_type == "httpx":
             import httpx
+
             auth = httpx.DigestAuth("user", "pass")
         else:
             import faster_http
+
             auth = faster_http.DigestAuth("user", "pass")
 
         with client_factory(auth=auth) as client:
@@ -82,9 +86,11 @@ class TestAuth:
         # Create appropriate auth object based on the client type
         if client_factory.client_type == "httpx":
             import httpx
+
             auth = httpx.BasicAuth("user", "pass")
         else:
             import faster_http
+
             auth = faster_http.BasicAuth("user", "pass")
 
         response = client_factory.get(f"{self.base_url}/basic-auth/user/pass", auth=auth)
