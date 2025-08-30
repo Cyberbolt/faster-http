@@ -1,9 +1,9 @@
 // Synchronous HTTP client implementation using ureq
-use pyo3::prelude::*;
-use std::collections::HashMap;
 use crate::config::ClientConfig;
 use crate::models::HttpResponse;
-use crate::transport::ureq_client::{UreqHttpClient, UreqClientConfig};
+use crate::transport::ureq_client::{UreqClientConfig, UreqHttpClient};
+use pyo3::prelude::*;
+use std::collections::HashMap;
 
 #[pyclass(module = "faster_http")]
 pub struct SyncHttpClient {
@@ -17,26 +17,26 @@ impl SyncHttpClient {
     pub fn new() -> PyResult<Self> {
         // Create default config for direct Python usage
         let config = ClientConfig::new(
-            None,    // base_url
-            None,    // timeout
-            None,    // headers
-            None,    // verify
-            None,    // follow_redirects
-            None,    // auth
-            None,    // proxy
-            None,    // proxies
-            None,    // cookies
-            None,    // http1
-            None,    // http2
-            None,    // event_hooks
-            None,    // cert
-            None,    // trust_env
-            None,    // transport
-            None,    // mounts
-            None,    // limits
-            None,    // max_redirects
-            None,    // default_encoding
-            None,    // params
+            None, // base_url
+            None, // timeout
+            None, // headers
+            None, // verify
+            None, // follow_redirects
+            None, // auth
+            None, // proxy
+            None, // proxies
+            None, // cookies
+            None, // http1
+            None, // http2
+            None, // event_hooks
+            None, // cert
+            None, // trust_env
+            None, // transport
+            None, // mounts
+            None, // limits
+            None, // max_redirects
+            None, // default_encoding
+            None, // params
         )?;
 
         // Create ureq client configuration from ClientConfig
@@ -46,7 +46,7 @@ impl SyncHttpClient {
             max_redirects: config.max_redirects as u32,
             verify: config.ssl_config.verify,
         };
-        
+
         let client = UreqHttpClient::new(ureq_config)?;
 
         Ok(Self { client, config })
@@ -69,7 +69,6 @@ impl SyncHttpClient {
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
-        
         // Merge default params with request params
         let merged_params = match params {
             Some(request_params) => {
@@ -95,9 +94,9 @@ impl SyncHttpClient {
             }
             _ => None,
         };
-        
+
         let auth_option = auth.or_else(|| crate::auth::extract_auth(&self.config.auth));
-        
+
         // Merge default headers with request headers
         let merged_headers = match headers {
             Some(request_headers) => {
@@ -110,7 +109,7 @@ impl SyncHttpClient {
             }
             _ => headers,
         };
-        
+
         // Handle data parameter - can be string, bytes, or dict
         let (data_content, _data_dict) = if let Some(ref data_obj) = data {
             Python::with_gil(|py| {
@@ -125,26 +124,25 @@ impl SyncHttpClient {
                 // Try dict
                 else if let Ok(dict) = data_obj.extract::<HashMap<String, PyObject>>(py) {
                     (None, Some(dict))
-                }
-                else {
+                } else {
                     // Fallback: convert to string
-                    let s = data_obj.call_method0(py, "__str__").unwrap().extract::<String>(py).unwrap();
+                    let s = data_obj
+                        .call_method0(py, "__str__")
+                        .unwrap()
+                        .extract::<String>(py)
+                        .unwrap();
                     (Some(s.into_bytes()), None)
                 }
             })
         } else {
             (None, None)
         };
-        
+
         let json_dict = json.and_then(|obj| {
-            Python::with_gil(|py| {
-                obj.extract::<HashMap<String, PyObject>>(py).ok()
-            })
+            Python::with_gil(|py| obj.extract::<HashMap<String, PyObject>>(py).ok())
         });
         let files_dict = files.and_then(|obj| {
-            Python::with_gil(|py| {
-                obj.extract::<HashMap<String, PyObject>>(py).ok()
-            })
+            Python::with_gil(|py| obj.extract::<HashMap<String, PyObject>>(py).ok())
         });
 
         // Build final URL
@@ -161,11 +159,11 @@ impl SyncHttpClient {
         } else {
             url.to_string()
         };
-        
+
         // Use ureq client for synchronous request
         // If we have raw data content (string/bytes), prefer that over existing content
         let final_content = data_content.or(content);
-        
+
         self.client.send_request_full(
             method,
             &final_url,
@@ -191,7 +189,7 @@ impl SyncHttpClient {
         content: Option<Vec<u8>>,
     ) -> PyResult<HttpResponse> {
         use bytes::Bytes;
-        
+
         let body = content.map(Bytes::from);
         self.client.request(method, url, Some(headers), body, None)
     }
@@ -422,7 +420,7 @@ impl SyncHttpClient {
             max_redirects: config.max_redirects as u32,
             verify: config.ssl_config.verify,
         };
-        
+
         let client = UreqHttpClient::new(ureq_config)?;
 
         Ok(Self { client, config })

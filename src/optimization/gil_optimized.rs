@@ -1,21 +1,21 @@
 // GIL-free processing
 // Implements complete Python-free request processing chains in Rust
 
+use crate::client::hyper_client::HyperHttpClient;
 use crate::config::ClientConfig;
 use crate::core::error::RequestError;
 use crate::models::HttpResponse;
-use crate::client::hyper_client::HyperHttpClient;
-use crate::transport::ureq_client::UreqHttpClient;
 use crate::optimization::precompiled::{parse_method_configured, process_headers_configured};
+use crate::transport::ureq_client::UreqHttpClient;
 // use crate::zero_copy::ZeroCopyBuffer; // Removed - over-engineered
+use bytes::Bytes;
+use hyper::Uri;
 use pyo3::prelude::*;
 use pyo3::{PyObject, Python};
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use bytes::Bytes;
-use hyper::Uri;
-use std::str::FromStr;
 
 /// GIL-free request context
 /// All request data pre-processed and stored in Rust-native types
@@ -48,25 +48,22 @@ impl GilFreeRequestContext {
     ) -> Result<Self, String> {
         // Parse method using precompiled lookup
         let method = parse_method_configured(&method)?;
-        
+
         // Parse URI
-        let uri = Uri::from_str(&url)
-            .map_err(|e| format!("Invalid URI: {}", e))?;
-        
+        let uri = Uri::from_str(&url).map_err(|e| format!("Invalid URI: {}", e))?;
+
         // Process headers using precompiled configuration
         let processed_headers = process_headers_configured(&headers)
             .into_iter()
             .map(|(k, v)| (k.to_string(), v))
             .collect();
-        
+
         // Create zero-copy content buffer
-        let content_buffer = content.map(|data| {
-            Bytes::from(data)
-        });
-        
+        let content_buffer = content.map(|data| Bytes::from(data));
+
         // Convert timeout
         let timeout_duration = timeout.map(Duration::from_secs_f64);
-        
+
         Ok(Self {
             method,
             uri,
@@ -96,13 +93,12 @@ impl GilFreeRequestContext {
                 .getattr(py, "timeout")
                 .ok()
                 .and_then(|t| t.extract(py).ok());
-            
+
             PyResult::Ok((method, url, headers, content, timeout))
         })?;
 
         // Process data WITHOUT GIL
-        Self::from_raw_data(method, url, headers, content, timeout)
-            .map_err(RequestError::new_err)
+        Self::from_raw_data(method, url, headers, content, timeout).map_err(RequestError::new_err)
     }
 
     /// Get content as slice without copying
@@ -112,7 +108,7 @@ impl GilFreeRequestContext {
     }
 
     /// Get content size without copying
-    #[inline(always)]  
+    #[inline(always)]
     pub fn content_size(&self) -> usize {
         self.content.as_ref().map(|buf| buf.len()).unwrap_or(0)
     }
@@ -143,10 +139,12 @@ impl GilFreeAsyncProcessor {
         context: GilFreeRequestContext,
     ) -> Result<HttpResponse, String> {
         // Increment active request counter
-        self.active_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        
+        self.active_requests
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
         // Process request entirely in Rust without Python interaction
-        let result = self.client
+        let result = self
+            .client
             .request_with_timeout(
                 context.method,
                 context.uri,
@@ -158,14 +156,16 @@ impl GilFreeAsyncProcessor {
             .map_err(|e| format!("Request failed: {:?}", e));
 
         // Decrement active request counter
-        self.active_requests.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-        
+        self.active_requests
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+
         result
     }
 
     /// Get active request count
     pub fn active_request_count(&self) -> usize {
-        self.active_requests.load(std::sync::atomic::Ordering::Relaxed)
+        self.active_requests
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -186,7 +186,7 @@ impl GilFreeSyncProcessor {
             verify: config.ssl_config.verify,
         };
         let client = UreqHttpClient::new(ureq_config)?;
-        
+
         Ok(Self {
             client,
             active_requests: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
@@ -199,16 +199,18 @@ impl GilFreeSyncProcessor {
         context: &GilFreeRequestContext,
     ) -> Result<HttpResponse, String> {
         // Increment active request counter
-        self.active_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        
+        self.active_requests
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
         // Convert method to string for ureq
         let method_str = context.method.as_str();
         let url_str = context.uri.to_string();
-        
+
         // Process request entirely in Rust without Python interaction
         let content_bytes = context.content.clone();
-        
-        let result = self.client
+
+        let result = self
+            .client
             .request(
                 method_str,
                 &url_str,
@@ -219,14 +221,16 @@ impl GilFreeSyncProcessor {
             .map_err(|e| format!("Request failed: {:?}", e));
 
         // Decrement active request counter
-        self.active_requests.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-        
+        self.active_requests
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+
         result
     }
 
     /// Get active request count
     pub fn active_request_count(&self) -> usize {
-        self.active_requests.load(std::sync::atomic::Ordering::Relaxed)
+        self.active_requests
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -241,7 +245,7 @@ impl BatchGilFreeProcessor {
     pub fn new(config: ClientConfig) -> PyResult<Self> {
         let async_processor = GilFreeAsyncProcessor::new(config.clone())?;
         let sync_processor = GilFreeSyncProcessor::new(&config)?;
-        
+
         Ok(Self {
             async_processor,
             sync_processor,
@@ -256,12 +260,12 @@ impl BatchGilFreeProcessor {
     ) -> Vec<Result<HttpResponse, String>> {
         let mut results = Vec::with_capacity(contexts.len());
         let mut join_set = tokio::task::JoinSet::new();
-        
+
         // Process in chunks to manage system resources
         for chunk in contexts.chunks(self.max_concurrent) {
             for context in chunk.iter().cloned() {
                 let processor = self.async_processor.client.clone();
-                
+
                 join_set.spawn(async move {
                     // Complete request processing without GIL
                     processor
@@ -309,44 +313,45 @@ fn generate_request_id() -> u64 {
 
 /// Python-facing GIL-free request API
 #[pyfunction]
-pub fn gil_processed_request(
-    py_request: PyObject,
-    use_async: Option<bool>,
-) -> PyResult<PyObject> {
+pub fn gil_processed_request(py_request: PyObject, use_async: Option<bool>) -> PyResult<PyObject> {
     // Extract data from Python with minimal GIL time
     let context = GilFreeRequestContext::from_python_request(&py_request)?;
-    
+
     // Release GIL and process request entirely in Rust
     let use_async = use_async.unwrap_or(true);
-    
+
     if use_async {
         // Async processing
         Python::with_gil(|py| {
             Ok(pyo3_asyncio::tokio::future_into_py(py, async move {
                 // Create ephemeral config for single request
                 let config = ClientConfig::new(
-                    None, None, None, None, None, None, None, None, None,
-                    None, None, None, None, None, None, None, None, None, None, None
+                    None, None, None, None, None, None, None, None, None, None, None, None, None,
+                    None, None, None, None, None, None, None,
                 )?;
-                
+
                 let processor = GilFreeAsyncProcessor::new(config)?;
-                let result = processor.process_request_gil_free(context).await
+                let result = processor
+                    .process_request_gil_free(context)
+                    .await
                     .map_err(RequestError::new_err)?;
-                
+
                 Ok(result)
-            })?.to_object(py))
+            })?
+            .to_object(py))
         })
     } else {
         // Sync processing - complete without GIL
         let config = ClientConfig::new(
-            None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None, None, None, None
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None,
         )?;
-        
+
         let processor = GilFreeSyncProcessor::new(&config)?;
-        let result = processor.process_request_gil_free(&context)
+        let result = processor
+            .process_request_gil_free(&context)
             .map_err(RequestError::new_err)?;
-        
+
         Python::with_gil(|py| Ok(result.to_object(py)))
     }
 }
@@ -359,7 +364,7 @@ pub fn gil_processed_async_request<'py>(
     py_request: PyObject,
 ) -> PyResult<&'py PyAny> {
     use pyo3_asyncio::tokio::future_into_py;
-    
+
     // Data extraction from Python with GIL management
     let (method, url, headers, content, timeout) = Python::with_gil(|py| {
         let method = py_request.getattr(py, "method")?.extract::<String>(py)?;
@@ -377,27 +382,28 @@ pub fn gil_processed_async_request<'py>(
             .getattr(py, "timeout")
             .ok()
             .and_then(|t| t.extract(py).ok());
-        
+
         PyResult::Ok((method, url, headers, content, timeout))
     })?;
-    
+
     // Process request with minimal GIL interaction
     future_into_py(py, async move {
         // Create GIL-free context
-        let context = GilFreeRequestContext::from_raw_data(
-            method, url, headers, content, timeout
-        ).map_err(RequestError::new_err)?;
-        
+        let context = GilFreeRequestContext::from_raw_data(method, url, headers, content, timeout)
+            .map_err(RequestError::new_err)?;
+
         // Create ephemeral config for single request
         let config = ClientConfig::new(
-            None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None, None, None, None
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None,
         )?;
-        
+
         let processor = GilFreeAsyncProcessor::new(config)?;
-        let result = processor.process_request_gil_free(context).await
+        let result = processor
+            .process_request_gil_free(context)
+            .await
             .map_err(RequestError::new_err)?;
-        
+
         Ok(result)
     })
 }
@@ -410,56 +416,59 @@ pub fn gil_processed_batch_request(
 ) -> PyResult<PyObject> {
     // Extract all data from Python with minimal total GIL time
     let mut contexts = Vec::with_capacity(py_requests.len());
-    
+
     for py_request in py_requests {
         let context = GilFreeRequestContext::from_python_request(&py_request)?;
         contexts.push(context);
     }
-    
+
     // Process entirely in Rust without GIL
     let use_async = use_async.unwrap_or(true);
-    
+
     if use_async {
         Python::with_gil(|py| {
             Ok(pyo3_asyncio::tokio::future_into_py(py, async move {
                 let config = ClientConfig::new(
-                    None, None, None, None, None, None, None, None, None,
-                    None, None, None, None, None, None, None, None, None, None, None
+                    None, None, None, None, None, None, None, None, None, None, None, None, None,
+                    None, None, None, None, None, None, None,
                 )?;
-                
+
                 let processor = BatchGilFreeProcessor::new(config)?;
                 let results = processor.process_batch_requests(contexts).await;
-                
+
                 // Convert results back to Python objects
                 let py_results: PyResult<Vec<PyObject>> = Python::with_gil(|py| {
-                    results.into_iter().map(|result| {
-                        match result {
+                    results
+                        .into_iter()
+                        .map(|result| match result {
                             Ok(response) => Ok(response.to_object(py)),
                             Err(error) => Err(RequestError::new_err(error)),
-                        }
-                    }).collect()
+                        })
+                        .collect()
                 });
-                
+
                 py_results
-            })?.to_object(py))
+            })?
+            .to_object(py))
         })
     } else {
         let config = ClientConfig::new(
-            None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None, None, None, None
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None,
         )?;
-        
+
         let processor = BatchGilFreeProcessor::new(config)?;
         let results = processor.process_sync_batch_requests(&contexts);
-        
+
         Python::with_gil(|py| {
-            let py_results: PyResult<Vec<PyObject>> = results.into_iter().map(|result| {
-                match result {
+            let py_results: PyResult<Vec<PyObject>> = results
+                .into_iter()
+                .map(|result| match result {
                     Ok(response) => Ok(response.to_object(py)),
                     Err(error) => Err(RequestError::new_err(error)),
-                }
-            }).collect();
-            
+                })
+                .collect();
+
             Ok(py_results?.to_object(py))
         })
     }
@@ -478,7 +487,7 @@ mod tests {
             None,
             Some(10.0),
         );
-        
+
         assert!(context.is_ok());
         let ctx = context.unwrap();
         assert_eq!(ctx.method, hyper::Method::GET);

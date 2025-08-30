@@ -1,10 +1,10 @@
-use pyo3::prelude::*;
 use crate::config::ClientConfig;
 use crate::core::error::RequestError;
-use crate::utils::hooks::EventHooksProxy;
 use crate::models::{HttpRequest, HttpResponse};
+use crate::utils::hooks::EventHooksProxy;
+use pyo3::prelude::*;
 // Removed async-related imports as we use synchronous ureq client
-use crate::transport::ureq_client::{UreqHttpClient, UreqClientConfig};
+use crate::transport::ureq_client::{UreqClientConfig, UreqHttpClient};
 // Removed unused utility imports
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -64,7 +64,7 @@ fn extract_cookies_from_object(
 // Synchronous HTTP client - simplified to match AsyncClient architecture
 #[pyclass(module = "faster_http")]
 pub struct HttpClient {
-    client: UreqHttpClient,  // Use ureq for true synchronous operations
+    client: UreqHttpClient, // Use ureq for true synchronous operations
     config: ClientConfig,
     is_closed: AtomicBool,
 }
@@ -123,12 +123,16 @@ impl HttpClient {
             default_encoding,
             params,
         )?;
-        
+
         // Build ureq-based synchronous client
         let ureq_config = UreqClientConfig {
             timeout: config.default_timeout,
             follow_redirects: config.follow_redirects,
-            max_redirects: if config.max_redirects >= 0 { config.max_redirects as u32 } else { 20 },
+            max_redirects: if config.max_redirects >= 0 {
+                config.max_redirects as u32
+            } else {
+                20
+            },
             verify: config.ssl_config.verify,
         };
         let client = UreqHttpClient::new(ureq_config)?;
@@ -165,9 +169,9 @@ impl HttpClient {
 
         // Use centralized URL building with merged params
         let final_url = crate::utils::build_url_with_python_params(
-            url, 
-            self.config.base_url.as_ref(), 
-            Some(&final_params)
+            url,
+            self.config.base_url.as_ref(),
+            Some(&final_params),
         )?;
 
         // Simple header merging
@@ -241,15 +245,18 @@ impl HttpClient {
     // Send pre-built request - using synchronous ureq client directly
     pub fn send(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
         self.check_not_closed()?;
-        
+
         // Extract request data
         let method = request.get_method();
         let url = request.get_url();
         let headers = Some(request.get_headers().clone());
-        let content_bytes = request.get_content().map(|b| bytes::Bytes::from(b.to_vec()));
-        
+        let content_bytes = request
+            .get_content()
+            .map(|b| bytes::Bytes::from(b.to_vec()));
+
         // Use ureq client directly (synchronous operation)
-        self.client.request(method, url, headers, content_bytes, None)
+        self.client
+            .request(method, url, headers, content_bytes, None)
     }
 
     fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -313,17 +320,17 @@ impl HttpClient {
         // Merge cookies with cookie jar for session management
         let merged_cookies = {
             let mut merged = HashMap::new();
-            
+
             // Add cookies from cookie jar (session cookies)
             if let Ok(jar) = self.config.cookie_jar.lock() {
                 merged.extend(jar.clone());
             }
-            
+
             // Add request-specific cookies (highest priority)
             if let Some(request_cookies) = cookies {
                 merged.extend(request_cookies);
             }
-            
+
             if !merged.is_empty() {
                 Some(merged)
             } else {
@@ -346,17 +353,17 @@ impl HttpClient {
             merged_cookies,
             follow_redirects,
         )?;
-        
+
         // Update cookie jar with Set-Cookie headers from response
         self.update_cookie_jar_from_response(&response);
-        
+
         Ok(response)
     }
 
     /// Update cookie jar with Set-Cookie headers from response
     fn update_cookie_jar_from_response(&self, response: &crate::models::HttpResponse) {
         let headers_map = response.headers().to_hashmap();
-        
+
         // Look for Set-Cookie headers (case-insensitive)
         for (key, value) in &headers_map {
             if key.to_lowercase() == "set-cookie" {
@@ -365,7 +372,7 @@ impl HttpClient {
                     if let Some((name, val)) = cookie_pair.split_once('=') {
                         let cookie_name = name.trim().to_string();
                         let cookie_value = val.trim().trim_matches('"').to_string();
-                        
+
                         // Update cookie jar
                         if let Ok(mut jar) = self.config.cookie_jar.lock() {
                             jar.insert(cookie_name, cookie_value);
@@ -401,9 +408,9 @@ impl HttpClient {
 
         // Use centralized URL building with merged params (same as build_request method)
         let final_url = crate::utils::build_url_with_python_params(
-            url, 
-            self.config.base_url.as_ref(), 
-            Some(&final_params)
+            url,
+            self.config.base_url.as_ref(),
+            Some(&final_params),
         )?;
 
         // Merge default headers with request headers
@@ -420,17 +427,17 @@ impl HttpClient {
 
         self._request(
             method,
-            &final_url,  // Use the properly resolved URL
+            &final_url, // Use the properly resolved URL
             content,
             data,
             json,
             files,
             Some(final_params),  // Pass the final params
-            Some(final_headers),  // Pass the merged headers
+            Some(final_headers), // Pass the merged headers
             timeout,
             auth,
             follow_redirects,
-            Some(final_cookies),  // Pass the merged cookies
+            Some(final_cookies), // Pass the merged cookies
         )
     }
 
@@ -652,16 +659,16 @@ impl HttpClient {
         _cookies: Option<HashMap<String, String>>,
     ) -> PyResult<crate::stubs::streaming_stub::StreamingClient> {
         use crate::stubs::streaming_stub::StreamingClient;
-        
+
         self.check_not_closed()?;
-        
+
         // Merge request cookies with client default cookies
         let merged_cookies = match _cookies {
             Some(request_cookies) => {
                 let mut combined = self.config.default_cookies.clone();
                 combined.extend(request_cookies);
                 Some(combined)
-            },
+            }
             None => {
                 if !self.config.default_cookies.is_empty() {
                     Some(self.config.default_cookies.clone())
@@ -670,11 +677,12 @@ impl HttpClient {
                 }
             }
         };
-        
+
         // Convert _params from Option<HashMap<String, String>> to Option<HashMap<String, PyObject>>
         let converted_params = _params.map(|params_map| {
             Python::with_gil(|py| {
-                params_map.into_iter()
+                params_map
+                    .into_iter()
                     .map(|(k, v)| (k, v.to_object(py)))
                     .collect()
             })
@@ -724,7 +732,7 @@ impl HttpClient {
         self.config.auth_object.clone()
     }
 
-    #[getter] 
+    #[getter]
     pub fn follow_redirects(&self) -> bool {
         self.config.follow_redirects
     }
@@ -733,7 +741,7 @@ impl HttpClient {
     pub fn get_connection_stats(&self) -> PyResult<std::collections::HashMap<String, f64>> {
         // Return connection pool statistics for monitoring
         let mut stats = std::collections::HashMap::new();
-        
+
         // For sync client, we use ureq which doesn't expose detailed pool stats
         // But we can provide basic health information
         stats.insert("client_type".to_string(), 0.0); // 0 = sync
@@ -741,7 +749,7 @@ impl HttpClient {
         stats.insert("total_requests".to_string(), 0.0); // ureq doesn't expose this
         stats.insert("failed_requests".to_string(), 0.0);
         stats.insert("success_rate".to_string(), 1.0);
-        
+
         Ok(stats)
     }
 

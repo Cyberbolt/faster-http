@@ -1,5 +1,5 @@
-use crate::models::{HttpRequest, HttpResponse};
 use crate::core::error::InternalError;
+use crate::models::{HttpRequest, HttpResponse};
 use pyo3::prelude::*;
 use pyo3::PyCell;
 use std::collections::HashMap;
@@ -320,7 +320,9 @@ impl EventHooksProxy {
 impl EventHooksProxy {
     fn __getitem__(&self, key: &str) -> PyResult<PyObject> {
         Python::with_gil(|py| {
-            let hooks = self.hooks.lock()
+            let hooks = self
+                .hooks
+                .lock()
                 .map_err(|_| InternalError::new_err("Failed to acquire hooks lock"))?;
             match key {
                 "request" => Ok(hooks.request_hooks.to_object(py)),
@@ -338,7 +340,9 @@ impl EventHooksProxy {
 
     fn __setitem__(&self, key: &str, value: PyObject) -> PyResult<()> {
         Python::with_gil(|py| {
-            let mut hooks = self.hooks.lock()
+            let mut hooks = self
+                .hooks
+                .lock()
                 .map_err(|_| InternalError::new_err("Failed to acquire hooks lock"))?;
             let hook_list = EventHooks::extract_hook_list(py, &value)?;
 
@@ -361,7 +365,9 @@ impl EventHooksProxy {
 
     fn __delitem__(&self, key: &str) -> PyResult<()> {
         Python::with_gil(|_py| {
-            let mut hooks = self.hooks.lock()
+            let mut hooks = self
+                .hooks
+                .lock()
                 .map_err(|_| InternalError::new_err("Failed to acquire hooks lock"))?;
             match key {
                 "request" => hooks.request_hooks.clear(),
@@ -412,7 +418,9 @@ impl EventHooksProxy {
 
     fn values(&self) -> PyResult<PyObject> {
         Python::with_gil(|py| {
-            let hooks = self.hooks.lock()
+            let hooks = self
+                .hooks
+                .lock()
                 .map_err(|_| InternalError::new_err("Failed to acquire hooks lock"))?;
             let values = vec![
                 hooks.request_hooks.to_object(py),
@@ -427,7 +435,9 @@ impl EventHooksProxy {
 
     fn items(&self) -> PyResult<PyObject> {
         Python::with_gil(|py| {
-            let hooks = self.hooks.lock()
+            let hooks = self
+                .hooks
+                .lock()
                 .map_err(|_| InternalError::new_err("Failed to acquire hooks lock"))?;
             let items = vec![
                 ("request", hooks.request_hooks.to_object(py)),
@@ -462,7 +472,9 @@ impl EventHooksProxy {
 
     fn __repr__(&self) -> PyResult<String> {
         Python::with_gil(|_py| {
-            let hooks = self.hooks.lock()
+            let hooks = self
+                .hooks
+                .lock()
                 .map_err(|_| InternalError::new_err("Failed to acquire hooks lock"))?;
             Ok(format!(
                 "EventHooksProxy({{'request': {}, 'response': {}, 'pre_request': {}, 'post_response': {}, 'error': {}}})",

@@ -1,7 +1,7 @@
+use crate::core::error::{create_url_error, create_validation_error};
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAny};
 use std::collections::HashMap;
-use crate::core::error::{create_validation_error, create_url_error};
 
 /// Iterator for HttpHeaders
 #[pyclass]
@@ -76,7 +76,10 @@ impl HttpHeaders {
                 return Ok(v.clone());
             }
         }
-        Err(create_validation_error(&format!("Header not found: {}", key)))
+        Err(create_validation_error(&format!(
+            "Header not found: {}",
+            key
+        )))
     }
 
     fn __setitem__(&mut self, key: String, value: String) {
@@ -91,7 +94,10 @@ impl HttpHeaders {
         let original_len = self.inner.len();
         self.inner.retain(|k, _| k.to_lowercase() != key_lower);
         if self.inner.len() == original_len {
-            return Err(create_validation_error(&format!("Header not found: {}", key)));
+            return Err(create_validation_error(&format!(
+                "Header not found: {}",
+                key
+            )));
         }
         Ok(())
     }
@@ -326,7 +332,10 @@ impl HttpCookies {
 
     fn __delitem__(&mut self, key: &str) -> PyResult<()> {
         if self.inner.remove(key).is_none() {
-            return Err(create_validation_error(&format!("Cookie not found: {}", key)));
+            return Err(create_validation_error(&format!(
+                "Cookie not found: {}",
+                key
+            )));
         }
         Ok(())
     }
@@ -395,8 +404,7 @@ pub struct HttpUrl {
 impl HttpUrl {
     #[new]
     pub fn new(url: String) -> PyResult<Self> {
-        let parsed = url::Url::parse(&url)
-            .map_err(|e| create_url_error(&e.to_string()))?;
+        let parsed = url::Url::parse(&url).map_err(|e| create_url_error(&e.to_string()))?;
         Ok(Self { url, parsed })
     }
 
@@ -424,7 +432,7 @@ impl HttpUrl {
                             cleaned
                         }
                     }
-                    Err(_) => cleaned // Fallback to cleaned string if parsing fails
+                    Err(_) => cleaned, // Fallback to cleaned string if parsing fails
                 }
             } else {
                 cleaned
@@ -463,7 +471,10 @@ impl HttpUrl {
     #[getter]
     pub fn fragment(&self) -> String {
         // httpx compatibility: return empty string instead of None when fragment is missing
-        self.parsed.fragment().map(|f| f.to_string()).unwrap_or_default()
+        self.parsed
+            .fragment()
+            .map(|f| f.to_string())
+            .unwrap_or_default()
     }
 
     #[getter]
@@ -502,17 +513,17 @@ impl HttpUrl {
         fragment: Option<&str>,
     ) -> PyResult<Self> {
         let mut new_url = self.parsed.clone();
-        
+
         if let Some(scheme) = scheme {
-            new_url.set_scheme(scheme).map_err(|_| {
-                create_url_error("Invalid scheme")
-            })?;
+            new_url
+                .set_scheme(scheme)
+                .map_err(|_| create_url_error("Invalid scheme"))?;
         }
-        
+
         if let Some(path) = path {
             new_url.set_path(path);
         }
-        
+
         if let Some(query) = query {
             if let Ok(query_bytes) = query.extract::<&[u8]>() {
                 let query_str = std::str::from_utf8(query_bytes)
@@ -522,11 +533,11 @@ impl HttpUrl {
                 new_url.set_query(Some(&query_str));
             }
         }
-        
+
         if let Some(fragment) = fragment {
             new_url.set_fragment(Some(fragment));
         }
-        
+
         Ok(Self {
             url: new_url.to_string(),
             parsed: new_url,
@@ -534,9 +545,10 @@ impl HttpUrl {
     }
 
     pub fn resolve_reference(&self, reference: &str) -> PyResult<Self> {
-        let resolved = self.parsed.join(reference).map_err(|e| {
-            create_url_error(&format!("Cannot resolve reference: {}", e))
-        })?;
+        let resolved = self
+            .parsed
+            .join(reference)
+            .map_err(|e| create_url_error(&format!("Cannot resolve reference: {}", e)))?;
         Ok(Self {
             url: resolved.to_string(),
             parsed: resolved,
@@ -580,11 +592,11 @@ impl HttpTimeout {
     #[new]
     #[pyo3(signature = (timeout = -1.0, *, connect = -1.0, read = -1.0, write = -1.0, pool = -1.0))]
     pub fn new(
-        timeout: f64,        // Use -1.0 as sentinel for "not provided", NaN for None
-        connect: f64,        // Use -1.0 as sentinel for "not provided", NaN for None
-        read: f64,           // Use -1.0 as sentinel for "not provided", NaN for None  
-        write: f64,          // Use -1.0 as sentinel for "not provided", NaN for None
-        pool: f64,           // Use -1.0 as sentinel for "not provided", NaN for None
+        timeout: f64, // Use -1.0 as sentinel for "not provided", NaN for None
+        connect: f64, // Use -1.0 as sentinel for "not provided", NaN for None
+        read: f64,    // Use -1.0 as sentinel for "not provided", NaN for None
+        write: f64,   // Use -1.0 as sentinel for "not provided", NaN for None
+        pool: f64,    // Use -1.0 as sentinel for "not provided", NaN for None
     ) -> PyResult<Self> {
         // Helper function to parse timeout values
         let parse_timeout = |val: f64| -> Option<f64> {
@@ -594,24 +606,25 @@ impl HttpTimeout {
                 Some(val)
             }
         };
-        
+
         let timeout_provided = timeout != -1.0;
         let timeout_is_none = timeout.is_nan();
         let timeout_value = parse_timeout(timeout);
-        
+
         let connect_provided = connect != -1.0;
         let read_provided = read != -1.0;
         let write_provided = write != -1.0;
         let pool_provided = pool != -1.0;
-        
+
         let connect_val = parse_timeout(connect);
         let read_val = parse_timeout(read);
         let write_val = parse_timeout(write);
         let pool_val = parse_timeout(pool);
-        
+
         // Check if any individual timeout parameters were provided
-        let has_individual_params = connect_provided || read_provided || write_provided || pool_provided;
-        
+        let has_individual_params =
+            connect_provided || read_provided || write_provided || pool_provided;
+
         // Match httpx behavior
         if timeout_provided {
             if timeout_is_none {
@@ -625,16 +638,30 @@ impl HttpTimeout {
             } else if let Some(default_timeout) = timeout_value {
                 // A numeric timeout was provided - use it as default for all unspecified timeouts
                 Ok(Self {
-                    connect: if connect_provided { connect_val } else { Some(default_timeout) },
-                    read: if read_provided { read_val } else { Some(default_timeout) },
-                    write: if write_provided { write_val } else { Some(default_timeout) },
-                    pool: if pool_provided { pool_val } else { Some(default_timeout) },
+                    connect: if connect_provided {
+                        connect_val
+                    } else {
+                        Some(default_timeout)
+                    },
+                    read: if read_provided {
+                        read_val
+                    } else {
+                        Some(default_timeout)
+                    },
+                    write: if write_provided {
+                        write_val
+                    } else {
+                        Some(default_timeout)
+                    },
+                    pool: if pool_provided {
+                        pool_val
+                    } else {
+                        Some(default_timeout)
+                    },
                 })
             } else {
                 // Shouldn't happen with our logic but handle it
-                Err(create_validation_error(
-                    "Invalid timeout configuration."
-                ))
+                Err(create_validation_error("Invalid timeout configuration."))
             }
         } else if has_individual_params {
             // Individual parameters provided - all must be specified for httpx compatibility
@@ -687,7 +714,7 @@ impl HttpTimeout {
                 None => "None".to_string(),
             }
         };
-        
+
         // Match httpx format exactly
         if self.connect == self.read && self.read == self.write && self.write == self.pool {
             // All timeouts are the same - use compact format
@@ -710,10 +737,10 @@ impl HttpTimeout {
 
     fn __eq__(&self, _py: Python, other: &pyo3::PyAny) -> PyResult<bool> {
         if let Ok(other_timeout) = other.extract::<HttpTimeout>() {
-            Ok(self.connect == other_timeout.connect &&
-               self.read == other_timeout.read &&
-               self.write == other_timeout.write &&
-               self.pool == other_timeout.pool)
+            Ok(self.connect == other_timeout.connect
+                && self.read == other_timeout.read
+                && self.write == other_timeout.write
+                && self.pool == other_timeout.pool)
         } else {
             Ok(false)
         }
@@ -777,21 +804,29 @@ impl HttpLimits {
     fn __repr__(&self) -> String {
         format!(
             "Limits(max_connections={}, max_keepalive_connections={}, keepalive_expiry={})",
-            if self.max_connections == -1 { "None".to_string() } else { self.max_connections.to_string() },
-            if self.max_keepalive_connections == -1 { "None".to_string() } else { self.max_keepalive_connections.to_string() },
-            if self.keepalive_expiry.fract() == 0.0 { 
-                format!("{:.1}", self.keepalive_expiry) 
-            } else { 
-                self.keepalive_expiry.to_string() 
+            if self.max_connections == -1 {
+                "None".to_string()
+            } else {
+                self.max_connections.to_string()
+            },
+            if self.max_keepalive_connections == -1 {
+                "None".to_string()
+            } else {
+                self.max_keepalive_connections.to_string()
+            },
+            if self.keepalive_expiry.fract() == 0.0 {
+                format!("{:.1}", self.keepalive_expiry)
+            } else {
+                self.keepalive_expiry.to_string()
             }
         )
     }
 
     fn __eq__(&self, _py: Python, other: &pyo3::PyAny) -> PyResult<bool> {
         if let Ok(other_limits) = other.extract::<HttpLimits>() {
-            Ok(self.max_connections == other_limits.max_connections &&
-               self.max_keepalive_connections == other_limits.max_keepalive_connections &&
-               (self.keepalive_expiry - other_limits.keepalive_expiry).abs() < f64::EPSILON)
+            Ok(self.max_connections == other_limits.max_connections
+                && self.max_keepalive_connections == other_limits.max_keepalive_connections
+                && (self.keepalive_expiry - other_limits.keepalive_expiry).abs() < f64::EPSILON)
         } else {
             Ok(false)
         }
@@ -870,7 +905,7 @@ impl HttpBasicAuth {
     fn __hash__(&self) -> PyResult<isize> {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         self.username.hash(&mut hasher);
         self.password.hash(&mut hasher);
@@ -938,7 +973,7 @@ impl HttpDigestAuth {
     }
 
     fn requires_response_body(&self) -> bool {
-        true  // Digest auth typically needs response body for challenge
+        true // Digest auth typically needs response body for challenge
     }
 
     fn __repr__(&self) -> String {
@@ -956,7 +991,7 @@ impl HttpDigestAuth {
     fn __hash__(&self) -> PyResult<isize> {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         self.username.hash(&mut hasher);
         self.password.hash(&mut hasher);
@@ -999,7 +1034,7 @@ impl HttpNetRCAuth {
             }
         } else {
             return Err(pyo3::exceptions::PyFileNotFoundError::new_err(
-                "[Errno 2] No such file or directory: '~/.netrc'"
+                "[Errno 2] No such file or directory: '~/.netrc'",
             ));
         }
 
@@ -1061,11 +1096,11 @@ impl UseClientDefault {
     fn new() -> Self {
         Self
     }
-    
+
     fn __repr__(&self) -> String {
         "USE_CLIENT_DEFAULT".to_string()
     }
-    
+
     fn __str__(&self) -> String {
         "USE_CLIENT_DEFAULT".to_string()
     }
@@ -1086,9 +1121,54 @@ impl BaseTransport {
     fn new() -> Self {
         Self
     }
-    
+
     fn __repr__(&self) -> String {
         "<BaseTransport>".to_string()
+    }
+}
+
+/// AsyncBaseTransport base class for httpx compatibility
+#[pyclass(module = "faster_http")]
+#[derive(Clone, Debug)]
+pub struct AsyncBaseTransport;
+
+#[pymethods]
+impl AsyncBaseTransport {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+
+    /// async def aclose(self) -> None:
+    ///     """Close the transport."""
+    ///     pass
+    fn aclose(&self, py: Python) -> PyResult<PyObject> {
+        // Return a completed coroutine that does nothing
+        py.eval(
+            "__import__('asyncio').Future().set_result(None) or __import__('asyncio').Future()",
+            None,
+            None,
+        )
+        .and_then(|future| Ok(future.to_object(py)))
+    }
+
+    /// async def handle_async_request(self, request) -> Response:
+    ///     """Handle an async request."""
+    ///     raise NotImplementedError()
+    fn handle_async_request(&self, _request: PyObject, py: Python) -> PyResult<PyObject> {
+        // Create and return a coroutine that raises NotImplementedError
+        let code = r#"
+async def _handle_async_request():
+    raise NotImplementedError("AsyncBaseTransport subclasses must implement 'handle_async_request'")
+_handle_async_request()
+"#;
+        let globals = py.import("builtins")?.dict();
+        py.eval(code, Some(globals), None)
+            .map(|coro| coro.to_object(py))
+    }
+
+    fn __repr__(&self) -> String {
+        "<AsyncBaseTransport>".to_string()
     }
 }
 
@@ -1103,7 +1183,7 @@ impl HTTPTransport {
     fn new() -> Self {
         Self
     }
-    
+
     fn __repr__(&self) -> String {
         "<HTTPTransport>".to_string()
     }
@@ -1120,7 +1200,7 @@ impl AsyncHTTPTransport {
     fn new() -> Self {
         Self
     }
-    
+
     fn __repr__(&self) -> String {
         "<AsyncHTTPTransport>".to_string()
     }
@@ -1137,7 +1217,7 @@ impl ByteStream {
     fn new() -> Self {
         Self
     }
-    
+
     fn __repr__(&self) -> String {
         "<ByteStream>".to_string()
     }
@@ -1154,7 +1234,7 @@ impl SyncByteStream {
     fn new() -> Self {
         Self
     }
-    
+
     fn __repr__(&self) -> String {
         "<SyncByteStream>".to_string()
     }
@@ -1171,7 +1251,7 @@ impl AsyncByteStream {
     fn new() -> Self {
         Self
     }
-    
+
     fn __repr__(&self) -> String {
         "<AsyncByteStream>".to_string()
     }
@@ -1188,7 +1268,7 @@ impl ASGITransport {
     fn new() -> Self {
         Self
     }
-    
+
     fn __repr__(&self) -> String {
         "<ASGITransport>".to_string()
     }
@@ -1205,7 +1285,7 @@ impl WSGITransport {
     fn new() -> Self {
         Self
     }
-    
+
     fn __repr__(&self) -> String {
         "<WSGITransport>".to_string()
     }
@@ -1222,13 +1302,136 @@ pub fn create_ssl_context(
         // Basic SSL context creation - placeholder implementation
         let ssl_module = py.import("ssl")?;
         let context = ssl_module.call_method0("create_default_context")?;
-        
+
         if let Some(false) = verify {
             context.setattr("check_hostname", false)?;
             let ssl_cert_none = ssl_module.getattr("CERT_NONE")?;
             context.setattr("verify_mode", ssl_cert_none)?;
         }
-        
+
         Ok(context.to_object(py))
     })
+}
+
+/// Auth base class for all authentication schemes (httpx compatibility)
+///
+/// Base class for all authentication schemes.
+///
+/// To implement a custom authentication scheme, subclass `Auth` and override
+/// the `.auth_flow()` method.
+///
+/// If the authentication scheme does I/O such as disk access or network calls, or uses
+/// synchronization primitives such as locks, you should override `.sync_auth_flow()`
+/// and/or `.async_auth_flow()` instead of `.auth_flow()` to provide specialized
+/// implementations that will be used by `Client` and `AsyncClient` respectively.
+#[pyclass(module = "faster_http")]
+#[derive(Clone, Debug)]
+pub struct Auth;
+
+#[pymethods]
+impl Auth {
+    #[new]
+    fn new() -> Self {
+        Self
+    }
+
+    /// def auth_flow(self, request):
+    ///     """
+    ///     Execute the authentication flow.
+    ///     
+    ///     To dispatch a request, `yield` it:
+    ///     
+    ///     ```
+    ///     yield request
+    ///     ```
+    ///     
+    ///     The client will .send() the yielded request, and pass back the response
+    ///     into the flow generator. You can access it like so:
+    ///     
+    ///     ```
+    ///     response = yield request
+    ///     ```
+    ///     
+    ///     A `return` (or reaching the end of the method) will result in the
+    ///     client returning the last response that was sent back to the flow.
+    ///     
+    ///     You can dispatch as many requests as is necessary.
+    ///     """
+    ///     raise NotImplementedError()
+    fn auth_flow(&self, _request: PyObject, _py: Python) -> PyResult<PyObject> {
+        Err(pyo3::exceptions::PyNotImplementedError::new_err(
+            "Auth subclasses must implement 'auth_flow'",
+        ))
+    }
+
+    /// def sync_auth_flow(self, request):
+    ///     """
+    ///     Execute the authentication flow synchronously.
+    ///     
+    ///     By default this defers to `.auth_flow()`.
+    ///     
+    ///     You should override this method when the authentication flow uses I/O libraries
+    ///     that only support sync, and you want to provide a specialized implementation that
+    ///     will be used by `Client`.
+    ///     """
+    ///     return self.auth_flow(request)
+    fn sync_auth_flow(&self, request: PyObject, py: Python) -> PyResult<PyObject> {
+        self.auth_flow(request, py)
+    }
+
+    /// async def async_auth_flow(self, request):
+    ///     """
+    ///     Execute the authentication flow asynchronously.
+    ///     
+    ///     By default this defers to `.auth_flow()`.
+    ///     
+    ///     You should override this method when the authentication flow uses async I/O libraries
+    ///     and you want to provide a specialized implementation that will be used by `AsyncClient`.
+    ///     """
+    ///     # Convert sync generator to async generator
+    ///     for item in self.auth_flow(request):
+    ///         yield item
+    fn async_auth_flow(&self, _request: PyObject, py: Python) -> PyResult<PyObject> {
+        // By default, defer to sync auth_flow (matches httpx behavior)
+        // Create an async generator that wraps the sync auth_flow
+        let code = r#"
+async def _async_auth_flow():
+    raise NotImplementedError("Auth subclasses must implement 'async_auth_flow'")
+_async_auth_flow()
+"#;
+        let globals = py.import("builtins")?.dict();
+        py.eval(code, Some(globals), None)
+            .map(|coro| coro.to_object(py))
+    }
+
+    /// @property
+    /// def requires_request_body(self):
+    ///     """
+    ///     A boolean property indicating if the authentication scheme requires
+    ///     access to the request body. If `True`, then chunked transfer encoding
+    ///     will be disabled, since it prevents the request body from being available
+    ///     during the authentication flow.
+    ///     """
+    ///     return False
+    #[getter]
+    fn requires_request_body(&self) -> bool {
+        false
+    }
+
+    /// @property
+    /// def requires_response_body(self):
+    ///     """
+    ///     A boolean property indicating if the authentication scheme requires
+    ///     access to the response body. If `True`, then the response body will
+    ///     be available during the authentication flow.
+    ///     """
+    ///     return False
+    #[getter]
+    fn requires_response_body(&self) -> bool {
+        false
+    }
+
+    fn __repr__(&self) -> String {
+        "<Auth>".to_string()
+    }
 }

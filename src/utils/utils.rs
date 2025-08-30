@@ -23,7 +23,9 @@ pub fn python_object_to_string(py: Python, obj: &PyObject) -> PyResult<String> {
 
 /// Convert Python params dict to string params dict
 /// FINAL TUNING: Pre-allocate capacity for optimal memory usage
-pub fn convert_params_to_strings(params: &HashMap<String, PyObject>) -> PyResult<HashMap<String, String>> {
+pub fn convert_params_to_strings(
+    params: &HashMap<String, PyObject>,
+) -> PyResult<HashMap<String, String>> {
     Python::with_gil(|py| {
         // MEMORY OPTIMIZATION: Pre-allocate exact capacity to avoid rehashing
         let mut string_params = HashMap::with_capacity(params.len());
@@ -63,12 +65,12 @@ pub fn build_url(
                 .iter()
                 .map(|(k, v)| k.len() + v.len() + 3) // key=value& format
                 .sum::<usize>();
-            
+
             // Reserve exact capacity to avoid reallocations
             let separator = if final_url.contains('?') { "&" } else { "?" };
             final_url.reserve_exact(separator.len() + estimated_query_size);
             final_url.push_str(separator);
-            
+
             // FINAL TUNING: Build query string directly without intermediate allocations
             for (i, (key, value)) in params_map.iter().enumerate() {
                 if i > 0 {
@@ -95,8 +97,7 @@ pub fn build_url_with_python_params(
         build_url(base_path, base_url, Some(&string_params))
             .map_err(pyo3::exceptions::PyValueError::new_err)
     } else {
-        build_url(base_path, base_url, None)
-            .map_err(pyo3::exceptions::PyValueError::new_err)
+        build_url(base_path, base_url, None).map_err(pyo3::exceptions::PyValueError::new_err)
     }
 }
 
@@ -106,18 +107,19 @@ pub fn build_multipart_body(
     form_data: Option<HashMap<String, PyObject>>,
 ) -> PyResult<(Vec<u8>, String)> {
     use uuid::Uuid;
-    
+
     // Generate a random boundary
     let boundary = format!("----formdata-{}", Uuid::new_v4().simple());
     let boundary_bytes = format!("--{}", boundary);
     let end_boundary_bytes = format!("--{}--", boundary);
-    
+
     // MEMORY OPTIMIZATION: Pre-allocate with reasonable initial capacity
     // Estimate ~1KB per field/file for headers + data
-    let estimated_capacity = (files_data.as_ref().map(|f| f.len()).unwrap_or(0) + 
-                             form_data.as_ref().map(|d| d.len()).unwrap_or(0)) * 1024;
+    let estimated_capacity = (files_data.as_ref().map(|f| f.len()).unwrap_or(0)
+        + form_data.as_ref().map(|d| d.len()).unwrap_or(0))
+        * 1024;
     let mut body = Vec::with_capacity(estimated_capacity);
-    
+
     Python::with_gil(|py| -> PyResult<()> {
         // Add form data fields first if any
         if let Some(data) = form_data {
@@ -125,18 +127,22 @@ pub fn build_multipart_body(
                 // Write boundary
                 body.extend_from_slice(boundary_bytes.as_bytes());
                 body.extend_from_slice(b"\r\n");
-                
+
                 // Write Content-Disposition header
                 body.extend_from_slice(
-                    format!("Content-Disposition: form-data; name=\"{}\"\r\n\r\n", name).as_bytes()
+                    format!("Content-Disposition: form-data; name=\"{}\"\r\n\r\n", name).as_bytes(),
                 );
-                
+
                 // Convert Python value to string and write it
                 // NOTE: Check bool before i64 because bool is a subclass of int in Python
                 let value_str = if let Ok(s) = value.extract::<String>(py) {
                     s
                 } else if let Ok(b) = value.extract::<bool>(py) {
-                    if b { "true".to_string() } else { "false".to_string() }
+                    if b {
+                        "true".to_string()
+                    } else {
+                        "false".to_string()
+                    }
                 } else if let Ok(i) = value.extract::<i64>(py) {
                     i.to_string()
                 } else if let Ok(f) = value.extract::<f64>(py) {
@@ -145,75 +151,75 @@ pub fn build_multipart_body(
                     // Use Python's str() representation as fallback
                     value.call_method0(py, "__str__")?.extract::<String>(py)?
                 };
-                
+
                 body.extend_from_slice(value_str.as_bytes());
                 body.extend_from_slice(b"\r\n");
             }
         }
-        
+
         // Add file uploads if any
         if let Some(files) = files_data {
             for (field_name, file_spec) in files {
                 // Write boundary
                 body.extend_from_slice(boundary_bytes.as_bytes());
                 body.extend_from_slice(b"\r\n");
-                
+
                 // Parse file specification - support multiple formats:
                 // 1. Direct file object: file_obj
-                // 2. Tuple with filename: (filename, file_obj)  
+                // 2. Tuple with filename: (filename, file_obj)
                 // 3. Tuple with content type: (filename, file_obj, content_type)
-                let (filename, file_obj, mime_type) = if let Ok(tuple) = file_spec.extract::<(String, PyObject, String)>(py) {
-                    // Format: (filename, file_obj, content_type)
-                    let (fname, fobj, ctype) = tuple;
-                    (fname, fobj, ctype)
-                } else if let Ok(tuple) = file_spec.extract::<(String, PyObject)>(py) {
-                    // Format: (filename, file_obj)
-                    let (fname, fobj) = tuple;
-                    let mime_type = mime_guess::from_path(&fname)
-                        .first_or_octet_stream()
-                        .as_ref()
-                        .to_string();
-                    (fname, fobj, mime_type)
-                } else {
-                    // Format: Direct file object
-                    let file_obj = file_spec.clone();
-                    
-                    // Get filename from file object if possible
-                    let filename = if let Ok(name) = file_obj.getattr(py, "name") {
-                        if let Ok(name_str) = name.extract::<String>(py) {
-                            // Extract just the filename from full path
-                            std::path::Path::new(&name_str)
-                                .file_name()
-                                .and_then(|s| s.to_str())
-                                .unwrap_or("file")
-                                .to_string()
+                let (filename, file_obj, mime_type) =
+                    if let Ok(tuple) = file_spec.extract::<(String, PyObject, String)>(py) {
+                        // Format: (filename, file_obj, content_type)
+                        let (fname, fobj, ctype) = tuple;
+                        (fname, fobj, ctype)
+                    } else if let Ok(tuple) = file_spec.extract::<(String, PyObject)>(py) {
+                        // Format: (filename, file_obj)
+                        let (fname, fobj) = tuple;
+                        let mime_type = mime_guess::from_path(&fname)
+                            .first_or_octet_stream()
+                            .as_ref()
+                            .to_string();
+                        (fname, fobj, mime_type)
+                    } else {
+                        // Format: Direct file object
+                        let file_obj = file_spec.clone();
+
+                        // Get filename from file object if possible
+                        let filename = if let Ok(name) = file_obj.getattr(py, "name") {
+                            if let Ok(name_str) = name.extract::<String>(py) {
+                                // Extract just the filename from full path
+                                std::path::Path::new(&name_str)
+                                    .file_name()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("file")
+                                    .to_string()
+                            } else {
+                                "file".to_string()
+                            }
                         } else {
                             "file".to_string()
-                        }
-                    } else {
-                        "file".to_string()
+                        };
+
+                        // Guess MIME type from filename
+                        let mime_type = mime_guess::from_path(&filename)
+                            .first_or_octet_stream()
+                            .as_ref()
+                            .to_string();
+
+                        (filename, file_obj, mime_type)
                     };
-                    
-                    // Guess MIME type from filename
-                    let mime_type = mime_guess::from_path(&filename)
-                        .first_or_octet_stream()
-                        .as_ref()
-                        .to_string();
-                    
-                    (filename, file_obj, mime_type)
-                };
-                
+
                 // Write Content-Disposition and Content-Type headers
                 body.extend_from_slice(
                     format!(
                         "Content-Disposition: form-data; name=\"{}\"; filename=\"{}\"\r\n",
                         field_name, filename
-                    ).as_bytes()
+                    )
+                    .as_bytes(),
                 );
-                body.extend_from_slice(
-                    format!("Content-Type: {}\r\n\r\n", mime_type).as_bytes()
-                );
-                
+                body.extend_from_slice(format!("Content-Type: {}\r\n\r\n", mime_type).as_bytes());
+
                 // Read file content - support both file objects and direct content
                 let file_content = if let Ok(read_method) = file_obj.getattr(py, "read") {
                     // Case 1: File object with read() method
@@ -223,8 +229,8 @@ pub fn build_multipart_body(
                     } else if let Ok(string) = content.extract::<String>(py) {
                         string.into_bytes()
                     } else {
-                        return Err(crate::error::RequestError::new_err(
-                            "File content must be bytes or string"
+                        return Err(crate::core::error::RequestError::new_err(
+                            "File content must be bytes or string",
                         ));
                     }
                 } else if let Ok(string_content) = file_obj.extract::<String>(py) {
@@ -234,34 +240,32 @@ pub fn build_multipart_body(
                     // Case 3: Direct bytes content (httpx compatibility)
                     bytes_content
                 } else {
-                    return Err(crate::error::RequestError::new_err(
+                    return Err(crate::core::error::RequestError::new_err(
                         format!("File object must be a file-like object with read() method, string, or bytes. Got object type: {}", file_obj.as_ref(py).get_type().name()?)
                     ));
                 };
-                
+
                 // Write file content
                 body.extend_from_slice(&file_content);
                 body.extend_from_slice(b"\r\n");
             }
         }
-        
+
         Ok(())
     })?;
-    
+
     // Add final boundary
     body.extend_from_slice(end_boundary_bytes.as_bytes());
     body.extend_from_slice(b"\r\n");
-    
+
     let content_type = format!("multipart/form-data; boundary={}", boundary);
-    
+
     Ok((body, content_type))
 }
 
 // Legacy function for compatibility - now redirects to new implementation
 #[allow(dead_code)]
-pub fn build_multipart_form(
-    files_data: HashMap<String, PyObject>,
-) -> PyResult<String> {
+pub fn build_multipart_form(files_data: HashMap<String, PyObject>) -> PyResult<String> {
     let (_, content_type) = build_multipart_body(Some(files_data), None)?;
     Ok(content_type)
 }
@@ -270,7 +274,7 @@ pub fn build_multipart_form(
 pub fn extract_python_dict(py_obj: PyObject) -> PyResult<HashMap<String, PyObject>> {
     Python::with_gil(|py| {
         let dict = py_obj.as_ref(py);
-        
+
         // Try to extract as a dictionary
         if let Ok(py_dict) = dict.downcast::<pyo3::types::PyDict>() {
             let mut result = HashMap::new();
@@ -280,8 +284,8 @@ pub fn extract_python_dict(py_obj: PyObject) -> PyResult<HashMap<String, PyObjec
             }
             Ok(result)
         } else {
-            Err(crate::error::RequestError::new_err(
-                "Data must be a dictionary".to_string()
+            Err(crate::core::error::RequestError::new_err(
+                "Data must be a dictionary".to_string(),
             ))
         }
     })
@@ -291,14 +295,18 @@ pub fn extract_python_dict(py_obj: PyObject) -> PyResult<HashMap<String, PyObjec
 pub fn python_dict_to_form_string(data: HashMap<String, PyObject>) -> PyResult<String> {
     Python::with_gil(|py| {
         let mut form_parts = Vec::new();
-        
+
         for (key, value) in data {
             // Convert Python value to string
             // NOTE: Check bool before i64 because bool is a subclass of int in Python
             let value_str = if let Ok(s) = value.extract::<String>(py) {
                 s
             } else if let Ok(b) = value.extract::<bool>(py) {
-                if b { "true".to_string() } else { "false".to_string() }
+                if b {
+                    "true".to_string()
+                } else {
+                    "false".to_string()
+                }
             } else if let Ok(i) = value.extract::<i64>(py) {
                 i.to_string()
             } else if let Ok(f) = value.extract::<f64>(py) {
@@ -307,13 +315,14 @@ pub fn python_dict_to_form_string(data: HashMap<String, PyObject>) -> PyResult<S
                 // Use Python's str() representation as fallback
                 value.call_method0(py, "__str__")?.extract::<String>(py)?
             };
-            
-            form_parts.push(format!("{}={}", 
-                urlencoding::encode(&key), 
+
+            form_parts.push(format!(
+                "{}={}",
+                urlencoding::encode(&key),
                 urlencoding::encode(&value_str)
             ));
         }
-        
+
         Ok(form_parts.join("&"))
     })
 }
@@ -322,12 +331,12 @@ pub fn python_dict_to_form_string(data: HashMap<String, PyObject>) -> PyResult<S
 pub fn python_dict_to_json_value(data: HashMap<String, PyObject>) -> PyResult<Value> {
     Python::with_gil(|py| {
         let mut json_map = serde_json::Map::new();
-        
+
         for (key, value) in data {
             let json_value = python_object_to_json_value(py, &value)?;
             json_map.insert(key, json_value);
         }
-        
+
         Ok(Value::Object(json_map))
     })
 }
@@ -338,25 +347,36 @@ pub fn handle_data_parameter(data_obj: &PyObject) -> PyResult<(Vec<u8>, String)>
         // First try to extract as string
         if let Ok(string_data) = data_obj.extract::<String>(py) {
             // For string data, use application/x-www-form-urlencoded content type
-            return Ok((string_data.into_bytes(), "application/x-www-form-urlencoded".to_string()));
+            return Ok((
+                string_data.into_bytes(),
+                "application/x-www-form-urlencoded".to_string(),
+            ));
         }
-        
+
         // Try to extract as bytes
         if let Ok(bytes_data) = data_obj.extract::<Vec<u8>>(py) {
             // For raw bytes, use application/octet-stream content type
             return Ok((bytes_data, "application/octet-stream".to_string()));
         }
-        
+
         // Try to extract as dict
         if let Ok(dict_data) = data_obj.extract::<HashMap<String, PyObject>>(py) {
             // For dict data, convert to form-encoded string
             let form_string = python_dict_to_form_string(dict_data)?;
-            return Ok((form_string.into_bytes(), "application/x-www-form-urlencoded".to_string()));
+            return Ok((
+                form_string.into_bytes(),
+                "application/x-www-form-urlencoded".to_string(),
+            ));
         }
-        
+
         // Fallback: convert to string representation
-        let string_repr = data_obj.call_method0(py, "__str__")?.extract::<String>(py)?;
-        Ok((string_repr.into_bytes(), "application/x-www-form-urlencoded".to_string()))
+        let string_repr = data_obj
+            .call_method0(py, "__str__")?
+            .extract::<String>(py)?;
+        Ok((
+            string_repr.into_bytes(),
+            "application/x-www-form-urlencoded".to_string(),
+        ))
     })
 }
 

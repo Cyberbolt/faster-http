@@ -1,9 +1,9 @@
+use crate::client::hyper_client::HyperHttpClient;
 use crate::core::error::RequestError;
 use crate::models::{HttpRequest, HttpResponse};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
 use pyo3::PyCell;
-use crate::client::hyper_client::HyperHttpClient;
 use std::collections::HashMap;
 
 /// Transport configuration structure - corresponding to httpx's Transport system
@@ -123,8 +123,9 @@ pub struct FasterhttpTransport {
 impl FasterhttpTransport {
     #[new]
     pub fn new() -> PyResult<Self> {
-        let client = HyperHttpClient::new(crate::client::hyper_client::HyperClientConfig::default())
-            .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))?;
+        let client =
+            HyperHttpClient::new(crate::client::hyper_client::HyperClientConfig::default())
+                .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))?;
 
         Ok(FasterhttpTransport { client })
     }
@@ -132,7 +133,7 @@ impl FasterhttpTransport {
     /// Handle request - implement httpx.BaseTransport interface
     pub fn handle_request(&self, request: &HttpRequest) -> PyResult<HttpResponse> {
         // Use sync client to avoid block_on
-        let sync_client = crate::sync_core::SyncHttpClient::new()?;
+        let sync_client = crate::core::sync_core::SyncHttpClient::new()?;
         let response = sync_client.send_request(
             request.get_method(),
             request.get_url(),
@@ -218,7 +219,12 @@ impl MockTransport {
         Ok(slf)
     }
 
-    pub fn __exit__(&self, _exc_type: Option<PyObject>, _exc_value: Option<PyObject>, _traceback: Option<PyObject>) -> PyResult<()> {
+    pub fn __exit__(
+        &self,
+        _exc_type: Option<PyObject>,
+        _exc_value: Option<PyObject>,
+        _traceback: Option<PyObject>,
+    ) -> PyResult<()> {
         self.close()
     }
 
@@ -226,7 +232,12 @@ impl MockTransport {
         Ok(slf)
     }
 
-    pub fn __aexit__(&self, _exc_type: Option<PyObject>, _exc_value: Option<PyObject>, _traceback: Option<PyObject>) -> PyResult<()> {
+    pub fn __aexit__(
+        &self,
+        _exc_type: Option<PyObject>,
+        _exc_value: Option<PyObject>,
+        _traceback: Option<PyObject>,
+    ) -> PyResult<()> {
         self.aclose()
     }
 }
@@ -312,8 +323,9 @@ mod tests {
     fn test_mock_transport() {
         Python::with_gil(|py| {
             // Create a simple handler function that returns a 200 response
-            let handler = py.eval(
-                r#"
+            let handler = py
+                .eval(
+                    r#"
 lambda request: type('MockResponse', (), {
     'status_code': 200,
     'text': 'mock response',
@@ -321,9 +333,10 @@ lambda request: type('MockResponse', (), {
     'content': b'mock response'
 })()
 "#,
-                None,
-                None,
-            ).unwrap();
+                    None,
+                    None,
+                )
+                .unwrap();
 
             let mock_transport = MockTransport::new(handler.to_object(py));
 
@@ -339,7 +352,8 @@ lambda request: type('MockResponse', (), {
                 None,
                 None,
                 None,
-            ).unwrap();
+            )
+            .unwrap();
 
             // Since we need a proper Response object, this test is simplified
             // In practice, the handler would return a proper HttpResponse object

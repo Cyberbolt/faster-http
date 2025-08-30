@@ -4,32 +4,30 @@
 use pyo3::prelude::*;
 
 // Module declarations organized by functionality
-mod client;       // HTTP client implementations
-mod transport;    // Transport layer
-mod models;       // Data models and types
-mod auth;         // Authentication
-mod config;       // Configuration management
-mod core;         // Core functionality
+mod auth; // Authentication
+mod client; // HTTP client implementations
+mod config; // Configuration management
+mod core; // Core functionality
+mod models; // Data models and types
 mod optimization; // Performance optimizations
-mod utils;        // Utility functions
-mod stubs;        // Placeholder implementations
+mod stubs;
+mod transport; // Transport layer
+mod utils; // Utility functions // Placeholder implementations
 
-// Re-export main types and functions
-pub use auth::*;
-pub use core::*;
+// Re-export main types and functions - specific imports to avoid shadowing
+pub use auth::{AuthType, extract_auth_from_object, extract_auth};
+pub use core::{main, error::*, sync_core::SyncHttpClient};
 pub use models::{HttpRequest, HttpResponse};
 // StreamingHttpResponse and StreamingClient removed - httpx doesn't have these classes
 pub use client::{AsyncHttpClient, HttpClient};
 pub use config::ClientConfig;
-pub use core::SyncHttpClient;
 // Re-export API functions (request function is available via Python module, not Rust re-export)
 pub use core::api::{delete, get, head, options, patch, post, put, stream};
-pub use utils::EventHooksProxy;
 pub use models::{
-    HttpBasicAuth, HttpCookies, HttpCookiesIterator, HttpDigestAuth, HttpHeaders, HttpHeadersIterator, HttpLimits, HttpNetRCAuth,
-    HttpQueryParams, HttpTimeout, HttpUrl,
+    HttpBasicAuth, HttpCookies, HttpCookiesIterator, HttpDigestAuth, HttpHeaders,
+    HttpHeadersIterator, HttpLimits, HttpNetRCAuth, HttpQueryParams, HttpTimeout, HttpUrl,
 };
-
+pub use utils::EventHooksProxy;
 
 // Python module definition
 #[pymodule]
@@ -64,6 +62,7 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     // Add missing httpx core components
     m.add_class::<models::UseClientDefault>()?;
     m.add_class::<models::BaseTransport>()?;
+    m.add_class::<models::AsyncBaseTransport>()?;
     m.add_class::<models::HTTPTransport>()?;
     m.add_class::<models::AsyncHTTPTransport>()?;
     m.add_class::<models::ByteStream>()?;
@@ -71,8 +70,9 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<models::AsyncByteStream>()?;
     m.add_class::<models::ASGITransport>()?;
     m.add_class::<models::WSGITransport>()?;
+    m.add_class::<models::Auth>()?;
     m.add_function(wrap_pyfunction!(models::create_ssl_context, m)?)?;
-    
+
     // Add USE_CLIENT_DEFAULT constant
     m.add("USE_CLIENT_DEFAULT", Py::new(py, models::UseClientDefault)?)?;
 
@@ -95,6 +95,9 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(core::api::request, m)?)?;
     m.add_function(wrap_pyfunction!(core::api::stream, m)?)?;
 
+    // Add main function for httpx compatibility
+    m.add_function(wrap_pyfunction!(core::main, m)?)?;
+
     // Add batch processing functions for performance
     m.add_function(wrap_pyfunction!(optimization::batch_request, m)?)?;
     m.add_class::<optimization::SmartBatcher>()?;
@@ -104,24 +107,28 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
 
     // Add GIL-free processing for performance
     m.add_function(wrap_pyfunction!(optimization::gil_processed_request, m)?)?; // Updated function name for objective terminology
-    m.add_function(wrap_pyfunction!(optimization::gil_processed_async_request, m)?)?; // Updated function name for objective terminology
-    m.add_function(wrap_pyfunction!(optimization::gil_processed_batch_request, m)?)?; // Updated function name for objective terminology
+    m.add_function(wrap_pyfunction!(
+        optimization::gil_processed_async_request,
+        m
+    )?)?; // Updated function name for objective terminology
+    m.add_function(wrap_pyfunction!(
+        optimization::gil_processed_batch_request,
+        m
+    )?)?; // Updated function name for objective terminology
 
-    // Add exception factory functions
-    m.add_function(wrap_pyfunction!(core::error::new_http_status_error, m)?)?;
+    // Exception factory functions - removed new_http_status_error as httpx doesn't have it
 
     // Add exception types (httpx-compatible only)
     m.add("HTTPError", py.get_type::<HTTPError>())?;
 
     // Network exceptions
     m.add("NetworkError", py.get_type::<NetworkError>())?;
-    
+
     // Connection exceptions
     m.add("ConnectError", py.get_type::<ConnectError>())?;
     m.add("ConnectTimeout", py.get_type::<ConnectTimeout>())?;
 
-    // SSL exceptions
-    m.add("SSLError", py.get_type::<SSLError>())?;
+    // SSL exceptions - removed SSLError as httpx doesn't have it
 
     // Timeout exceptions
     m.add("TimeoutException", py.get_type::<TimeoutException>())?;

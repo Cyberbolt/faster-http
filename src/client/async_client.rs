@@ -1,5 +1,5 @@
-use crate::config::ClientConfig;
 use crate::client::hyper_client::HyperHttpClient;
+use crate::config::ClientConfig;
 use crate::models::HttpRequest;
 use pyo3::prelude::*;
 use pyo3_asyncio::tokio::future_into_py;
@@ -104,9 +104,9 @@ impl AsyncHttpClient {
 
         // Use centralized URL building with merged params
         let final_url = crate::utils::build_url_with_python_params(
-            url, 
-            self.config.base_url.as_ref(), 
-            Some(&final_params)
+            url,
+            self.config.base_url.as_ref(),
+            Some(&final_params),
         )?;
 
         // Simple header merging
@@ -152,12 +152,12 @@ impl AsyncHttpClient {
         // Optimization: Minimize cloning by extracting only what we need
         let client = self.client.clone();
         let config = self.config.clone();
-        
+
         // Pre-extract data with minimal cloning
         let method = request.method_str().to_string();
         let url = request.url_str().to_string();
         let headers = request.headers_map().clone();
-        
+
         // Use move for content to avoid cloning if possible
         let content_bytes = request.content_bytes().map(|b| b.to_vec());
 
@@ -169,7 +169,7 @@ impl AsyncHttpClient {
                 &headers,
                 content_bytes.as_deref(),
                 &config,
-                None,  // Use config default timeout for performance
+                None, // Use config default timeout for performance
             )
             .await
         })
@@ -550,7 +550,7 @@ impl AsyncHttpClient {
     // Connection pool monitoring methods
     pub fn get_connection_stats(&self) -> PyResult<std::collections::HashMap<String, f64>> {
         self.check_not_closed()?;
-        
+
         // Get statistics from the underlying hyper client's connection pool
         match self.client.get_connection_stats() {
             Ok(stats) => Ok(stats),
@@ -569,24 +569,27 @@ impl AsyncHttpClient {
 
     pub fn is_connection_healthy(&self) -> PyResult<bool> {
         self.check_not_closed()?;
-        
+
         // Check health from the underlying hyper client's connection pool
         match self.client.is_connection_healthy() {
             Ok(healthy) => Ok(healthy),
-            Err(_) => Ok(true) // Fallback: assume healthy if can't check
+            Err(_) => Ok(true), // Fallback: assume healthy if can't check
         }
     }
 
     pub fn cleanup_connections<'p>(&self, py: Python<'p>) -> PyResult<&'p PyAny> {
         self.check_not_closed()?;
-        
+
         // Use pyo3_asyncio to wrap the async function
         let client = self.client.clone();
         future_into_py(py, async move {
             // Force cleanup of idle connections in the connection pool
             match client.cleanup_connections().await {
                 Ok(_) => Ok(()),
-                Err(e) => Err(RequestError::new_err(format!("Failed to cleanup connections: {}", e)))
+                Err(e) => Err(RequestError::new_err(format!(
+                    "Failed to cleanup connections: {}",
+                    e
+                ))),
             }
         })
     }
@@ -602,11 +605,20 @@ impl AsyncHttpClient {
     }
 
     /// Header merging for request processing
-    fn merge_headers_standard(&self, request_headers: Option<HashMap<String, String>>) -> HashMap<String, String> {
+    fn merge_headers_standard(
+        &self,
+        request_headers: Option<HashMap<String, String>>,
+    ) -> HashMap<String, String> {
         match request_headers {
             Some(req_headers) if !self.config.default_headers.is_empty() => {
-                let mut merged = HashMap::with_capacity(self.config.default_headers.len() + req_headers.len());
-                merged.extend(self.config.default_headers.iter().map(|(k, v)| (k.clone(), v.clone())));
+                let mut merged =
+                    HashMap::with_capacity(self.config.default_headers.len() + req_headers.len());
+                merged.extend(
+                    self.config
+                        .default_headers
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone())),
+                );
                 merged.extend(req_headers);
                 merged
             }
@@ -645,15 +657,20 @@ impl AsyncHttpClient {
         self.check_not_closed()?;
 
         // Try direct send path first for simple requests
-        if data.is_none() && json.is_none() && files.is_none() && 
-           auth.is_none() && follow_redirects.is_none() {
-            
+        if data.is_none()
+            && json.is_none()
+            && files.is_none()
+            && auth.is_none()
+            && follow_redirects.is_none()
+        {
             // Direct path: Send request with standard processing
             let client = self.client.clone();
             let method_owned = method.to_string();
             let headers_merged = self.merge_headers_standard(headers);
-            let effective_timeout = timeout.map(Duration::from_secs_f64).or(self.config.default_timeout);
-            
+            let effective_timeout = timeout
+                .map(Duration::from_secs_f64)
+                .or(self.config.default_timeout);
+
             // Build full URL with base_url if needed
             let full_url = if let Some(base) = &self.config.base_url {
                 if url.starts_with("http://") || url.starts_with("https://") {
@@ -668,7 +685,7 @@ impl AsyncHttpClient {
             } else {
                 url
             };
-            
+
             let config = self.config.clone();
             return future_into_py(py, async move {
                 crate::core::core::send_request_direct(
@@ -685,7 +702,7 @@ impl AsyncHttpClient {
         }
 
         // FALLBACK: Full processing path
-        
+
         // Optimization: Pre-extract needed config values to minimize cloning
         let base_url = self.config.base_url.clone();
         let default_headers = self.config.default_headers.clone();
@@ -694,8 +711,14 @@ impl AsyncHttpClient {
 
         // Merge default params with request params (optimize with capacity pre-allocation)
         let merged_params = if let Some(request_params) = params {
-            let mut merged = HashMap::with_capacity(self.config.default_params.len() + request_params.len());
-            merged.extend(self.config.default_params.iter().map(|(k, v)| (k.clone(), v.clone())));
+            let mut merged =
+                HashMap::with_capacity(self.config.default_params.len() + request_params.len());
+            merged.extend(
+                self.config
+                    .default_params
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone())),
+            );
             merged.extend(request_params);
             Some(merged)
         } else if !self.config.default_params.is_empty() {
@@ -708,16 +731,16 @@ impl AsyncHttpClient {
         let merged_cookies = {
             let default_cookies = &self.config.default_cookies;
             let jar_cookies_opt = self.config.cookie_jar.lock().ok().map(|jar| jar.clone());
-            
+
             match (default_cookies.is_empty(), jar_cookies_opt, cookies) {
                 (true, None, None) => None,
                 (true, None, Some(req_cookies)) => Some(req_cookies),
                 (false, jar_opt, cookies_opt) => {
-                    let total_capacity = default_cookies.len() 
+                    let total_capacity = default_cookies.len()
                         + jar_opt.as_ref().map_or(0, |j| j.len())
                         + cookies_opt.as_ref().map_or(0, |c| c.len());
                     let mut merged = HashMap::with_capacity(total_capacity);
-                    
+
                     // Add in priority order: default -> jar -> request
                     merged.extend(default_cookies.iter().map(|(k, v)| (k.clone(), v.clone())));
                     if let Some(jar_cookies) = jar_opt {
@@ -730,7 +753,8 @@ impl AsyncHttpClient {
                 }
                 (true, Some(jar_cookies), cookies_opt) => {
                     if let Some(request_cookies) = cookies_opt {
-                        let mut merged = HashMap::with_capacity(jar_cookies.len() + request_cookies.len());
+                        let mut merged =
+                            HashMap::with_capacity(jar_cookies.len() + request_cookies.len());
                         merged.extend(jar_cookies);
                         merged.extend(request_cookies);
                         Some(merged)
@@ -740,7 +764,7 @@ impl AsyncHttpClient {
                 }
             }
         };
-        
+
         // Handle both client-level auth and request-level auth
         let final_auth = if let Some(auth_obj) = auth {
             // Request-level auth takes priority
@@ -765,7 +789,7 @@ impl AsyncHttpClient {
             } else {
                 &base_url
             };
-            
+
             build_and_send_request(
                 &config,
                 &method_owned,

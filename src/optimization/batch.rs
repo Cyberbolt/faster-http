@@ -1,14 +1,14 @@
 // Batch request processing
 // Reduces Python-Rust boundary calls and enables parallel processing
 
-use crate::config::ClientConfig;
-use crate::models::HttpResponse;
-use crate::core::core::send_request_direct;
 use crate::client::hyper_client::HyperHttpClient;
+use crate::config::ClientConfig;
+use crate::core::core::send_request_direct;
+use crate::models::HttpResponse;
+use bytes::Bytes;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use tokio::task::JoinSet;
-use bytes::Bytes;
 
 /// Batch request definition for zero-copy processing
 #[derive(Debug, Clone)]
@@ -48,17 +48,14 @@ impl BatchProcessor {
     }
 
     /// Process batch requests with parallelization
-    pub async fn process_batch(
-        &self, 
-        requests: Vec<BatchRequest>
-    ) -> Vec<BatchResult> {
+    pub async fn process_batch(&self, requests: Vec<BatchRequest>) -> Vec<BatchResult> {
         let request_count = requests.len();
         let mut results = Vec::with_capacity(request_count);
         let mut join_set = JoinSet::new();
 
         // Process in chunks to avoid overwhelming the system
         let chunk_size = self.max_concurrent_requests.min(request_count);
-        
+
         for (chunk_start, chunk) in requests.chunks(chunk_size).enumerate() {
             // Process chunk in parallel
             for (local_idx, request) in chunk.iter().enumerate() {
@@ -69,10 +66,10 @@ impl BatchProcessor {
 
                 join_set.spawn(async move {
                     let start_time = std::time::Instant::now();
-                    
+
                     // ZERO-COPY: Use request data directly
                     let content_slice = request.content.as_ref().map(|b| b.as_ref());
-                    
+
                     let response = send_request_direct(
                         &client,
                         &request.method,
@@ -81,10 +78,11 @@ impl BatchProcessor {
                         content_slice,
                         &config,
                         request.timeout,
-                    ).await;
+                    )
+                    .await;
 
                     let elapsed_ms = start_time.elapsed().as_secs_f64() * 1000.0;
-                    
+
                     BatchResult {
                         index: global_idx,
                         response,
@@ -107,20 +105,17 @@ impl BatchProcessor {
     }
 
     /// Process single batch for small request counts
-    pub async fn process_small_batch(
-        &self,
-        requests: Vec<BatchRequest>
-    ) -> Vec<BatchResult> {
+    pub async fn process_small_batch(&self, requests: Vec<BatchRequest>) -> Vec<BatchResult> {
         if requests.len() <= 4 {
             // For very small batches, use direct sequential processing
             // to avoid task spawning overhead
             let mut results = Vec::with_capacity(requests.len());
-            
+
             for (index, request) in requests.into_iter().enumerate() {
                 let start_time = std::time::Instant::now();
-                
+
                 let content_slice = request.content.as_ref().map(|b| b.as_ref());
-                
+
                 let response = send_request_direct(
                     &self.client,
                     &request.method,
@@ -129,17 +124,18 @@ impl BatchProcessor {
                     content_slice,
                     &self.config,
                     request.timeout,
-                ).await;
+                )
+                .await;
 
                 let elapsed_ms = start_time.elapsed().as_secs_f64() * 1000.0;
-                
+
                 results.push(BatchResult {
                     index,
                     response,
                     timing_ms: elapsed_ms,
                 });
             }
-            
+
             results
         } else {
             self.process_batch(requests).await
@@ -157,7 +153,7 @@ pub fn batch_request(
 ) -> PyResult<&PyAny> {
     // Convert Python requests to native BatchRequest objects
     let mut batch_requests = Vec::with_capacity(requests.len());
-    
+
     for py_request in requests {
         let batch_req = convert_python_to_batch_request(py, py_request)?;
         batch_requests.push(batch_req);
@@ -165,13 +161,13 @@ pub fn batch_request(
 
     // Create ephemeral config for batch processing
     let config = ClientConfig::new(
-        None, None, None, None, None, None, None, None, None,
-        None, None, None, None, None, None, None, None, None, None, None
+        None, None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+        None, None, None, None, None,
     )?;
 
     pyo3_asyncio::tokio::future_into_py(py, async move {
         let processor = BatchProcessor::new(config)?;
-        
+
         // Choose processing strategy based on batch size
         let results = if batch_requests.len() <= 10 {
             processor.process_small_batch(batch_requests).await
@@ -181,10 +177,13 @@ pub fn batch_request(
 
         // Convert results back to Python objects
         let py_results: PyResult<Vec<PyObject>> = Python::with_gil(|py| {
-            results.into_iter().map(|result| {
-                let response = result.response?;
-                Ok((result.index, response, result.timing_ms).to_object(py))
-            }).collect()
+            results
+                .into_iter()
+                .map(|result| {
+                    let response = result.response?;
+                    Ok((result.index, response, result.timing_ms).to_object(py))
+                })
+                .collect()
         });
 
         py_results
@@ -192,17 +191,12 @@ pub fn batch_request(
 }
 
 /// Convert Python request object to BatchRequest
-fn convert_python_to_batch_request(
-    py: Python<'_>,
-    py_request: PyObject
-) -> PyResult<BatchRequest> {
+fn convert_python_to_batch_request(py: Python<'_>, py_request: PyObject) -> PyResult<BatchRequest> {
     // Extract method
-    let method = py_request.getattr(py, "method")?
-        .extract::<String>(py)?;
+    let method = py_request.getattr(py, "method")?.extract::<String>(py)?;
 
     // Extract URL
-    let url = py_request.getattr(py, "url")?
-        .extract::<String>(py)?;
+    let url = py_request.getattr(py, "url")?.extract::<String>(py)?;
 
     // Extract headers
     let headers: HashMap<String, String> = py_request
@@ -223,7 +217,8 @@ fn convert_python_to_batch_request(
     };
 
     // Extract timeout
-    let timeout = py_request.getattr(py, "timeout")
+    let timeout = py_request
+        .getattr(py, "timeout")
         .ok()
         .and_then(|t| t.extract::<f64>(py).ok());
 
@@ -263,11 +258,11 @@ impl SmartBatcher {
         Python::with_gil(|py| {
             let batch_req = convert_python_to_batch_request(py, request)?;
             self.pending_requests.push(batch_req);
-            
+
             // Check if we should flush automatically
-            let should_flush = self.pending_requests.len() >= self.batch_size ||
-                self.last_flush.elapsed().as_millis() >= self.flush_timeout_ms as u128;
-            
+            let should_flush = self.pending_requests.len() >= self.batch_size
+                || self.last_flush.elapsed().as_millis() >= self.flush_timeout_ms as u128;
+
             Ok(should_flush)
         })
     }
@@ -283,13 +278,13 @@ impl SmartBatcher {
 
         // Create config for batch processing
         let config = ClientConfig::new(
-            None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None, None, None, None
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None,
         )?;
 
         pyo3_asyncio::tokio::future_into_py(py, async move {
             let processor = BatchProcessor::new(config)?;
-            
+
             let results = if requests.len() <= 10 {
                 processor.process_small_batch(requests).await
             } else {
@@ -298,10 +293,13 @@ impl SmartBatcher {
 
             // Convert to Python results
             let py_results: PyResult<Vec<PyObject>> = Python::with_gil(|py| {
-                results.into_iter().map(|result| {
-                    let response = result.response?;
-                    Ok((result.index, response, result.timing_ms).to_object(py))
-                }).collect()
+                results
+                    .into_iter()
+                    .map(|result| {
+                        let response = result.response?;
+                        Ok((result.index, response, result.timing_ms).to_object(py))
+                    })
+                    .collect()
             });
 
             py_results

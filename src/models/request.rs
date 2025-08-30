@@ -183,7 +183,7 @@ impl HttpRequest {
             url: self.url.clone(),
             headers: self.headers.clone(),
             content: self.content.clone(),
-            params: self.params.clone(), 
+            params: self.params.clone(),
             cookies: self.cookies.clone(),
             data: self.data.clone(),
             files: self.files.clone(),
@@ -202,35 +202,35 @@ impl HttpRequest {
     pub fn get_method(&self) -> &str {
         &self.method
     }
-    
+
     pub fn get_url(&self) -> &str {
         &self.url
     }
-    
+
     pub fn get_headers(&self) -> &HashMap<String, String> {
         &self.headers
     }
-    
+
     pub fn get_content(&self) -> Option<Vec<u8>> {
         self.content.as_ref().map(|b| b.to_vec())
     }
-    
+
     pub fn get_params(&self) -> &HashMap<String, PyObject> {
         &self.params
     }
-    
+
     pub fn get_cookies(&self) -> &HashMap<String, String> {
         &self.cookies
     }
-    
+
     pub fn get_data(&self) -> &Option<PyObject> {
         &self.data
     }
-    
+
     pub fn get_files(&self) -> &Option<PyObject> {
         &self.files
     }
-    
+
     pub fn get_json(&self) -> &Option<PyObject> {
         &self.json
     }

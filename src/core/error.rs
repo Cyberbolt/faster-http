@@ -11,11 +11,11 @@ pyo3::create_exception!(faster_http, HTTPError, PyException);
 // Should include .request attribute for context
 pyo3::create_exception!(faster_http, RequestError, HTTPError);
 
-// HTTP status related exceptions - matches httpx.HTTPStatusError  
+// HTTP status related exceptions - matches httpx.HTTPStatusError
 // Should include both .request and .response attributes
 pyo3::create_exception!(faster_http, HTTPStatusError, HTTPError);
 
-// Network related exceptions - matches httpx network error hierarchy  
+// Network related exceptions - matches httpx network error hierarchy
 pyo3::create_exception!(faster_http, NetworkError, RequestError);
 
 // Connection related exceptions - matches httpx.ConnectError
@@ -35,16 +35,16 @@ pyo3::create_exception!(faster_http, DecodingError, HTTPError);
 pyo3::create_exception!(faster_http, TooManyRedirects, RequestError);
 
 // SSL/TLS related exceptions
-pyo3::create_exception!(faster_http, SSLError, ConnectError);  // Matches httpx SSL handling
+pyo3::create_exception!(faster_http, SSLError, ConnectError); // Matches httpx SSL handling
 
 // HTTPStatusError already defined above in proper hierarchy
 
 impl HTTPStatusError {
     /// Create HTTPStatusError with request and response parameters (httpx-compatible)
     pub fn new_err_with_request_response(
-        message: String, 
-        request: Option<PyObject>, 
-        response: Option<PyObject>
+        message: String,
+        request: Option<PyObject>,
+        response: Option<PyObject>,
     ) -> PyErr {
         Python::with_gil(|py| {
             // Create the basic exception
@@ -52,13 +52,13 @@ impl HTTPStatusError {
 
             // Add request and response attributes directly to the exception instance
             let exc_obj = err.value(py);
-            
+
             if let Some(req) = request {
                 let _ = exc_obj.setattr("request", req);
             } else {
                 let _ = exc_obj.setattr("request", py.None());
             }
-            
+
             if let Some(resp) = response {
                 let _ = exc_obj.setattr("response", resp);
             } else {
@@ -87,24 +87,24 @@ pub fn new_http_status_error(
     // Create the HTTPStatusError exception instance
     let exc_type = py.get_type::<HTTPStatusError>();
     let exc_instance = exc_type.call1((message.clone(),))?;
-    
+
     // Set request and response attributes
     if let Some(req) = request {
         exc_instance.setattr("request", req)?;
     } else {
         exc_instance.setattr("request", py.None())?;
     }
-    
+
     if let Some(resp) = response {
         exc_instance.setattr("response", resp)?;
     } else {
         exc_instance.setattr("response", py.None())?;
     }
-    
+
     Ok(exc_instance.to_object(py))
 }
 
-// Transport and Protocol exceptions  
+// Transport and Protocol exceptions
 pyo3::create_exception!(faster_http, TransportError, RequestError);
 pyo3::create_exception!(faster_http, ProtocolError, TransportError);
 pyo3::create_exception!(faster_http, LocalProtocolError, ProtocolError);
@@ -129,7 +129,7 @@ pyo3::create_exception!(faster_http, RequestNotRead, RequestError);
 pyo3::create_exception!(faster_http, ResponseNotRead, RequestError);
 
 // Internal system exceptions (should be rare in normal operation)
-pyo3::create_exception!(faster_http, InternalError, HTTPError);  // For locks and internal state errors
+pyo3::create_exception!(faster_http, InternalError, HTTPError); // For locks and internal state errors
 pyo3::create_exception!(faster_http, ConnectionPoolInitFailed, InternalError);
 pyo3::create_exception!(faster_http, RuntimeInitFailed, InternalError);
 pyo3::create_exception!(faster_http, ClientInitFailed, InternalError);
@@ -142,7 +142,10 @@ pub fn map_hyper_error(error: hyper::Error) -> PyErr {
 
     if error.is_timeout() {
         ReadTimeout::new_err(format!("Request timeout: {}", error_msg))
-    } else if error_msg.contains("tls") || error_msg.contains("ssl") || error_msg.contains("certificate") {
+    } else if error_msg.contains("tls")
+        || error_msg.contains("ssl")
+        || error_msg.contains("certificate")
+    {
         SSLError::new_err(format!("SSL error: {}", error_msg))
     } else if error_msg.contains("connection") || error_msg.contains("connect") {
         ConnectError::new_err(format!("Connection error: {}", error_msg))
@@ -166,11 +169,11 @@ pub fn map_hyper_error(error: hyper::Error) -> PyErr {
 
 /// Maps hyper-util errors to appropriate httpx-compatible exceptions
 pub fn map_hyper_util_error(error: hyper_util::client::legacy::Error) -> PyErr {
-    // Check error message patterns since hyper::Error doesn't implement Clone 
+    // Check error message patterns since hyper::Error doesn't implement Clone
     // We'll match on error message patterns instead
     let error_msg = error.to_string();
     let error_msg_lower = error_msg.to_lowercase();
-    
+
     // Check for timeout errors
     if error_msg_lower.contains("timeout") || error_msg_lower.contains("timed out") {
         if error_msg_lower.contains("connect") {
@@ -178,7 +181,10 @@ pub fn map_hyper_util_error(error: hyper_util::client::legacy::Error) -> PyErr {
         } else {
             ReadTimeout::new_err(format!("Request timeout: {}", error_msg))
         }
-    } else if error_msg_lower.contains("tls") || error_msg_lower.contains("ssl") || error_msg_lower.contains("certificate") {
+    } else if error_msg_lower.contains("tls")
+        || error_msg_lower.contains("ssl")
+        || error_msg_lower.contains("certificate")
+    {
         SSLError::new_err(format!("SSL error: {}", error_msg))
     } else if error_msg_lower.contains("connection") || error_msg_lower.contains("connect") {
         ConnectError::new_err(format!("Connection error: {}", error_msg))
@@ -192,7 +198,7 @@ pub fn map_hyper_util_error(error: hyper_util::client::legacy::Error) -> PyErr {
 /// Maps Tower service errors to appropriate httpx-compatible exceptions
 pub fn map_tower_error<E: std::error::Error + Send + Sync + 'static>(error: E) -> PyErr {
     let error_msg = error.to_string();
-    
+
     if error_msg.contains("timeout") {
         ReadTimeout::new_err(format!("Service timeout: {}", error_msg))
     } else if error_msg.contains("connection") {
@@ -285,12 +291,13 @@ pub fn map_io_error(error: std::io::Error) -> PyErr {
     match error.kind() {
         std::io::ErrorKind::NotFound => create_file_error(&msg),
         std::io::ErrorKind::PermissionDenied => create_validation_error(&msg),
-        std::io::ErrorKind::ConnectionRefused | 
-        std::io::ErrorKind::ConnectionAborted |
-        std::io::ErrorKind::ConnectionReset => create_connection_error(&msg, false),
+        std::io::ErrorKind::ConnectionRefused
+        | std::io::ErrorKind::ConnectionAborted
+        | std::io::ErrorKind::ConnectionReset => create_connection_error(&msg, false),
         std::io::ErrorKind::TimedOut => create_connection_error(&msg, true),
-        std::io::ErrorKind::InvalidInput | 
-        std::io::ErrorKind::InvalidData => create_validation_error(&msg),
+        std::io::ErrorKind::InvalidInput | std::io::ErrorKind::InvalidData => {
+            create_validation_error(&msg)
+        }
         _ => create_request_error(&msg),
     }
 }

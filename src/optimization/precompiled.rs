@@ -23,7 +23,7 @@ impl PrecompiledMethods {
         // Pre-compile all common HTTP methods
         let method_pairs = [
             ("GET", Method::GET),
-            ("POST", Method::POST), 
+            ("POST", Method::POST),
             ("PUT", Method::PUT),
             ("DELETE", Method::DELETE),
             ("PATCH", Method::PATCH),
@@ -38,7 +38,10 @@ impl PrecompiledMethods {
             method_strings.insert(method, name);
         }
 
-        Self { methods, method_strings }
+        Self {
+            methods,
+            method_strings,
+        }
     }
 
     /// Get Method from string with O(1) lookup
@@ -103,8 +106,14 @@ impl PrecompiledHeaders {
             ("sec-websocket-key", "Sec-WebSocket-Key"),
             ("sec-websocket-accept", "Sec-WebSocket-Accept"),
             ("access-control-allow-origin", "Access-Control-Allow-Origin"),
-            ("access-control-allow-methods", "Access-Control-Allow-Methods"),
-            ("access-control-allow-headers", "Access-Control-Allow-Headers"),
+            (
+                "access-control-allow-methods",
+                "Access-Control-Allow-Methods",
+            ),
+            (
+                "access-control-allow-headers",
+                "Access-Control-Allow-Headers",
+            ),
             ("access-control-max-age", "Access-Control-Max-Age"),
             ("vary", "Vary"),
             ("server", "Server"),
@@ -116,7 +125,10 @@ impl PrecompiledHeaders {
         let value_pairs = [
             // Content-Type values
             ("application/json", "application/json"),
-            ("application/x-www-form-urlencoded", "application/x-www-form-urlencoded"),
+            (
+                "application/x-www-form-urlencoded",
+                "application/x-www-form-urlencoded",
+            ),
             ("text/html", "text/html"),
             ("text/plain", "text/plain"),
             ("text/xml", "text/xml"),
@@ -126,26 +138,22 @@ impl PrecompiledHeaders {
             ("image/jpeg", "image/jpeg"),
             ("image/png", "image/png"),
             ("image/gif", "image/gif"),
-            
             // Accept-Encoding values
             ("gzip", "gzip"),
             ("deflate", "deflate"),
             ("br", "br"),
             ("gzip, deflate", "gzip, deflate"),
             ("gzip, deflate, br", "gzip, deflate, br"),
-            
             // Connection values
             ("keep-alive", "keep-alive"),
             ("close", "close"),
             ("upgrade", "upgrade"),
-            
             // Cache-Control values
             ("no-cache", "no-cache"),
             ("no-store", "no-store"),
             ("max-age=0", "max-age=0"),
             ("public", "public"),
             ("private", "private"),
-            
             // Common values
             ("*/*", "*/*"),
             ("chunked", "chunked"),
@@ -184,7 +192,9 @@ impl PrecompiledHeaders {
 
         // Try lowercase lookup
         let lowercase = name.to_lowercase();
-        self.lowercase_map.get(lowercase.as_str()).unwrap_or(&"Unknown-Header")
+        self.lowercase_map
+            .get(lowercase.as_str())
+            .unwrap_or(&"Unknown-Header")
     }
 
     /// Get canonical header value with O(1) lookup
@@ -196,12 +206,14 @@ impl PrecompiledHeaders {
     /// Check if header name is precompiled
     #[inline(always)]
     pub fn is_precompiled_name(&self, name: &str) -> bool {
-        self.canonical_names.contains_key(name) || 
-        self.lowercase_map.contains_key(&name.to_lowercase().as_str())
+        self.canonical_names.contains_key(name)
+            || self
+                .lowercase_map
+                .contains_key(&name.to_lowercase().as_str())
     }
 
     /// Check if header value is precompiled
-    #[inline(always)]  
+    #[inline(always)]
     pub fn is_precompiled_value(&self, value: &str) -> bool {
         self.common_values.contains_key(value)
     }
@@ -285,12 +297,13 @@ pub fn get_precompiled_schemes() -> &'static PrecompiledSchemes {
 #[inline(always)]
 pub fn parse_method_configured(method_str: &str) -> Result<Method, String> {
     let precompiled = get_precompiled_methods();
-    
+
     if let Some(method) = precompiled.get_method(method_str) {
         Ok(method.clone())
     } else {
         // Fallback to standard parsing for uncommon methods
-        method_str.parse::<Method>()
+        method_str
+            .parse::<Method>()
             .map_err(|e| format!("Invalid HTTP method: {}", e))
     }
 }
@@ -309,11 +322,11 @@ pub fn normalize_header_value(value: &str) -> &str {
 
 /// Batch header processing
 pub fn process_headers_configured(
-    headers: &HashMap<String, String>
+    headers: &HashMap<String, String>,
 ) -> HashMap<&'static str, String> {
     let mut configured_headers = HashMap::with_capacity(headers.len());
     let precompiled = get_precompiled_headers();
-    
+
     for (name, value) in headers {
         let canonical_name = precompiled.get_canonical_name(name);
         let canonical_value = if precompiled.is_precompiled_value(value) {
@@ -321,10 +334,10 @@ pub fn process_headers_configured(
         } else {
             value.clone()
         };
-        
+
         configured_headers.insert(canonical_name, canonical_value);
     }
-    
+
     configured_headers
 }
 
@@ -335,11 +348,11 @@ mod tests {
     #[test]
     fn test_precompiled_methods() {
         let methods = PrecompiledMethods::new();
-        
+
         assert!(methods.get_method("GET").is_some());
         assert!(methods.get_method("POST").is_some());
         assert!(methods.get_method("INVALID").is_none());
-        
+
         assert!(methods.is_precompiled("GET"));
         assert!(!methods.is_precompiled("CUSTOM"));
     }
@@ -347,10 +360,10 @@ mod tests {
     #[test]
     fn test_precompiled_headers() {
         let headers = PrecompiledHeaders::new();
-        
+
         assert_eq!(headers.get_canonical_name("content-type"), "Content-Type");
         assert_eq!(headers.get_canonical_name("Content-Type"), "Content-Type");
-        
+
         assert!(headers.is_precompiled_name("content-type"));
         assert!(headers.is_precompiled_value("application/json"));
     }
@@ -359,7 +372,7 @@ mod tests {
     fn test_method_parsing() {
         let method = parse_method_configured("GET").unwrap();
         assert_eq!(method, Method::GET);
-        
+
         let method = parse_method_configured("POST").unwrap();
         assert_eq!(method, Method::POST);
     }
@@ -367,16 +380,19 @@ mod tests {
     #[test]
     fn test_header_normalization() {
         assert_eq!(normalize_header_name("content-type"), "Content-Type");
-        assert_eq!(normalize_header_value("application/json"), "application/json");
+        assert_eq!(
+            normalize_header_value("application/json"),
+            "application/json"
+        );
     }
 
     #[test]
     fn test_schemes() {
         let schemes = PrecompiledSchemes::new();
-        
+
         assert_eq!(schemes.get_default_port("http"), Some(80));
         assert_eq!(schemes.get_default_port("https"), Some(443));
-        
+
         assert!(schemes.is_secure_scheme("https"));
         assert!(!schemes.is_secure_scheme("http"));
     }

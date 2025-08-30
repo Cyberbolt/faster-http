@@ -1,10 +1,10 @@
 // Complete streaming HTTP client implementation for hyper - httpx compatible
+use crate::client::hyper_client::{HyperClientConfig, HyperHttpClient};
+use crate::config::ClientConfig;
+use crate::core::error::RequestError;
+use crate::models::HttpResponse;
 use pyo3::prelude::*;
 use std::collections::HashMap;
-use crate::config::ClientConfig;
-use crate::client::hyper_client::{HyperHttpClient, HyperClientConfig};
-use crate::models::HttpResponse;
-use crate::core::error::RequestError;
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::runtime::Runtime;
 
@@ -17,11 +17,11 @@ where
     T: Send + 'static,
 {
     use crate::core::error::RuntimeInitFailed;
-    
+
     // Use shared streaming runtime for all operations
     // This avoids complex nested runtime detection
     static STREAMING_RUNTIME: OnceLock<Result<Runtime, String>> = OnceLock::new();
-    
+
     let result = STREAMING_RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -29,18 +29,19 @@ where
             .build() // Use default configuration for optimal performance
             .map_err(|e| format!("Failed to create streaming runtime: {}", e))
     });
-    
+
     let runtime = match result {
         Ok(runtime) => runtime,
-        Err(msg) => return Err(RuntimeInitFailed::new_err(msg.clone()))
+        Err(msg) => return Err(RuntimeInitFailed::new_err(msg.clone())),
     };
-    
+
     runtime.block_on(future)
 }
 
 /// Global streaming client pool for reusing connections - safe implementation
 #[allow(dead_code)]
-static STREAMING_CLIENT_POOL: OnceLock<Result<Arc<Mutex<HyperHttpClient>>, String>> = OnceLock::new();
+static STREAMING_CLIENT_POOL: OnceLock<Result<Arc<Mutex<HyperHttpClient>>, String>> =
+    OnceLock::new();
 
 /// Get or create the global shared streaming client for efficiency
 /// Uses safe OnceLock pattern without unsafe code
@@ -54,17 +55,19 @@ fn get_shared_streaming_client() -> PyResult<Arc<Mutex<HyperHttpClient>>> {
             http1_only: false,
             http2_only: false,
         };
-        
+
         // Try primary config first, then fallback to default
-        match HyperHttpClient::new(config).or_else(|_| HyperHttpClient::new(HyperClientConfig::default())) {
+        match HyperHttpClient::new(config)
+            .or_else(|_| HyperHttpClient::new(HyperClientConfig::default()))
+        {
             Ok(client) => Ok(Arc::new(Mutex::new(client))),
-            Err(e) => Err(format!("Failed to create streaming client: {}", e))
+            Err(e) => Err(format!("Failed to create streaming client: {}", e)),
         }
     });
-    
+
     match result {
         Ok(client) => Ok(client.clone()),
-        Err(msg) => Err(RequestError::new_err(msg.clone()))
+        Err(msg) => Err(RequestError::new_err(msg.clone())),
     }
 }
 
@@ -133,7 +136,7 @@ impl StreamingClient {
     fn __enter__(mut slf: PyRefMut<'_, Self>) -> PyResult<PyRefMut<'_, Self>> {
         // Execute request immediately when entering context using synchronous execution
         // This avoids async runtime conflicts and timeout issues
-        
+
         // Prepare data for synchronous execution
         let config = slf.config.clone();
         let method = slf.method.clone();
@@ -152,7 +155,7 @@ impl StreamingClient {
         let data_obj = slf.data.clone();
 
         // Execute request using synchronous client to avoid async runtime issues
-        let response = crate::api::execute_request_with_sync_client(
+        let response = crate::core::api::execute_request_with_sync_client(
             &config,
             &method,
             &url,
@@ -171,7 +174,7 @@ impl StreamingClient {
         slf.response = Some(response);
         slf._is_closed = false;
         slf._content_consumed = false;
-        
+
         Ok(slf)
     }
 
@@ -223,7 +226,9 @@ impl StreamingClient {
     pub fn status_code(&self) -> PyResult<u16> {
         match &self.response {
             Some(resp) => Ok(resp.status_code()),
-            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+            None => Err(RequestError::new_err(
+                "Response not available - use within 'with' statement",
+            )),
         }
     }
 
@@ -232,7 +237,9 @@ impl StreamingClient {
     pub fn headers(&self) -> PyResult<crate::models::HttpHeaders> {
         match &self.response {
             Some(resp) => Ok(resp.headers()),
-            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+            None => Err(RequestError::new_err(
+                "Response not available - use within 'with' statement",
+            )),
         }
     }
 
@@ -241,7 +248,9 @@ impl StreamingClient {
     pub fn url_obj(&self) -> PyResult<crate::models::HttpUrl> {
         match &self.response {
             Some(resp) => resp.url(),
-            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+            None => Err(RequestError::new_err(
+                "Response not available - use within 'with' statement",
+            )),
         }
     }
 
@@ -250,7 +259,9 @@ impl StreamingClient {
     pub fn elapsed(&self) -> PyResult<PyObject> {
         match &self.response {
             Some(resp) => resp.elapsed(),
-            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+            None => Err(RequestError::new_err(
+                "Response not available - use within 'with' statement",
+            )),
         }
     }
 
@@ -259,7 +270,9 @@ impl StreamingClient {
     pub fn is_success(&self) -> PyResult<bool> {
         match &self.response {
             Some(resp) => Ok(resp.is_success()),
-            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+            None => Err(RequestError::new_err(
+                "Response not available - use within 'with' statement",
+            )),
         }
     }
 
@@ -268,7 +281,7 @@ impl StreamingClient {
         if self._is_closed {
             return Err(RequestError::new_err("Cannot read from closed stream"));
         }
-        
+
         match &self.response {
             Some(resp) => {
                 self._content_consumed = true;
@@ -276,8 +289,10 @@ impl StreamingClient {
                     let content_obj = resp.content(py)?;
                     content_obj.extract::<Vec<u8>>(py)
                 })
-            },
-            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+            }
+            None => Err(RequestError::new_err(
+                "Response not available - use within 'with' statement",
+            )),
         }
     }
 
@@ -285,12 +300,16 @@ impl StreamingClient {
     #[getter]
     fn text(&self) -> PyResult<String> {
         if !self._content_consumed {
-            return Err(RequestError::new_err("Response content not loaded. Call read() first to access text."));
+            return Err(RequestError::new_err(
+                "Response content not loaded. Call read() first to access text.",
+            ));
         }
-        
+
         match &self.response {
             Some(resp) => resp.text(),
-            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+            None => Err(RequestError::new_err(
+                "Response not available - use within 'with' statement",
+            )),
         }
     }
 
@@ -298,117 +317,139 @@ impl StreamingClient {
     #[getter]
     fn content(&self) -> PyResult<Vec<u8>> {
         if !self._content_consumed {
-            return Err(RequestError::new_err("Response content not loaded. Call read() first to access content."));
+            return Err(RequestError::new_err(
+                "Response content not loaded. Call read() first to access content.",
+            ));
         }
-        
+
         match &self.response {
-            Some(resp) => {
-                Python::with_gil(|py| {
-                    let content_obj = resp.content(py)?;
-                    content_obj.extract::<Vec<u8>>(py)
-                })
-            },
-            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+            Some(resp) => Python::with_gil(|py| {
+                let content_obj = resp.content(py)?;
+                content_obj.extract::<Vec<u8>>(py)
+            }),
+            None => Err(RequestError::new_err(
+                "Response not available - use within 'with' statement",
+            )),
         }
     }
 
     /// Stream response content as bytes - httpx iter_bytes() compatible
     fn iter_bytes(&self, chunk_size: Option<usize>) -> PyResult<StreamingIterator> {
         if self._is_closed {
-            return Err(crate::error::StreamError::new_err("Cannot iterate over closed stream"));
+            return Err(crate::core::error::StreamError::new_err(
+                "Cannot iterate over closed stream",
+            ));
         }
-        
+
         match &self.response {
             Some(resp) => {
                 let content = Python::with_gil(|py| {
                     let content_obj = resp.content(py)?;
                     content_obj.extract::<Vec<u8>>(py)
                 })?;
-                
+
                 Ok(StreamingIterator::new(
-                    content, 
-                    chunk_size.unwrap_or(8192), 
-                    StreamingMode::Bytes
+                    content,
+                    chunk_size.unwrap_or(8192),
+                    StreamingMode::Bytes,
                 ))
-            },
-            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+            }
+            None => Err(RequestError::new_err(
+                "Response not available - use within 'with' statement",
+            )),
         }
     }
 
     /// Stream response content as text - httpx iter_text() compatible
     fn iter_text(&self, chunk_size: Option<usize>) -> PyResult<StreamingIterator> {
         if self._is_closed {
-            return Err(crate::error::StreamError::new_err("Cannot iterate over closed stream"));
+            return Err(crate::core::error::StreamError::new_err(
+                "Cannot iterate over closed stream",
+            ));
         }
-        
+
         match &self.response {
             Some(resp) => {
                 let text_content = resp.text()?;
                 let content = text_content.into_bytes();
-                
+
                 Ok(StreamingIterator::new(
-                    content, 
-                    chunk_size.unwrap_or(8192), 
-                    StreamingMode::Text
+                    content,
+                    chunk_size.unwrap_or(8192),
+                    StreamingMode::Text,
                 ))
-            },
-            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+            }
+            None => Err(RequestError::new_err(
+                "Response not available - use within 'with' statement",
+            )),
         }
     }
 
     /// Stream response content line by line - httpx iter_lines() compatible
     fn iter_lines(&self) -> PyResult<StreamingIterator> {
         if self._is_closed {
-            return Err(crate::error::StreamError::new_err("Cannot iterate over closed stream"));
+            return Err(crate::core::error::StreamError::new_err(
+                "Cannot iterate over closed stream",
+            ));
         }
-        
+
         match &self.response {
             Some(resp) => {
                 let text_content = resp.text()?;
                 let content = text_content.into_bytes();
-                
+
                 Ok(StreamingIterator::new(
-                    content, 
+                    content,
                     0, // Not used for lines mode
-                    StreamingMode::Lines
+                    StreamingMode::Lines,
                 ))
-            },
-            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+            }
+            None => Err(RequestError::new_err(
+                "Response not available - use within 'with' statement",
+            )),
         }
     }
 
     /// Stream raw response bytes - httpx iter_raw() compatible
     fn iter_raw(&self, chunk_size: Option<usize>) -> PyResult<StreamingIterator> {
         if self._is_closed {
-            return Err(crate::error::StreamError::new_err("Cannot iterate over closed stream"));
+            return Err(crate::core::error::StreamError::new_err(
+                "Cannot iterate over closed stream",
+            ));
         }
-        
+
         match &self.response {
             Some(resp) => {
                 let content = Python::with_gil(|py| {
                     let content_obj = resp.content(py)?;
                     content_obj.extract::<Vec<u8>>(py)
                 })?;
-                
+
                 Ok(StreamingIterator::new(
-                    content, 
-                    chunk_size.unwrap_or(8192), 
-                    StreamingMode::Raw
+                    content,
+                    chunk_size.unwrap_or(8192),
+                    StreamingMode::Raw,
                 ))
-            },
-            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+            }
+            None => Err(RequestError::new_err(
+                "Response not available - use within 'with' statement",
+            )),
         }
     }
 
     /// JSON parsing support - httpx compatible
     fn json(&self) -> PyResult<PyObject> {
         if !self._content_consumed {
-            return Err(RequestError::new_err("Response content not loaded. Call read() first to access json."));
+            return Err(RequestError::new_err(
+                "Response content not loaded. Call read() first to access json.",
+            ));
         }
-        
+
         match &self.response {
             Some(resp) => Python::with_gil(|py| resp.json(py)),
-            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+            None => Err(RequestError::new_err(
+                "Response not available - use within 'with' statement",
+            )),
         }
     }
 
@@ -416,7 +457,9 @@ impl StreamingClient {
     fn raise_for_status(&self) -> PyResult<()> {
         match &self.response {
             Some(resp) => resp.raise_for_status(),
-            None => Err(RequestError::new_err("Response not available - use within 'with' statement"))
+            None => Err(RequestError::new_err(
+                "Response not available - use within 'with' statement",
+            )),
         }
     }
 }
@@ -476,7 +519,7 @@ impl StreamingIterator {
                     }
                 }
                 Ok(None)
-            },
+            }
             StreamingMode::Bytes | StreamingMode::Text | StreamingMode::Raw => {
                 if self.position >= self.content.len() {
                     return Ok(None);
@@ -491,15 +534,15 @@ impl StreamingIterator {
                         StreamingMode::Text => {
                             let text = String::from_utf8_lossy(chunk);
                             Ok(Some(text.to_string().to_object(py)))
-                        },
+                        }
                         StreamingMode::Bytes | StreamingMode::Raw => {
                             // Create proper Python bytes object instead of list
                             Ok(Some(pyo3::types::PyBytes::new(py, chunk).to_object(py)))
-                        },
+                        }
                         StreamingMode::Lines => {
                             // This should not happen in this branch, but handle gracefully
                             Ok(None)
-                        },
+                        }
                     }
                 })
             }

@@ -6,7 +6,6 @@ use pyo3::types::{IntoPyDict, PyBytes};
 use serde_json::Value;
 use std::collections::HashMap;
 
-
 // Response object - fully aligned with httpx
 #[pyclass(module = "faster_http")]
 #[derive(Clone, Debug)]
@@ -51,14 +50,15 @@ impl HttpResponse {
             let mut ext = HashMap::new();
             Python::with_gil(|py| {
                 // Add http_version as bytes (similar to httpx)
-                let http_version_bytes = pyo3::types::PyBytes::new(py, http_version.as_bytes()).to_object(py);
+                let http_version_bytes =
+                    pyo3::types::PyBytes::new(py, http_version.as_bytes()).to_object(py);
                 ext.insert("http_version".to_string(), http_version_bytes);
-                
-                // Add reason_phrase as bytes (similar to httpx) 
+
+                // Add reason_phrase as bytes (similar to httpx)
                 let reason = match status_code {
                     200 => "OK",
                     201 => "Created",
-                    202 => "Accepted", 
+                    202 => "Accepted",
                     204 => "No Content",
                     301 => "Moved Permanently",
                     302 => "Found",
@@ -72,7 +72,7 @@ impl HttpResponse {
                     404 => "Not Found",
                     405 => "Method Not Allowed",
                     408 => "Request Timeout",
-                    409 => "Conflict", 
+                    409 => "Conflict",
                     410 => "Gone",
                     422 => "Unprocessable Entity",
                     429 => "Too Many Requests",
@@ -104,7 +104,9 @@ impl HttpResponse {
                     None,
                     None,
                     None,
-                ).ok().and_then(|req| Py::new(py, req).ok().map(|obj| obj.to_object(py)))
+                )
+                .ok()
+                .and_then(|req| Py::new(py, req).ok().map(|obj| obj.to_object(py)))
             })
         });
 
@@ -183,7 +185,7 @@ impl HttpResponse {
             headers.unwrap_or_default(),
             body,
             "http://example.com".to_string(), // Default URL for mock responses
-            0.0, // elapsed
+            0.0,                              // elapsed
             (300..400).contains(&status_code), // is_redirect_status
             "HTTP/1.1".to_string(),
             HashMap::new(), // cookies
@@ -389,7 +391,11 @@ iter_bytes_impl(data, chunk_size)
             py.run(code, None, Some(locals))?;
             Ok(locals
                 .get_item("iter_bytes_impl")?
-                .ok_or_else(|| crate::error::InternalError::new_err("Failed to get iter_bytes_impl from locals"))?
+                .ok_or_else(|| {
+                    crate::core::error::InternalError::new_err(
+                        "Failed to get iter_bytes_impl from locals",
+                    )
+                })?
                 .call1((pyo3::types::PyBytes::new(py, &body), chunk_size))?
                 .to_object(py))
         })
@@ -415,7 +421,9 @@ iter_text_impl(text, chunk_size)
             py.run(code, None, Some(locals))?;
             Ok(locals
                 .get_item("iter_text_impl")?
-                .ok_or_else(|| crate::error::InternalError::new_err("Failed to get iter_text_impl from locals"))?
+                .ok_or_else(|| {
+                    crate::core::error::InternalError::new_err("Failed to get iter_text_impl from locals")
+                })?
                 .call1((text, chunk_size))?
                 .to_object(py))
         })
@@ -442,7 +450,11 @@ iter_lines_impl(lines)
             py.run(code, None, Some(locals))?;
             Ok(locals
                 .get_item("iter_lines_impl")?
-                .ok_or_else(|| crate::error::InternalError::new_err("Failed to get iter_lines_impl from locals"))?
+                .ok_or_else(|| {
+                    crate::core::error::InternalError::new_err(
+                        "Failed to get iter_lines_impl from locals",
+                    )
+                })?
                 .call1((py_lines,))?
                 .to_object(py))
         })
@@ -466,9 +478,7 @@ iter_lines_impl(lines)
 
         future_into_py(py, async move {
             // Use with_gil directly without spawn_blocking to avoid async context conflicts
-            Python::with_gil(|py| -> PyResult<Py<PyBytes>> { 
-                Ok(PyBytes::new(py, &body).into()) 
-            })
+            Python::with_gil(|py| -> PyResult<Py<PyBytes>> { Ok(PyBytes::new(py, &body).into()) })
         })
     }
 
@@ -586,19 +596,22 @@ iter_lines_impl(lines)
             // Parse Link header according to RFC 5988
             for link_part in link_header.split(',') {
                 let link_part = link_part.trim();
-                
+
                 // Extract URL first
                 if let Some(url_start) = link_part.find('<') {
                     if let Some(url_end) = link_part.find('>') {
-                        let url = link_part.get(url_start + 1..url_end).unwrap_or("").to_string();
-                        
+                        let url = link_part
+                            .get(url_start + 1..url_end)
+                            .unwrap_or("")
+                            .to_string();
+
                         // Parse all attributes after the URL
                         let attributes_part = link_part.get(url_end + 1..).unwrap_or("");
                         let mut link_info = HashMap::new();
                         link_info.insert("url".to_string(), url);
-                        
+
                         let mut rel_value = String::new();
-                        
+
                         // Parse all attributes separated by semicolons
                         for attr_part in attributes_part.split(';') {
                             let attr_part = attr_part.trim();
@@ -609,16 +622,16 @@ iter_lines_impl(lines)
                                     .trim_matches('"')
                                     .trim_matches('\'')
                                     .to_string();
-                                
+
                                 link_info.insert(key.to_string(), value.clone());
-                                
+
                                 // Keep track of rel value for the key
                                 if key == "rel" {
                                     rel_value = value;
                                 }
                             }
                         }
-                        
+
                         // Only add to links if we found a rel attribute
                         if !rel_value.is_empty() {
                             links.insert(rel_value, link_info);
@@ -667,7 +680,11 @@ aiter_bytes_impl(data, chunk_size)
             py.run(&code, None, Some(locals))?;
             Ok(locals
                 .get_item("aiter_bytes_impl")?
-                .ok_or_else(|| crate::error::InternalError::new_err("Failed to get aiter_bytes_impl from locals"))?
+                .ok_or_else(|| {
+                    crate::core::error::InternalError::new_err(
+                        "Failed to get aiter_bytes_impl from locals",
+                    )
+                })?
                 .call1((py_bytes, chunk_size))?
                 .to_object(py))
         })
@@ -693,7 +710,11 @@ aiter_text_impl(text, chunk_size)
             py.run(&code, None, Some(locals))?;
             Ok(locals
                 .get_item("aiter_text_impl")?
-                .ok_or_else(|| crate::error::InternalError::new_err("Failed to get aiter_text_impl from locals"))?
+                .ok_or_else(|| {
+                    crate::core::error::InternalError::new_err(
+                        "Failed to get aiter_text_impl from locals",
+                    )
+                })?
                 .call1((text, chunk_size))?
                 .to_object(py))
         })
@@ -720,7 +741,11 @@ aiter_lines_impl(lines)
             py.run(&code, None, Some(locals))?;
             Ok(locals
                 .get_item("aiter_lines_impl")?
-                .ok_or_else(|| crate::error::InternalError::new_err("Failed to get aiter_lines_impl from locals"))?
+                .ok_or_else(|| {
+                    crate::core::error::InternalError::new_err(
+                        "Failed to get aiter_lines_impl from locals",
+                    )
+                })?
                 .call1((py_lines,))?
                 .to_object(py))
         })

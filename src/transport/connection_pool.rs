@@ -2,17 +2,17 @@
 // Enables connection management for faster-http
 
 use hyper::Uri;
-use hyper_util::client::legacy::{Client, connect::HttpConnector};
+use hyper_util::client::legacy::{connect::HttpConnector, Client};
 // HTTPS support restored for HTTPS functionality
-use hyper_rustls::HttpsConnector;
-use http_body_util::Full;
+use crate::core::error::RequestError;
 use bytes::Bytes;
+use http_body_util::Full;
+use hyper_rustls::HttpsConnector;
+use hyper_util::rt::TokioExecutor;
+use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
-use pyo3::prelude::*;
-use crate::core::error::RequestError;
-use hyper_util::rt::TokioExecutor;
 // Removed unused imports
 
 // Branch prediction hints for performance optimization
@@ -32,10 +32,6 @@ const fn unlikely(b: bool) -> bool {
 pub enum ConfigMode {
     /// Conservative mode - prioritizes stability and resource safety
     Conservative,
-    /// Balanced mode - good performance with reasonable resource usage
-    Balanced,
-    /// Standard mode - configured for moderate resource usage
-    Standard,
     /// High resource mode - configured for higher resource usage
     #[default]
     ResourceIntensive,
@@ -68,142 +64,22 @@ pub struct PoolConfig {
 
 impl Default for PoolConfig {
     fn default() -> Self {
-        Self::standard()  // Use standard mode by default
+        Self {
+            max_idle_per_host: 100,
+            keep_alive_timeout: Duration::from_secs(90),
+            max_total_connections: 1000,
+            connect_timeout: Duration::from_secs(5),
+            request_timeout: Duration::from_secs(30),
+            http2_only: false,
+            http1_only: false,
+            mode: ConfigMode::ResourceIntensive,
+        }
     }
 }
 
 impl PoolConfig {
-    /// Create conservative configuration - prioritizes stability
-    pub fn conservative() -> Self {
-        Self {
-            max_idle_per_host: 10,   // Very conservative for resource safety
-            keep_alive_timeout: Duration::from_secs(30), // Short keep-alive
-            max_total_connections: 100, // Low total connections
-            connect_timeout: Duration::from_secs(10),  // Generous connection timeout
-            request_timeout: Duration::from_secs(30), // Standard request timeout - unified
-            http2_only: false,
-            http1_only: false,
-            mode: ConfigMode::Conservative,
-        }
-    }
 
-    /// Create balanced configuration - good performance with reasonable resources
-    pub fn balanced() -> Self {
-        Self {
-            max_idle_per_host: 50,   // Balanced value for stability
-            keep_alive_timeout: Duration::from_secs(90), // 1.5 minutes keep-alive
-            max_total_connections: 500, // Reasonable total for most use cases
-            connect_timeout: Duration::from_millis(5000),  // 5 second connection timeout
-            request_timeout: Duration::from_secs(30), // 30 second request timeout
-            http2_only: false,
-            http1_only: false,
-            mode: ConfigMode::Balanced,
-        }
-    }
 
-    /// Create high resource configuration with higher resource limits
-    pub fn resource_intensive() -> Self {
-        Self {
-            max_idle_per_host: 200,   // High resource setting
-            keep_alive_timeout: Duration::from_secs(300), // 5 minutes keep-alive
-            max_total_connections: 2000, // High resource connection limit
-            connect_timeout: Duration::from_millis(2000),  // Standard connection timeout
-            request_timeout: Duration::from_secs(30), // Standard request timeout - unified
-            http2_only: false,
-            http1_only: false,
-            mode: ConfigMode::ResourceIntensive,
-        }
-    }
-
-    /// Create standard configuration  
-    /// This mode provides standard performance with resource management
-    pub fn standard() -> Self {
-        Self {
-            max_idle_per_host: 1000,   // Standard per-host connections
-            keep_alive_timeout: Duration::from_secs(300), // 5 minutes keep-alive
-            max_total_connections: 10000, // Standard connection pool size
-            connect_timeout: Duration::from_millis(500),  // Standard connection timeout
-            request_timeout: Duration::from_secs(30), // Standard request timeout - CRITICAL FIX!
-            http2_only: false,
-            http1_only: false,
-            mode: ConfigMode::ResourceIntensive,
-        }
-    }
-
-    /// Create async configuration for concurrent request processing
-    /// Configured for async workload patterns
-    pub fn async_configured() -> Self {
-        Self {
-            max_idle_per_host: 100,    // Configured per-host connections for async patterns
-            keep_alive_timeout: Duration::from_secs(90), // Configured for async connection lifecycle
-            max_total_connections: 800, // Configured for async concurrent processing
-            connect_timeout: Duration::from_millis(200),  // Standard connection timeout
-            request_timeout: Duration::from_secs(30), // Match client timeout for consistency
-            http2_only: false,
-            http1_only: true, // HTTP/1.1 only for consistent async processing
-            mode: ConfigMode::ResourceIntensive,
-        }
-    }
-
-    /// Create async high resource configuration for concurrent processing
-    /// High resource settings for async workloads
-    pub fn async_extended_resources() -> Self {
-        Self {
-            max_idle_per_host: 300,    // High resource per-host connections for async patterns
-            keep_alive_timeout: Duration::from_secs(45), // High resource keepalive for async processing
-            max_total_connections: 2000, // High resource connections for async concurrent processing
-            connect_timeout: Duration::from_millis(100),  // Standard connection timeout
-            request_timeout: Duration::from_secs(30), // Match client timeout for consistency
-            http2_only: false,
-            http1_only: true, // HTTP/1.1 only for async processing
-            mode: ConfigMode::ResourceIntensive,
-        }
-    }
-
-    /// Create balanced async configuration for concurrent processing
-    /// Balanced settings for async processing with resource efficiency
-    pub fn async_balanced() -> Self {
-        Self {
-            max_idle_per_host: 150,    // Balanced per-host connections for async processing
-            keep_alive_timeout: Duration::from_secs(60), // Balanced keepalive for async patterns
-            max_total_connections: 1000, // Balanced connections for concurrent processing
-            connect_timeout: Duration::from_millis(500),  // Balanced connection timeout
-            request_timeout: Duration::from_secs(30), // Match client timeout for consistency
-            http2_only: false,
-            http1_only: true, // HTTP/1.1 only for async processing
-            mode: ConfigMode::ResourceIntensive,
-        }
-    }
-
-    /// Create concurrent async configuration for high-volume processing
-    /// Concurrent settings for async HTTP client workloads
-    pub fn async_concurrent() -> Self {
-        Self {
-            max_idle_per_host: 400,    // Concurrent per-host connection pool for async patterns
-            keep_alive_timeout: Duration::from_secs(30), // Concurrent keepalive for async processing
-            max_total_connections: 3000, // Concurrent connection limit for async processing
-            connect_timeout: Duration::from_millis(200),  // Standard connection timeout
-            request_timeout: Duration::from_secs(30), // Match client timeout for consistency
-            http2_only: false,
-            http1_only: true, // HTTP/1.1 only for async processing
-            mode: ConfigMode::ResourceIntensive,
-        }
-    }
-
-    /// Create standard async configuration for reliable high-volume processing
-    /// Standard settings: Configured for async workloads
-    pub fn async_standard() -> Self {
-        Self {
-            max_idle_per_host: 250,    // Match sync client configuration
-            keep_alive_timeout: Duration::from_secs(30), // Standard 30s keep-alive
-            max_total_connections: 1200, // Match sync client total connections
-            connect_timeout: Duration::from_secs(5),  // Reasonable connect timeout
-            request_timeout: Duration::from_secs(30), // Match sync client timeout - CRITICAL FIX!
-            http2_only: false,
-            http1_only: false, // Allow both HTTP/1.1 and HTTP/2
-            mode: ConfigMode::Standard, // Use standard instead of resource intensive
-        }
-    }
 
     /// Validate configuration parameters for safety
     pub fn validate(&self) -> Result<(), String> {
@@ -243,23 +119,17 @@ impl PoolConfig {
                 self.connect_timeout
             ));
         }
-        
+
         // Mode-specific warnings
         match self.mode {
             ConfigMode::Conservative => {
                 // Conservative mode validation completed
             }
-            ConfigMode::Balanced => {
-                // Balanced mode is flexible, no specific warnings
-            }
-            ConfigMode::Standard => {
-                // Standard mode validation completed
-            }
             ConfigMode::ResourceIntensive => {
                 // Resource intensive mode validation completed
             }
         }
-        
+
         Ok(())
     }
 }
@@ -325,7 +195,7 @@ impl HttpConnectionPool {
             if warning_msg.starts_with("WARNING:") {
                 // Warning logged silently, continuing with configuration
             } else {
-                return Err(crate::error::RequestError::new_err(warning_msg));
+                return Err(crate::core::error::RequestError::new_err(warning_msg));
             }
         }
 
@@ -339,9 +209,9 @@ impl HttpConnectionPool {
         // Create HTTP-only connector for localhost connections
         let create_http_only_connector = || {
             let mut connector = HttpConnector::new();
-            connector.enforce_http(true);  // Force HTTP-only for localhost
+            connector.enforce_http(true); // Force HTTP-only for localhost
             connector.set_connect_timeout(Some(Duration::from_millis(1000))); // Standard timeout for localhost
-            connector.set_nodelay(true);  // Enable TCP_NODELAY for minimum latency
+            connector.set_nodelay(true); // Enable TCP_NODELAY for minimum latency
             connector.set_keepalive(Some(Duration::from_secs(300))); // Standard keepalive for connection reuse
             connector.set_reuse_address(true); // Enable socket reuse
             connector.set_send_buffer_size(Some(2 * 1024 * 1024)); // 2MB send buffer
@@ -354,9 +224,9 @@ impl HttpConnectionPool {
         // Create HTTP connector for HTTPS wrapper (allows both HTTP and HTTPS)
         let _create_https_base_connector = || {
             let mut connector = HttpConnector::new();
-            connector.enforce_http(false);  // Allow both HTTP and HTTPS
+            connector.enforce_http(false); // Allow both HTTP and HTTPS
             connector.set_connect_timeout(Some(config.connect_timeout));
-            connector.set_nodelay(true);  // Enable TCP_NODELAY for minimum latency
+            connector.set_nodelay(true); // Enable TCP_NODELAY for minimum latency
             connector.set_keepalive(Some(Duration::from_secs(300))); // Standard keepalive for connection reuse
             connector.set_reuse_address(true); // Enable socket reuse
             connector.set_send_buffer_size(Some(2 * 1024 * 1024)); // 2MB send buffer
@@ -374,7 +244,7 @@ impl HttpConnectionPool {
             .http1_preserve_header_case(false) // Configure header case for processing speed
             .http1_read_buf_exact_size(8 * 1024 * 1024) // 8MB read buffer
             .http1_max_buf_size(8 * 1024 * 1024) // 8MB max buffer
-            .http2_only(false)  // Allow HTTP/1.1 for compatibility and processing speed
+            .http2_only(false) // Allow HTTP/1.1 for compatibility and processing speed
             .http1_writev(true) // Enable vectored writes
             .http2_initial_stream_window_size(Some(16 * 1024 * 1024)) // 16MB HTTP/2 stream window
             .http2_initial_connection_window_size(Some(32 * 1024 * 1024)) // 32MB HTTP/2 connection window
@@ -383,9 +253,7 @@ impl HttpConnectionPool {
             .build(create_http_only_connector());
 
         // HTTPS connector restored for HTTPS functionality
-        let https_connector = match hyper_rustls::HttpsConnectorBuilder::new()
-            .with_native_roots() 
-        {
+        let https_connector = match hyper_rustls::HttpsConnectorBuilder::new().with_native_roots() {
             Ok(builder) => {
                 // Successfully loaded native roots
                 builder
@@ -404,7 +272,7 @@ impl HttpConnectionPool {
                     .wrap_connector(_create_https_base_connector())
             }
         };
-        
+
         // HTTPS client configured for HTTPS functionality
         let https_client = Client::builder(TokioExecutor::new())
             .pool_idle_timeout(config.keep_alive_timeout) // Use config timeout
@@ -431,19 +299,19 @@ impl HttpConnectionPool {
             created_at: Instant::now(),
             cleanup_handle: None,
         };
-        
+
         // Initialize health score
         if let Ok(mut stats) = pool.stats.write() {
             stats.health_score = 1.0;
             stats.last_cleanup = Some(Instant::now());
         }
-        
+
         Ok(pool)
     }
 
     /// Make an HTTP request using the connection pool
     /// This method will reuse existing connections when possible
-    #[inline(always)]  // Force inline for critical path
+    #[inline(always)] // Force inline for critical path
     pub async fn request(
         &self,
         method: hyper::Method,
@@ -451,12 +319,13 @@ impl HttpConnectionPool {
         headers: Option<HashMap<String, String>>,
         body: Option<Bytes>,
     ) -> PyResult<hyper::Response<hyper::body::Incoming>> {
-        self.request_with_timeout(method, uri, headers, body, None).await
+        self.request_with_timeout(method, uri, headers, body, None)
+            .await
     }
 
     /// Make an HTTP request with a specific timeout
     /// This method will reuse existing connections when possible
-    #[inline(always)]  // Force inline for critical path processing
+    #[inline(always)] // Force inline for critical path processing
     pub async fn request_with_timeout(
         &self,
         method: hyper::Method,
@@ -467,16 +336,20 @@ impl HttpConnectionPool {
     ) -> PyResult<hyper::Response<hyper::body::Incoming>> {
         // Method validation using request processing
         let method_str = method.as_str();
-        if !matches!(method_str, "GET" | "POST" | "PUT" | "DELETE" | "HEAD" | "OPTIONS" | "PATCH" | "TRACE" | "CONNECT") {
-            return Err(crate::error::RequestError::new_err(
-                format!("Invalid HTTP method: {}", method_str)
-            ));
+        if !matches!(
+            method_str,
+            "GET" | "POST" | "PUT" | "DELETE" | "HEAD" | "OPTIONS" | "PATCH" | "TRACE" | "CONNECT"
+        ) {
+            return Err(crate::core::error::RequestError::new_err(format!(
+                "Invalid HTTP method: {}",
+                method_str
+            )));
         }
 
         // Client selection with configuration handling
         let scheme = uri.scheme_str();
         let use_http_client = likely(scheme == Some("http")); // Most common case is HTTP
-        
+
         // Client selection logic complete
 
         // Stats update with lock management
@@ -496,7 +369,7 @@ impl HttpConnectionPool {
             }
         }
 
-        // Add appropriate Connection header based on client type  
+        // Add appropriate Connection header based on client type
         if use_http_client {
             // For localhost HTTP, use keep-alive connections
             request_builder = request_builder.header("Connection", "keep-alive");
@@ -513,7 +386,7 @@ impl HttpConnectionPool {
 
         // Send request using the appropriate client with timeout
         let timeout_duration = timeout.unwrap_or(self.config.request_timeout);
-        
+
         let response = if use_http_client {
             // Use HTTP-only client for localhost HTTP
             tokio::time::timeout(timeout_duration, self.client.http_client.request(request))
@@ -530,8 +403,8 @@ impl HttpConnectionPool {
                             stats.timeout_errors + stats.connection_errors,
                         );
                     }
-                    crate::error::ReadTimeout::new_err(format!(
-                        "Request timeout after {}s: deadline has elapsed", 
+                    crate::core::error::ReadTimeout::new_err(format!(
+                        "Request timeout after {}s: deadline has elapsed",
                         timeout_duration.as_secs_f64()
                     ))
                 })?
@@ -547,14 +420,14 @@ impl HttpConnectionPool {
                             stats.timeout_errors + stats.connection_errors,
                         );
                     }
-                    crate::error::map_hyper_util_error(e)
+                    crate::core::error::map_hyper_util_error(e)
                 })?
         } else {
             // Use HTTPS client for secure requests (HTTPS functionality restored)
             tokio::time::timeout(timeout_duration, self.client.https_client.request(request))
                 .await
                 .map_err(|_| {
-                    // Update timeout statistics for HTTPS client  
+                    // Update timeout statistics for HTTPS client
                     if let Ok(mut stats) = self.stats.write() {
                         stats.timeout_errors += 1;
                         stats.failed_requests += 1;
@@ -565,8 +438,8 @@ impl HttpConnectionPool {
                             stats.timeout_errors + stats.connection_errors,
                         );
                     }
-                    crate::error::ReadTimeout::new_err(format!(
-                        "Request timeout after {}s: deadline has elapsed", 
+                    crate::core::error::ReadTimeout::new_err(format!(
+                        "Request timeout after {}s: deadline has elapsed",
                         timeout_duration.as_secs_f64()
                     ))
                 })?
@@ -582,7 +455,7 @@ impl HttpConnectionPool {
                             stats.timeout_errors + stats.connection_errors,
                         );
                     }
-                    crate::error::map_hyper_util_error(e)
+                    crate::core::error::map_hyper_util_error(e)
                 })?
         };
 
@@ -597,9 +470,10 @@ impl HttpConnectionPool {
     /// Get connection pool statistics
     #[allow(dead_code)]
     pub fn get_stats(&self) -> PyResult<PoolStats> {
-        let stats = self.stats.read().map_err(|_| {
-            RequestError::new_err("Failed to acquire stats lock")
-        })?;
+        let stats = self
+            .stats
+            .read()
+            .map_err(|_| RequestError::new_err("Failed to acquire stats lock"))?;
         Ok(PoolStats {
             total_requests: stats.total_requests,
             connection_reuses: stats.connection_reuses,
@@ -624,22 +498,23 @@ impl HttpConnectionPool {
     /// Check if connection pooling is working by measuring consecutive request times
     /// This is a diagnostic method to verify that connections are being reused
     #[allow(dead_code)]
-    pub async fn test_connection_reuse(&self, uri: Uri, num_requests: usize) -> PyResult<Vec<Duration>> {
+    pub async fn test_connection_reuse(
+        &self,
+        uri: Uri,
+        num_requests: usize,
+    ) -> PyResult<Vec<Duration>> {
         let mut times = Vec::with_capacity(num_requests);
-        
+
         for _ in 0..num_requests {
             let start = Instant::now();
-            
-            let _response = self.request(
-                hyper::Method::GET,
-                uri.clone(),
-                None,
-                None,
-            ).await?;
-            
+
+            let _response = self
+                .request(hyper::Method::GET, uri.clone(), None, None)
+                .await?;
+
             times.push(start.elapsed());
         }
-        
+
         Ok(times)
     }
 }
@@ -647,8 +522,8 @@ impl HttpConnectionPool {
 /// Global connection pool instance for optimal performance
 /// Uses safe OnceLock pattern for thread-safe initialization
 #[allow(dead_code)]
-static GLOBAL_CONNECTION_POOL: std::sync::OnceLock<Result<Arc<HttpConnectionPool>, String>> = std::sync::OnceLock::new();
-
+static GLOBAL_CONNECTION_POOL: std::sync::OnceLock<Result<Arc<HttpConnectionPool>, String>> =
+    std::sync::OnceLock::new();
 
 /// Get or create the global connection pool instance
 /// This provides a singleton pattern for connection pool access
@@ -670,18 +545,18 @@ pub fn get_global_connection_pool() -> PyResult<Arc<HttpConnectionPool>> {
                     http1_only: false,
                     mode: ConfigMode::Conservative,
                 };
-                
+
                 match HttpConnectionPool::new(minimal_config) {
                     Ok(pool) => Ok(Arc::new(pool)),
-                    Err(e) => Err(format!("Failed to create any connection pool: {}", e))
+                    Err(e) => Err(format!("Failed to create any connection pool: {}", e)),
                 }
             }
         }
     });
-    
+
     match result {
         Ok(pool) => Ok(pool.clone()),
-        Err(msg) => Err(crate::error::RequestError::new_err(msg.clone()))
+        Err(msg) => Err(crate::core::error::RequestError::new_err(msg.clone())),
     }
 }
 
@@ -691,26 +566,6 @@ pub fn create_custom_pool(config: PoolConfig) -> PyResult<Arc<HttpConnectionPool
     Ok(Arc::new(HttpConnectionPool::new(config)?))
 }
 
-/// Create a conservative connection pool - prioritizes stability and resource safety
-pub fn create_conservative_pool() -> PyResult<Arc<HttpConnectionPool>> {
-    Ok(Arc::new(HttpConnectionPool::new(PoolConfig::conservative())?))
-}
-
-/// Create a balanced connection pool - good performance with reasonable resource usage
-pub fn create_balanced_pool() -> PyResult<Arc<HttpConnectionPool>> {
-    Ok(Arc::new(HttpConnectionPool::new(PoolConfig::balanced())?))
-}
-
-/// Create a high resource connection pool with higher resource usage
-pub fn create_resource_intensive_pool() -> PyResult<Arc<HttpConnectionPool>> {
-    Ok(Arc::new(HttpConnectionPool::new(PoolConfig::resource_intensive())?))
-}
-
-/// Create a standard connection pool
-/// This mode provides standard performance with resource management
-pub fn create_standard_pool() -> PyResult<Arc<HttpConnectionPool>> {
-    Ok(Arc::new(HttpConnectionPool::new(PoolConfig::standard())?))
-}
 
 /// Calculate connection pool health score (0.0 = unhealthy, 1.0 = healthy)
 /// Based on error rates, response times, and overall performance
@@ -721,33 +576,33 @@ fn calculate_health_score(
     error_count: u64,
 ) -> f64 {
     if total_requests == 0 {
-        return 1.0;  // Default health score for newly created pools
+        return 1.0; // Default health score for newly created pools
     }
-    
+
     // Error rate score (0.0 - 1.0, higher values indicate fewer errors)
     let error_rate = failed_requests as f64 / total_requests as f64;
     let error_score = (1.0 - error_rate).max(0.0);
-    
+
     // Response time score (penalize slow responses)
     let response_time_score = if current_response_time_ms > 10000.0 {
-        0.1  // Very slow
+        0.1 // Very slow
     } else if current_response_time_ms > 5000.0 {
-        0.5  // Slow
+        0.5 // Slow
     } else if current_response_time_ms > 1000.0 {
-        0.8  // Acceptable
+        0.8 // Acceptable
     } else {
-        1.0  // Fast
+        1.0 // Fast
     };
-    
+
     // Error frequency penalty
     let error_frequency_score = if error_count > total_requests / 4 {
-        0.2  // Too many errors
+        0.2 // Too many errors
     } else if error_count > total_requests / 10 {
-        0.6  // Some errors
+        0.6 // Some errors
     } else {
-        1.0  // Low error rate
+        1.0 // Low error rate
     };
-    
+
     // Weighted average (error rate is most important)
     (error_score * 0.5 + response_time_score * 0.3 + error_frequency_score * 0.2).clamp(0.0, 1.0)
 }
@@ -757,51 +612,73 @@ impl HttpConnectionPool {
     /// Get detailed health metrics for monitoring systems
     pub fn get_health_metrics(&self) -> PyResult<HashMap<String, f64>> {
         let stats = self.stats.read().map_err(|_| {
-            crate::error::InternalError::new_err("Failed to acquire stats lock for health metrics".to_string())
+            crate::core::error::InternalError::new_err(
+                "Failed to acquire stats lock for health metrics".to_string(),
+            )
         })?;
-        
+
         let mut metrics = HashMap::new();
         metrics.insert("health_score".to_string(), stats.health_score);
         metrics.insert("total_requests".to_string(), stats.total_requests as f64);
         metrics.insert("failed_requests".to_string(), stats.failed_requests as f64);
-        metrics.insert("connection_reuses".to_string(), stats.connection_reuses as f64);
+        metrics.insert(
+            "connection_reuses".to_string(),
+            stats.connection_reuses as f64,
+        );
         metrics.insert("timeout_errors".to_string(), stats.timeout_errors as f64);
-        metrics.insert("connection_errors".to_string(), stats.connection_errors as f64);
-        metrics.insert("avg_response_time_ms".to_string(), stats.avg_response_time_ms);
-        metrics.insert("uptime_seconds".to_string(), self.created_at.elapsed().as_secs_f64());
-        
+        metrics.insert(
+            "connection_errors".to_string(),
+            stats.connection_errors as f64,
+        );
+        metrics.insert(
+            "avg_response_time_ms".to_string(),
+            stats.avg_response_time_ms,
+        );
+        metrics.insert(
+            "uptime_seconds".to_string(),
+            self.created_at.elapsed().as_secs_f64(),
+        );
+
         if stats.total_requests > 0 {
-            metrics.insert("success_rate".to_string(), 
-                (stats.total_requests - stats.failed_requests) as f64 / stats.total_requests as f64);
-            metrics.insert("error_rate".to_string(), 
-                stats.failed_requests as f64 / stats.total_requests as f64);
+            metrics.insert(
+                "success_rate".to_string(),
+                (stats.total_requests - stats.failed_requests) as f64 / stats.total_requests as f64,
+            );
+            metrics.insert(
+                "error_rate".to_string(),
+                stats.failed_requests as f64 / stats.total_requests as f64,
+            );
         }
-        
+
         Ok(metrics)
     }
-    
+
     /// Check if the connection pool is healthy based on error rates and performance
     pub fn is_healthy(&self) -> PyResult<bool> {
         let stats = self.stats.read().map_err(|_| {
-            crate::error::InternalError::new_err("Failed to acquire stats lock for health check".to_string())
+            crate::core::error::InternalError::new_err(
+                "Failed to acquire stats lock for health check".to_string(),
+            )
         })?;
-        
+
         // Consider healthy if health score > 0.7 and not too many recent errors
-        Ok(stats.health_score > 0.7 && 
-           (stats.total_requests == 0 || stats.failed_requests * 10 < stats.total_requests))
+        Ok(stats.health_score > 0.7
+            && (stats.total_requests == 0 || stats.failed_requests * 10 < stats.total_requests))
     }
-    
+
     /// Force cleanup of idle connections and reset health metrics
     pub async fn force_cleanup(&self) -> PyResult<()> {
         let mut stats = self.stats.write().map_err(|_| {
-            crate::error::InternalError::new_err("Failed to acquire stats lock for cleanup".to_string())
+            crate::core::error::InternalError::new_err(
+                "Failed to acquire stats lock for cleanup".to_string(),
+            )
         })?;
-        
+
         stats.last_cleanup = Some(Instant::now());
-        
+
         // Reset error counters if health is critically low
         if stats.health_score < 0.3 {
-            stats.failed_requests /= 2;  // Reduce by half
+            stats.failed_requests /= 2; // Reduce by half
             stats.timeout_errors /= 2;
             stats.connection_errors /= 2;
             stats.health_score = calculate_health_score(
@@ -811,7 +688,7 @@ impl HttpConnectionPool {
                 stats.timeout_errors + stats.connection_errors,
             );
         }
-        
+
         Ok(())
     }
 }
@@ -824,49 +701,27 @@ mod tests {
     async fn test_connection_pool_creation() {
         let config = PoolConfig::default();
         let pool = HttpConnectionPool::new(config).unwrap();
-        
+
         // Verify pool was created successfully
         let stats = pool.get_stats().unwrap();
         assert_eq!(stats.total_requests, 0);
     }
 
     #[tokio::test]
-    async fn test_config_modes() {
-        // Test conservative mode
-        let conservative = PoolConfig::conservative();
-        assert!(conservative.validate().is_ok());
-        assert!(matches!(conservative.mode, ConfigMode::Conservative));
-        
-        // Test balanced mode
-        let balanced = PoolConfig::balanced();
-        assert!(balanced.validate().is_ok());
-        assert!(matches!(balanced.mode, ConfigMode::Balanced));
-        
-        // Test standard mode
-        let standard = PoolConfig::standard();
-        assert!(standard.validate().is_ok());
-        assert!(matches!(standard.mode, ConfigMode::ResourceIntensive));
-        
-        // Verify conservative < balanced < standard in resource usage
-        assert!(conservative.max_idle_per_host <= balanced.max_idle_per_host);
-        assert!(balanced.max_idle_per_host <= standard.max_idle_per_host);
-    }
-
-    #[tokio::test]
     async fn test_config_validation() {
-        let mut config = PoolConfig::balanced();
-        
+        let mut config = PoolConfig::default();
+
         // Test invalid configurations
         config.max_idle_per_host = 0;
         assert!(config.validate().is_err());
-        
+
         config.max_idle_per_host = 50;
         config.max_total_connections = 0;
         assert!(config.validate().is_err());
-        
+
         // Test warning configurations
         config.max_total_connections = 500;
-        config.max_idle_per_host = 1500;  // Should trigger warning
+        config.max_idle_per_host = 1500; // Should trigger warning
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("WARNING"));
@@ -876,7 +731,7 @@ mod tests {
     async fn test_global_pool_access() {
         let pool1 = get_global_connection_pool().unwrap();
         let pool2 = get_global_connection_pool().unwrap();
-        
+
         // Verify same instance is returned
         assert!(Arc::ptr_eq(&pool1, &pool2));
     }
@@ -885,7 +740,7 @@ mod tests {
     async fn test_pool_stats() {
         let pool = HttpConnectionPool::new(PoolConfig::default()).unwrap();
         let stats = pool.get_stats().unwrap();
-        
+
         assert_eq!(stats.total_requests, 0);
         assert_eq!(stats.connection_reuses, 0);
     }

@@ -1,5 +1,5 @@
-use crate::models::HttpResponse;
 use crate::core::sync_core::SyncHttpClient;
+use crate::models::HttpResponse;
 use crate::stubs::streaming_stub::StreamingClient;
 use pyo3::prelude::*;
 use std::collections::HashMap;
@@ -15,7 +15,6 @@ pub struct RequestParams {
     pub cookies: Option<HashMap<String, String>>,
     pub verify: Option<PyObject>,
 }
-
 
 // Unified synchronous request execution
 #[allow(clippy::too_many_arguments)]
@@ -36,11 +35,15 @@ pub fn execute_request_with_sync_client(
 ) -> PyResult<HttpResponse> {
     // Use the provided config to create a client with proper timeout settings
     let sync_client = SyncHttpClient::new_with_config(config.clone())?;
-    
+
     // Convert HashMap types to PyObject for sync_client (data is already PyObject)
-    let json_obj = json.as_ref().map(|j| Python::with_gil(|py| j.to_object(py)));
-    let files_obj = files.as_ref().map(|f| Python::with_gil(|py| f.to_object(py)));
-    
+    let json_obj = json
+        .as_ref()
+        .map(|j| Python::with_gil(|py| j.to_object(py)));
+    let files_obj = files
+        .as_ref()
+        .map(|f| Python::with_gil(|py| f.to_object(py)));
+
     // Execute request using client with proper timeout configuration
     sync_client.send_request(
         method,
@@ -160,7 +163,7 @@ fn create_ephemeral_config_with_verify(
             None,                               // base_url
             extract_timeout_parameter(timeout), // timeout - convert f64 to PyObject
             None,                               // headers
-            verify.map(|v| v.as_ref(py)),      // verify - convert to &PyAny
+            verify.map(|v| v.as_ref(py)),       // verify - convert to &PyAny
             Some(follow_redirects),             // follow_redirects
             None,                               // auth
             None,                               // proxy
@@ -214,10 +217,10 @@ fn execute_get_request(url: &str, params: RequestParams) -> PyResult<HttpRespons
 
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
-        params.cookies.clone(), 
-        params.timeout, 
+        params.cookies.clone(),
+        params.timeout,
         params.follow_redirects.unwrap_or(false),
-        params.verify.as_ref()
+        params.verify.as_ref(),
     )?;
 
     execute_request_with_sync_client(
@@ -258,10 +261,10 @@ pub fn post(
 
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
-        cookies.clone(), 
-        timeout, 
+        cookies.clone(),
+        timeout,
         follow_redirects.unwrap_or(false),
-        verify.as_ref()
+        verify.as_ref(),
     )?;
 
     let extracted_headers = extract_headers(headers)?;
@@ -303,10 +306,10 @@ pub fn put(
 
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
-        cookies.clone(), 
-        timeout, 
+        cookies.clone(),
+        timeout,
         follow_redirects.unwrap_or(false),
-        verify.as_ref()
+        verify.as_ref(),
     )?;
 
     execute_request_with_sync_client(
@@ -347,10 +350,10 @@ pub fn patch(
 
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
-        cookies.clone(), 
-        timeout, 
+        cookies.clone(),
+        timeout,
         follow_redirects.unwrap_or(false),
-        verify.as_ref()
+        verify.as_ref(),
     )?;
 
     execute_request_with_sync_client(
@@ -401,10 +404,10 @@ fn execute_delete_request(url: &str, params: RequestParams) -> PyResult<HttpResp
 
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
-        params.cookies.clone(), 
-        params.timeout, 
+        params.cookies.clone(),
+        params.timeout,
         params.follow_redirects.unwrap_or(false),
-        params.verify.as_ref()
+        params.verify.as_ref(),
     )?;
 
     execute_request_with_sync_client(
@@ -441,10 +444,10 @@ pub fn head(
 
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
-        cookies.clone(), 
-        timeout, 
+        cookies.clone(),
+        timeout,
         follow_redirects.unwrap_or(false),
-        verify.as_ref()
+        verify.as_ref(),
     )?;
 
     execute_request_with_sync_client(
@@ -481,10 +484,10 @@ pub fn options(
 
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
-        cookies.clone(), 
-        timeout, 
+        cookies.clone(),
+        timeout,
         follow_redirects.unwrap_or(false),
-        verify.as_ref()
+        verify.as_ref(),
     )?;
 
     execute_request_with_sync_client(
@@ -527,10 +530,10 @@ pub fn request(
 
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
-        cookies.clone(), 
-        timeout, 
+        cookies.clone(),
+        timeout,
         follow_redirects.unwrap_or(false),
-        verify.as_ref()
+        verify.as_ref(),
     )?;
 
     let extracted_headers = extract_headers(headers)?;
@@ -574,10 +577,10 @@ pub fn stream(
 
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
-        cookies.clone(), 
-        timeout, 
+        cookies.clone(),
+        timeout,
         follow_redirects.unwrap_or(false),
-        verify.as_ref()
+        verify.as_ref(),
     )?;
 
     Ok(StreamingClient::new(

@@ -1,15 +1,15 @@
 use crate::core::error::RequestError;
 use crate::models::HttpResponse;
 use crate::transport::connection_pool::{HttpConnectionPool, PoolConfig};
+use bytes::Bytes;
+use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper::{Method, Response, Uri, Version};
-use http_body_util::BodyExt;
-use std::collections::HashMap;
-use std::time::Duration;
 use pyo3::prelude::*;
-use bytes::Bytes;
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Configuration for the Hyper-based HTTP client
 #[derive(Clone, Debug)]
@@ -47,8 +47,8 @@ impl HyperHttpClient {
     /// Uses standard configuration for concurrent processing
     pub fn new(config: HyperClientConfig) -> PyResult<Self> {
         // Use concurrent configuration for high-performance async processing
-        let mut pool_config = PoolConfig::async_concurrent();
-        
+        let mut pool_config = PoolConfig::default();
+
         // Override specific settings based on client config
         if let Some(timeout) = config.timeout {
             pool_config.request_timeout = timeout;
@@ -70,7 +70,8 @@ impl HyperHttpClient {
         body: Option<Bytes>,
     ) -> PyResult<HttpResponse> {
         let start_time = std::time::Instant::now();
-        self.request_internal(method, uri, headers, body, start_time, None).await
+        self.request_internal(method, uri, headers, body, start_time, None)
+            .await
     }
 
     /// Create a HTTP request with specified timeout
@@ -83,7 +84,8 @@ impl HyperHttpClient {
         timeout: Option<Duration>,
     ) -> PyResult<HttpResponse> {
         let start_time = std::time::Instant::now();
-        self.request_internal(method, uri, headers, body, start_time, timeout).await
+        self.request_internal(method, uri, headers, body, start_time, timeout)
+            .await
     }
 
     /// Internal request method with memory management
@@ -99,32 +101,43 @@ impl HyperHttpClient {
     ) -> PyResult<HttpResponse> {
         // Optimization: Pre-allocate and reuse string to avoid repeated allocations
         let url = uri.to_string();
-        
+
         // Use Arc for shared data to minimize cloning overhead
         let shared_method = std::sync::Arc::new(method.clone());
         let shared_headers = headers.as_ref().map(|h| std::sync::Arc::new(h.clone()));
         let shared_body = body.as_ref().map(|b| std::sync::Arc::new(b.clone()));
         let shared_uri = std::sync::Arc::new(uri.clone());
-        
+
         // Direct request with connection pool
-        let response = self.pool.request_with_timeout(method, uri, headers, body, timeout).await?;
+        let response = self
+            .pool
+            .request_with_timeout(method, uri, headers, body, timeout)
+            .await?;
 
         let elapsed = start_time.elapsed().as_secs_f64();
 
         // Handle redirects if enabled - use original method references
         if self.config.follow_redirects && self.is_redirect_status(response.status().as_u16()) {
-            // Use Arc to avoid cloning for redirect handling  
+            // Use Arc to avoid cloning for redirect handling
             self.handle_redirects(
-                response, 
-                &shared_method, 
-                shared_headers.as_deref(), 
-                shared_body.as_deref(), 
-                0, 
-                start_time, 
-                &shared_uri
-            ).await
+                response,
+                &shared_method,
+                shared_headers.as_deref(),
+                shared_body.as_deref(),
+                0,
+                start_time,
+                &shared_uri,
+            )
+            .await
         } else {
-            self.process_response(response, url, elapsed, &shared_method, shared_headers.as_deref()).await
+            self.process_response(
+                response,
+                url,
+                elapsed,
+                &shared_method,
+                shared_headers.as_deref(),
+            )
+            .await
         }
     }
 
@@ -135,7 +148,10 @@ impl HyperHttpClient {
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
         // Use precompiled GET method for performance
-        let method = crate::optimization::precompiled::get_precompiled_methods().get_method("GET").unwrap().clone();
+        let method = crate::optimization::precompiled::get_precompiled_methods()
+            .get_method("GET")
+            .unwrap()
+            .clone();
         self.request(method, uri, headers, None).await
     }
 
@@ -147,7 +163,10 @@ impl HyperHttpClient {
         body: Option<Bytes>,
     ) -> PyResult<HttpResponse> {
         // Use precompiled POST method for performance
-        let method = crate::optimization::precompiled::get_precompiled_methods().get_method("POST").unwrap().clone();
+        let method = crate::optimization::precompiled::get_precompiled_methods()
+            .get_method("POST")
+            .unwrap()
+            .clone();
         self.request(method, uri, headers, body).await
     }
 
@@ -159,7 +178,10 @@ impl HyperHttpClient {
         body: Option<Bytes>,
     ) -> PyResult<HttpResponse> {
         // Use precompiled PUT method for performance
-        let method = crate::optimization::precompiled::get_precompiled_methods().get_method("PUT").unwrap().clone();
+        let method = crate::optimization::precompiled::get_precompiled_methods()
+            .get_method("PUT")
+            .unwrap()
+            .clone();
         self.request(method, uri, headers, body).await
     }
 
@@ -171,7 +193,10 @@ impl HyperHttpClient {
         body: Option<Bytes>,
     ) -> PyResult<HttpResponse> {
         // Use precompiled PATCH method for performance
-        let method = crate::optimization::precompiled::get_precompiled_methods().get_method("PATCH").unwrap().clone();
+        let method = crate::optimization::precompiled::get_precompiled_methods()
+            .get_method("PATCH")
+            .unwrap()
+            .clone();
         self.request(method, uri, headers, body).await
     }
 
@@ -182,7 +207,10 @@ impl HyperHttpClient {
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
         // Use precompiled DELETE method for performance
-        let method = crate::optimization::precompiled::get_precompiled_methods().get_method("DELETE").unwrap().clone();
+        let method = crate::optimization::precompiled::get_precompiled_methods()
+            .get_method("DELETE")
+            .unwrap()
+            .clone();
         self.request(method, uri, headers, None).await
     }
 
@@ -193,7 +221,10 @@ impl HyperHttpClient {
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
         // Use precompiled HEAD method for performance
-        let method = crate::optimization::precompiled::get_precompiled_methods().get_method("HEAD").unwrap().clone();
+        let method = crate::optimization::precompiled::get_precompiled_methods()
+            .get_method("HEAD")
+            .unwrap()
+            .clone();
         self.request(method, uri, headers, None).await
     }
 
@@ -204,21 +235,24 @@ impl HyperHttpClient {
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
         // Use precompiled OPTIONS method for performance
-        let method = crate::optimization::precompiled::get_precompiled_methods().get_method("OPTIONS").unwrap().clone();
+        let method = crate::optimization::precompiled::get_precompiled_methods()
+            .get_method("OPTIONS")
+            .unwrap()
+            .clone();
         self.request(method, uri, headers, None).await
     }
 
     /// Process hyper response into our HttpResponse format
     async fn process_response(
-        &self, 
-        response: Response<Incoming>, 
-        url: String, 
+        &self,
+        response: Response<Incoming>,
+        url: String,
         elapsed: f64,
         method: &Method,
         request_headers: Option<&HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
         let status_code = response.status().as_u16();
-        
+
         // Always return HttpResponse object for all status codes
         // Users can call response.raise_for_status() if they want exceptions
 
@@ -255,13 +289,13 @@ impl HyperHttpClient {
                 method.to_string(),
                 url.clone(),
                 request_headers.map(|h| h.to_object(py)),
-                None,  // content
-                None,  // params
-                None,  // cookies
-                None,  // data
-                None,  // files
-                None,  // json
-                None,  // stream
+                None, // content
+                None, // params
+                None, // cookies
+                None, // data
+                None, // files
+                None, // json
+                None, // stream
             )?;
             Ok(Py::new(py, req)?.to_object(py))
         })?;
@@ -277,7 +311,7 @@ impl HyperHttpClient {
             version,
             cookies,
             Some(self.detect_encoding_from_headers(&headers)),
-            Vec::new(), // history
+            Vec::new(),        // history
             Some(request_obj), // request
             body_bytes.len(),
         ))
@@ -296,9 +330,10 @@ impl HyperHttpClient {
         original_uri: &Uri,
     ) -> PyResult<HttpResponse> {
         if redirect_count >= self.config.max_redirects {
-            return Err(crate::error::TooManyRedirects::new_err(
-                format!("Too many redirects (max: {})", self.config.max_redirects)
-            ));
+            return Err(crate::core::error::TooManyRedirects::new_err(format!(
+                "Too many redirects (max: {})",
+                self.config.max_redirects
+            )));
         }
 
         // Extract the Location header
@@ -317,13 +352,21 @@ impl HyperHttpClient {
             // Relative URL - need to make it absolute using the original request's base
             let current_scheme = original_uri.scheme().map(|s| s.as_str()).unwrap_or("https");
             let current_host = original_uri.host().ok_or_else(|| {
-                RequestError::new_err("Cannot resolve relative redirect URL: original request missing host")
+                RequestError::new_err(
+                    "Cannot resolve relative redirect URL: original request missing host",
+                )
             })?;
-            let current_port = original_uri.port().map(|p| format!(":{}", p.as_u16())).unwrap_or_default();
-            
+            let current_port = original_uri
+                .port()
+                .map(|p| format!(":{}", p.as_u16()))
+                .unwrap_or_default();
+
             let absolute_location = if location.starts_with("/") {
                 // Absolute path
-                format!("{}://{}{}{}", current_scheme, current_host, current_port, location)
+                format!(
+                    "{}://{}{}{}",
+                    current_scheme, current_host, current_port, location
+                )
             } else {
                 // Relative path
                 let current_path = original_uri.path();
@@ -332,23 +375,31 @@ impl HyperHttpClient {
                 } else {
                     let mut path_parts: Vec<&str> = current_path.split('/').collect();
                     path_parts.pop(); // Remove the last segment
-                    if path_parts.is_empty() || (path_parts.len() == 1 && path_parts[0].is_empty()) {
+                    if path_parts.is_empty() || (path_parts.len() == 1 && path_parts[0].is_empty())
+                    {
                         "/".to_string()
                     } else {
                         format!("{}/", path_parts.join("/"))
                     }
                 };
-                format!("{}://{}{}{}{}", current_scheme, current_host, current_port, base_path, location)
+                format!(
+                    "{}://{}{}{}{}",
+                    current_scheme, current_host, current_port, base_path, location
+                )
             };
-            
-            Uri::from_str(&absolute_location)
-                .map_err(|e| RequestError::new_err(format!("Invalid absolute redirect URI '{}': {}", absolute_location, e)))?
+
+            Uri::from_str(&absolute_location).map_err(|e| {
+                RequestError::new_err(format!(
+                    "Invalid absolute redirect URI '{}': {}",
+                    absolute_location, e
+                ))
+            })?
         };
 
         // Determine the method for the redirect
         let redirect_method = match response.status().as_u16() {
             301..=303 => Method::GET, // Change to GET for these status codes
-            307 | 308 => original_method.clone(),   // Keep original method
+            307 | 308 => original_method.clone(), // Keep original method
             _ => Method::GET,
         };
 
@@ -361,7 +412,15 @@ impl HyperHttpClient {
 
         // Follow the redirect using internal request method that preserves original timing
         // Connection pool will handle connection reuse for redirect requests too
-        Box::pin(self.request_internal(redirect_method, new_uri, original_headers.cloned(), redirect_body, start_time, None)).await
+        Box::pin(self.request_internal(
+            redirect_method,
+            new_uri,
+            original_headers.cloned(),
+            redirect_body,
+            start_time,
+            None,
+        ))
+        .await
     }
 
     /// Check if a status code indicates a redirect
@@ -370,9 +429,12 @@ impl HyperHttpClient {
     }
 
     /// Extract cookies from headers
-    fn extract_cookies_from_headers(&self, headers: &HashMap<String, String>) -> HashMap<String, String> {
+    fn extract_cookies_from_headers(
+        &self,
+        headers: &HashMap<String, String>,
+    ) -> HashMap<String, String> {
         let mut cookies = HashMap::new();
-        
+
         // Look for Set-Cookie headers (case-insensitive)
         for (key, value) in headers {
             if key.to_lowercase() == "set-cookie" {
@@ -387,7 +449,7 @@ impl HyperHttpClient {
                 }
             }
         }
-        
+
         cookies
     }
 
@@ -414,7 +476,10 @@ impl HyperHttpClient {
         // Get statistics from the underlying connection pool
         match self.pool.get_health_metrics() {
             Ok(metrics) => Ok(metrics),
-            Err(e) => Err(RequestError::new_err(format!("Failed to get connection stats: {}", e)))
+            Err(e) => Err(RequestError::new_err(format!(
+                "Failed to get connection stats: {}",
+                e
+            ))),
         }
     }
 
@@ -422,7 +487,10 @@ impl HyperHttpClient {
         // Check health from the underlying connection pool
         match self.pool.is_healthy() {
             Ok(healthy) => Ok(healthy),
-            Err(e) => Err(RequestError::new_err(format!("Failed to check connection health: {}", e)))
+            Err(e) => Err(RequestError::new_err(format!(
+                "Failed to check connection health: {}",
+                e
+            ))),
         }
     }
 
@@ -430,8 +498,10 @@ impl HyperHttpClient {
         // Force cleanup of idle connections in the connection pool
         match self.pool.force_cleanup().await {
             Ok(_) => Ok(()),
-            Err(e) => Err(RequestError::new_err(format!("Failed to cleanup connections: {}", e)))
+            Err(e) => Err(RequestError::new_err(format!(
+                "Failed to cleanup connections: {}",
+                e
+            ))),
         }
     }
 }
-

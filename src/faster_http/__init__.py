@@ -7,13 +7,17 @@ This library provides a drop-in replacement for httpx API, implemented using Rus
 __version__ = "0.1.0"
 
 # Import specific classes for explicit re-export
+# Import Proxy directly without exposing the module
+from . import proxy as _proxy_module
 from ._core import (
     URL,
-    # 8 missing httpx core components - Critical API compatibility fix
+    # Missing httpx core components - Fixed
     USE_CLIENT_DEFAULT,
     ASGITransport,
+    AsyncBaseTransport,
     AsyncByteStream,
     AsyncHTTPTransport,
+    Auth,
     BaseTransport,
     BasicAuth,
     ByteStream,
@@ -49,7 +53,6 @@ from ._core import (
     RequestError,
     RequestNotRead,
     ResponseNotRead,
-    SSLError,
     StreamClosed,
     StreamConsumed,
     StreamError,
@@ -67,8 +70,8 @@ from ._core import (
     # HTTP methods
     get,
     head,
-    # Exception factory functions
-    new_http_status_error,
+    # Main function for CLI compatibility
+    main,
     options,
     patch,
     post,
@@ -94,13 +97,12 @@ from ._wrapper_client import AsyncClient, Client
 
 # Import additional modules
 from .codes import codes
-from .proxy import Proxy
+
+Proxy = _proxy_module.Proxy
+del _proxy_module
 
 # All exception classes are now implemented in Rust and imported from _core
-# httpx-compatible exception aliases for compatibility
-RequestTimeout = TimeoutException  # httpx uses RequestTimeout
-ConnectionError = ConnectError  # httpx uses ConnectionError
-# SSLError now imported directly from _core with proper implementation
+# Remove non-httpx compatible aliases - these don't exist in httpx
 
 # Enhance existing exception classes to support keyword arguments
 
@@ -114,24 +116,23 @@ def _standard_httpstatuserror_new(cls, message=None, *, request=None, response=N
     """Standard HTTPStatusError constructor with keyword argument support."""
     if message is None:
         message = "HTTP status error"
-    if request is not None or response is not None:
-        # Use the factory function for keyword arguments - it returns the proper instance
-        return new_http_status_error(message, request=request, response=response)
+    # Use the original constructor for all cases
+    if _orig_http_status_error_new is object.__new__:
+        return object.__new__(cls)
     else:
-        # Use the original constructor for positional arguments
-        if _orig_http_status_error_new is object.__new__:
-            return object.__new__(cls)
-        else:
-            return _orig_http_status_error_new(cls)
+        return _orig_http_status_error_new(cls)
 
 
 def _standard_httpstatuserror_init(self, message=None, *, request=None, response=None):
     """Standard HTTPStatusError initializer."""
     if message is None:
         message = "HTTP status error"
-    # Only initialize if not already done by factory function
-    if not hasattr(self, "args") or len(self.args) == 0:
-        _orig_http_status_error_init(self, message)
+    _orig_http_status_error_init(self, message)
+    # Store request and response as attributes for httpx compatibility
+    if request is not None:
+        self.request = request
+    if response is not None:
+        self.response = response
 
 
 def _standard_requesterror_init(self, message=None, *, request=None):
@@ -153,21 +154,19 @@ RequestError.__init__ = _standard_requesterror_init
 # Stream functionality is provided through the Response object
 
 
-# httpx constants (placeholders)
-DEFAULT_CIPHERS = "ALL:!aNULL:!eNULL:!SSLv2:!RC4:!DH:!3DES:!MD5:!PSK:!SRP:!CAMELLIA"
-DEFAULT_TIMEOUT_CONFIG = {"connect": 5.0, "read": 5.0, "write": 5.0, "pool": 5.0}
+# Remove non-httpx constants
 
 
 # Define public API
 __all__ = [
-    "DEFAULT_CIPHERS",
-    "DEFAULT_TIMEOUT_CONFIG",
     "URL",
     "USE_CLIENT_DEFAULT",
     "ASGITransport",
+    "AsyncBaseTransport",
     "AsyncByteStream",
     "AsyncClient",
     "AsyncHTTPTransport",
+    "Auth",
     "BaseTransport",
     "BasicAuth",
     "ByteStream",
@@ -175,7 +174,6 @@ __all__ = [
     "CloseError",
     "ConnectError",
     "ConnectTimeout",
-    "ConnectionError",
     "CookieConflict",
     "Cookies",
     "DecodingError",
@@ -201,10 +199,8 @@ __all__ = [
     "Request",
     "RequestError",
     "RequestNotRead",
-    "RequestTimeout",
     "Response",
     "ResponseNotRead",
-    "SSLError",
     "StreamClosed",
     "StreamConsumed",
     "StreamError",
@@ -222,7 +218,7 @@ __all__ = [
     "delete",
     "get",
     "head",
-    "new_http_status_error",
+    "main",
     "options",
     "patch",
     "post",
@@ -230,6 +226,14 @@ __all__ = [
     "request",
     "stream",
 ]
+
+# Explicitly remove proxy module reference to prevent exposure
+# The proxy module gets imported automatically when we import from .proxy
+# We need to manually remove it to match httpx interface exactly
+try:
+    del proxy
+except NameError:
+    pass
 
 if __name__ == "__main__":
     import sys

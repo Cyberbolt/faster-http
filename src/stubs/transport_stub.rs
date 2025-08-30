@@ -186,55 +186,55 @@ impl TransportConfig {
     /// Create transport config from Python httpx-compatible parameters
     pub fn from_python_params(
         transport: Option<PyObject>,
-        mounts: Option<&pyo3::types::PyDict>
+        mounts: Option<&pyo3::types::PyDict>,
     ) -> PyResult<Self> {
         let mut config = Self::default();
-        
+
         // Handle transport parameter (if it's a custom transport object)
         if let Some(_transport_obj) = transport {
             // For now, we'll just use default config
             // In the future, we could extract configuration from custom transport objects
         }
-        
+
         // Handle mounts dictionary
         if let Some(mounts_dict) = mounts {
             config.parse_mounts(mounts_dict)?;
         }
-        
+
         Ok(config)
     }
-    
+
     /// Parse mounts dictionary from Python
     fn parse_mounts(&mut self, mounts_dict: &pyo3::types::PyDict) -> PyResult<()> {
         use pyo3::types::PyString;
-        
+
         for item in mounts_dict.items() {
             let tuple = item.downcast::<pyo3::types::PyTuple>()?;
             let pattern = tuple.get_item(0)?;
             let _transport = tuple.get_item(1)?;
-            
+
             let pattern_str = pattern.downcast::<PyString>()?.to_str()?;
-            
+
             // For now, we'll treat all mounts as HTTP transports
             // In the future, we could inspect the transport object to determine type
             let mount_config = MountConfig {
                 pattern: pattern_str.to_string(),
                 transport_type: TransportType::Http,
             };
-            
+
             self.mounts.insert(pattern_str.to_string(), mount_config);
         }
-        
+
         Ok(())
     }
-    
+
     /// Apply timeout settings from httpx-style parameters
     pub fn with_timeouts(
         mut self,
         connect: Option<f64>,
         read: Option<f64>,
         write: Option<f64>,
-        pool: Option<f64>
+        pool: Option<f64>,
     ) -> Self {
         if let Some(connect_timeout) = connect {
             self.timeouts.connect_timeout = Some(Duration::from_secs_f64(connect_timeout));
@@ -250,12 +250,12 @@ impl TransportConfig {
         }
         self
     }
-    
+
     /// Configure connection limits
     pub fn with_limits(
         mut self,
         max_connections: Option<usize>,
-        max_keepalive_connections: Option<usize>
+        max_keepalive_connections: Option<usize>,
     ) -> Self {
         if let Some(max_conn) = max_connections {
             self.limits.max_total_connections = max_conn;
@@ -266,91 +266,91 @@ impl TransportConfig {
         }
         self
     }
-    
+
     /// Configure HTTP version preferences
     pub fn with_http_version(
         mut self,
         http1_only: bool,
         http2_only: bool,
-        http2_prior_knowledge: bool
+        http2_prior_knowledge: bool,
     ) -> Self {
         self.http_version.http1_only = http1_only;
         self.http_version.http2_only = http2_only;
         self.http_version.http2_prior_knowledge = http2_prior_knowledge;
         self
     }
-    
+
     /// Get mount configuration for a URL pattern
     pub fn get_mount_for_url(&self, url: &str) -> Option<&MountConfig> {
         // Find the most specific mount pattern that matches
         let mut best_match: Option<&MountConfig> = None;
         let mut best_match_len = 0;
-        
+
         for (pattern, config) in &self.mounts {
             if url.starts_with(pattern) && pattern.len() > best_match_len {
                 best_match = Some(config);
                 best_match_len = pattern.len();
             }
         }
-        
+
         best_match
     }
-    
+
     /// Check if connection pooling is enabled
     pub fn is_pooling_enabled(&self) -> bool {
         self.enable_pooling
     }
-    
+
     /// Get connection limits
     pub fn limits(&self) -> &ConnectionLimits {
         &self.limits
     }
-    
+
     /// Get timeout settings
     pub fn timeouts(&self) -> &TimeoutSettings {
         &self.timeouts
     }
-    
+
     /// Get HTTP version config
     pub fn http_version(&self) -> &HttpVersionConfig {
         &self.http_version
     }
-    
+
     /// Get keep-alive config
     pub fn keep_alive(&self) -> &KeepAliveConfig {
         &self.keep_alive
     }
-    
+
     /// Get socket options
     pub fn socket_options(&self) -> &SocketOptions {
         &self.socket_options
     }
-    
+
     /// Validate transport configuration
     pub fn validate(&self) -> PyResult<()> {
         // Check for conflicting HTTP version settings
         if self.http_version.http1_only && self.http_version.http2_only {
-            return Err(crate::error::create_request_error(
-                "Cannot set both http1_only and http2_only to true"
+            return Err(crate::core::error::create_request_error(
+                "Cannot set both http1_only and http2_only to true",
             ));
         }
-        
+
         // Validate timeout values
         if let Some(connect_timeout) = self.timeouts.connect_timeout {
             if connect_timeout.as_secs() == 0 {
-                return Err(crate::error::create_request_error(
-                    "Connect timeout must be greater than 0"
+                return Err(crate::core::error::create_request_error(
+                    "Connect timeout must be greater than 0",
                 ));
             }
         }
-        
+
         // Validate connection limits
         if self.limits.max_connections_per_host > self.limits.max_total_connections {
-            return Err(crate::error::create_request_error(
-                "max_connections_per_host cannot exceed max_total_connections"
+            return Err(crate::core::error::create_request_error(
+                "max_connections_per_host cannot exceed max_total_connections",
             ));
         }
-        
+
         Ok(())
     }
 }
@@ -360,22 +360,22 @@ impl TimeoutSettings {
     pub fn effective_connect_timeout(&self) -> Duration {
         self.connect_timeout.unwrap_or(Duration::from_secs(5))
     }
-    
+
     /// Get the effective read timeout  
     pub fn effective_read_timeout(&self) -> Duration {
         self.read_timeout.unwrap_or(Duration::from_secs(30))
     }
-    
+
     /// Get the effective write timeout
     pub fn effective_write_timeout(&self) -> Duration {
         self.write_timeout.unwrap_or(Duration::from_secs(30))
     }
-    
+
     /// Get the effective total timeout
     pub fn effective_total_timeout(&self) -> Duration {
         self.total_timeout.unwrap_or(Duration::from_secs(120))
     }
-    
+
     /// Get the effective pool timeout
     pub fn effective_pool_timeout(&self) -> Duration {
         self.pool_timeout.unwrap_or(Duration::from_secs(5))
@@ -387,7 +387,7 @@ impl MountConfig {
     pub fn pattern(&self) -> &str {
         &self.pattern
     }
-    
+
     /// Get the transport type
     pub fn transport_type(&self) -> &TransportType {
         &self.transport_type
@@ -399,12 +399,12 @@ impl TransportType {
     pub fn is_http(&self) -> bool {
         matches!(self, TransportType::Http)
     }
-    
+
     /// Check if this is a mock transport
     pub fn is_mock(&self) -> bool {
         matches!(self, TransportType::Mock)
     }
-    
+
     /// Get custom transport name if applicable
     pub fn custom_name(&self) -> Option<&str> {
         match self {

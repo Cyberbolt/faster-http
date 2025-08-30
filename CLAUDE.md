@@ -29,6 +29,9 @@
 - httpx 会自动读取环境变量中的 proxy，但是 faster-http 不会
 - httpx 会受 Python GIL 的影响，但是 faster-http 即便在 Python 单线程中，也会在 Rust 端自动利用多核 CPU
 
+### API 任务清单
+API [任务清单](prompts/httpx-docs.md)，如果该清单有问题，可以更新
+
 ## 项目结构最佳实践
 
 ### 目录结构规范
