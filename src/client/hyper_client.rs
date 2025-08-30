@@ -1,6 +1,6 @@
-use crate::error::RequestError;
-use crate::response::HttpResponse;
-use crate::connection_pool::{HttpConnectionPool, PoolConfig};
+use crate::core::error::RequestError;
+use crate::models::HttpResponse;
+use crate::transport::connection_pool::{HttpConnectionPool, PoolConfig};
 use hyper::body::Incoming;
 use hyper::{Method, Response, Uri, Version};
 use http_body_util::BodyExt;
@@ -56,7 +56,7 @@ impl HyperHttpClient {
         pool_config.http2_only = config.http2_only;
         pool_config.http1_only = config.http1_only;
 
-        let pool = crate::connection_pool::create_custom_pool(pool_config)?;
+        let pool = crate::transport::connection_pool::create_custom_pool(pool_config)?;
         Ok(Self { pool, config })
     }
 
@@ -135,7 +135,7 @@ impl HyperHttpClient {
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
         // Use precompiled GET method for performance
-        let method = crate::precompiled::get_precompiled_methods().get_method("GET").unwrap().clone();
+        let method = crate::optimization::precompiled::get_precompiled_methods().get_method("GET").unwrap().clone();
         self.request(method, uri, headers, None).await
     }
 
@@ -147,7 +147,7 @@ impl HyperHttpClient {
         body: Option<Bytes>,
     ) -> PyResult<HttpResponse> {
         // Use precompiled POST method for performance
-        let method = crate::precompiled::get_precompiled_methods().get_method("POST").unwrap().clone();
+        let method = crate::optimization::precompiled::get_precompiled_methods().get_method("POST").unwrap().clone();
         self.request(method, uri, headers, body).await
     }
 
@@ -159,7 +159,7 @@ impl HyperHttpClient {
         body: Option<Bytes>,
     ) -> PyResult<HttpResponse> {
         // Use precompiled PUT method for performance
-        let method = crate::precompiled::get_precompiled_methods().get_method("PUT").unwrap().clone();
+        let method = crate::optimization::precompiled::get_precompiled_methods().get_method("PUT").unwrap().clone();
         self.request(method, uri, headers, body).await
     }
 
@@ -171,7 +171,7 @@ impl HyperHttpClient {
         body: Option<Bytes>,
     ) -> PyResult<HttpResponse> {
         // Use precompiled PATCH method for performance
-        let method = crate::precompiled::get_precompiled_methods().get_method("PATCH").unwrap().clone();
+        let method = crate::optimization::precompiled::get_precompiled_methods().get_method("PATCH").unwrap().clone();
         self.request(method, uri, headers, body).await
     }
 
@@ -182,7 +182,7 @@ impl HyperHttpClient {
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
         // Use precompiled DELETE method for performance
-        let method = crate::precompiled::get_precompiled_methods().get_method("DELETE").unwrap().clone();
+        let method = crate::optimization::precompiled::get_precompiled_methods().get_method("DELETE").unwrap().clone();
         self.request(method, uri, headers, None).await
     }
 
@@ -193,7 +193,7 @@ impl HyperHttpClient {
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
         // Use precompiled HEAD method for performance
-        let method = crate::precompiled::get_precompiled_methods().get_method("HEAD").unwrap().clone();
+        let method = crate::optimization::precompiled::get_precompiled_methods().get_method("HEAD").unwrap().clone();
         self.request(method, uri, headers, None).await
     }
 
@@ -204,7 +204,7 @@ impl HyperHttpClient {
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<HttpResponse> {
         // Use precompiled OPTIONS method for performance
-        let method = crate::precompiled::get_precompiled_methods().get_method("OPTIONS").unwrap().clone();
+        let method = crate::optimization::precompiled::get_precompiled_methods().get_method("OPTIONS").unwrap().clone();
         self.request(method, uri, headers, None).await
     }
 
@@ -251,7 +251,7 @@ impl HyperHttpClient {
 
         // Create HttpRequest object for the response
         let request_obj = Python::with_gil(|py| -> PyResult<PyObject> {
-            let req = crate::request::HttpRequest::new(
+            let req = crate::models::HttpRequest::new(
                 method.to_string(),
                 url.clone(),
                 request_headers.map(|h| h.to_object(py)),

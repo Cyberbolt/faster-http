@@ -1,10 +1,9 @@
 use crate::config::ClientConfig;
-use crate::error::{RequestError};
-use crate::hyper_client::HyperHttpClient;
-use crate::request::HttpRequest;
-use crate::response::HttpResponse;
+use crate::core::error::{RequestError};
+use crate::client::hyper_client::HyperHttpClient;
+use crate::models::{HttpRequest, HttpResponse};
 // Removed memory_pool dependency - using standard Bytes instead
-use crate::precompiled::parse_method_configured; // Precompiled lookups
+use crate::optimization::precompiled::parse_method_configured; // Precompiled lookups
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -210,7 +209,7 @@ pub async fn build_and_send_request(
             }
             
             // Use precompiled header name for high performance
-            final_headers.insert(crate::precompiled::normalize_header_name("cookie").to_string(), cookie_string);
+            final_headers.insert(crate::optimization::precompiled::normalize_header_name("cookie").to_string(), cookie_string);
         }
     }
 
@@ -231,7 +230,7 @@ pub async fn build_and_send_request(
             // If files is empty, treat as regular form data
             if let Some(data_obj) = data {
                 let (data_bytes, content_type) = handle_data_parameter(&data_obj)?;
-                final_headers.insert(crate::precompiled::normalize_header_name("content-type").to_string(), content_type);
+                final_headers.insert(crate::optimization::precompiled::normalize_header_name("content-type").to_string(), content_type);
                 // TRUE ZERO-COPY: Direct conversion without memory pool overhead
                 Some(Bytes::from(data_bytes))
             } else {
@@ -248,7 +247,7 @@ pub async fn build_and_send_request(
                 None
             };
             let (multipart_body, content_type) = build_multipart_body(Some(files_data), dict_data)?;
-            final_headers.insert(crate::precompiled::normalize_header_name("content-type").to_string(), content_type);
+            final_headers.insert(crate::optimization::precompiled::normalize_header_name("content-type").to_string(), content_type);
             // TRUE ZERO-COPY: Direct conversion for multipart body
             Some(Bytes::from(multipart_body))
         }
@@ -256,14 +255,14 @@ pub async fn build_and_send_request(
         let json_value = python_dict_to_json_value(json_data)?;
         let json_string = serde_json::to_string(&json_value)
             .map_err(|e| RequestError::new_err(format!("JSON serialization failed: {}", e)))?;
-        final_headers.insert(crate::precompiled::normalize_header_name("content-type").to_string(), 
-                           crate::precompiled::normalize_header_value("application/json").to_string());
+        final_headers.insert(crate::optimization::precompiled::normalize_header_name("content-type").to_string(), 
+                           crate::optimization::precompiled::normalize_header_value("application/json").to_string());
         // TRUE ZERO-COPY: Direct string to bytes conversion
         Some(Bytes::from(json_string))
     } else if let Some(data_obj) = data {
         // Use new handle_data_parameter function to support string, bytes, or dict
         let (data_bytes, content_type) = handle_data_parameter(&data_obj)?;
-        final_headers.insert(crate::precompiled::normalize_header_name("content-type").to_string(), content_type);
+        final_headers.insert(crate::optimization::precompiled::normalize_header_name("content-type").to_string(), content_type);
         // TRUE ZERO-COPY: Direct conversion without memory pool overhead
         Some(Bytes::from(data_bytes))
     } else {
@@ -286,7 +285,7 @@ pub async fn build_and_send_request(
 }
 
 /// Update cookie jar with Set-Cookie headers from response
-fn update_cookie_jar_from_response(config: &ClientConfig, response: &crate::response::HttpResponse) {
+fn update_cookie_jar_from_response(config: &ClientConfig, response: &crate::models::HttpResponse) {
     let headers_map = response.headers().to_hashmap();
     
     // Look for Set-Cookie headers (case-insensitive)

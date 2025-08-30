@@ -1,5 +1,5 @@
-use crate::error::RequestError;
-use crate::response::HttpResponse;
+use crate::core::error::RequestError;
+use crate::models::HttpResponse;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -347,7 +347,7 @@ impl UreqHttpClient {
         let num_bytes_downloaded = body_bytes.len();
 
         // Cookie extraction with memory management
-        let cookies = crate::response::parse_cookies_from_headers(&headers_map);
+        let cookies = crate::models::response::parse_cookies_from_headers(&headers_map);
 
         // Optimization: Static HTTP version string for high performance
         let http_version = "HTTP/1.1".to_string();
@@ -479,7 +479,7 @@ impl UreqHttpClient {
         let num_bytes_downloaded = body.len();
 
         // Extract cookies using the existing parse_cookies_from_headers function
-        let cookies = crate::response::parse_cookies_from_headers(&headers_map);
+        let cookies = crate::models::response::parse_cookies_from_headers(&headers_map);
 
         // HTTP version
         let http_version = "HTTP/1.1".to_string();

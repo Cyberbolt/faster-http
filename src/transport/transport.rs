@@ -1,10 +1,9 @@
-use crate::error::RequestError;
-use crate::request::HttpRequest;
-use crate::response::HttpResponse;
+use crate::core::error::RequestError;
+use crate::models::{HttpRequest, HttpResponse};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
 use pyo3::PyCell;
-use crate::hyper_client::HyperHttpClient;
+use crate::client::hyper_client::HyperHttpClient;
 use std::collections::HashMap;
 
 /// Transport configuration structure - corresponding to httpx's Transport system
@@ -124,7 +123,7 @@ pub struct FasterhttpTransport {
 impl FasterhttpTransport {
     #[new]
     pub fn new() -> PyResult<Self> {
-        let client = HyperHttpClient::new(crate::hyper_client::HyperClientConfig::default())
+        let client = HyperHttpClient::new(crate::client::hyper_client::HyperClientConfig::default())
             .map_err(|e| RequestError::new_err(format!("Failed to create client: {}", e)))?;
 
         Ok(FasterhttpTransport { client })

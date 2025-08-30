@@ -1,6 +1,6 @@
-use crate::response::HttpResponse;
-use crate::sync_core::SyncHttpClient;
-use crate::streaming_stub::StreamingClient;
+use crate::models::HttpResponse;
+use crate::core::sync_core::SyncHttpClient;
+use crate::stubs::streaming_stub::StreamingClient;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 

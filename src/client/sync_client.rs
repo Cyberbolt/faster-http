@@ -1,11 +1,10 @@
 use pyo3::prelude::*;
 use crate::config::ClientConfig;
-use crate::error::RequestError;
-use crate::hooks::EventHooksProxy;
-use crate::request::HttpRequest;
-use crate::response::HttpResponse;
+use crate::core::error::RequestError;
+use crate::utils::hooks::EventHooksProxy;
+use crate::models::{HttpRequest, HttpResponse};
 // Removed async-related imports as we use synchronous ureq client
-use crate::ureq_client::{UreqHttpClient, UreqClientConfig};
+use crate::transport::ureq_client::{UreqHttpClient, UreqClientConfig};
 // Removed unused utility imports
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -355,7 +354,7 @@ impl HttpClient {
     }
 
     /// Update cookie jar with Set-Cookie headers from response
-    fn update_cookie_jar_from_response(&self, response: &crate::response::HttpResponse) {
+    fn update_cookie_jar_from_response(&self, response: &crate::models::HttpResponse) {
         let headers_map = response.headers().to_hashmap();
         
         // Look for Set-Cookie headers (case-insensitive)
@@ -651,8 +650,8 @@ impl HttpClient {
         _auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
         _cookies: Option<HashMap<String, String>>,
-    ) -> PyResult<crate::streaming_stub::StreamingClient> {
-        use crate::streaming_stub::StreamingClient;
+    ) -> PyResult<crate::stubs::streaming_stub::StreamingClient> {
+        use crate::stubs::streaming_stub::StreamingClient;
         
         self.check_not_closed()?;
         

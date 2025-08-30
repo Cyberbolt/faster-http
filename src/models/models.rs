@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAny};
 use std::collections::HashMap;
-use crate::error::{create_validation_error, create_url_error};
+use crate::core::error::{create_validation_error, create_url_error};
 
 /// Iterator for HttpHeaders
 #[pyclass]

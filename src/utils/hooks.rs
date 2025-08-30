@@ -1,6 +1,5 @@
-use crate::request::HttpRequest;
-use crate::response::HttpResponse;
-use crate::error::InternalError;
+use crate::models::{HttpRequest, HttpResponse};
+use crate::core::error::InternalError;
 use pyo3::prelude::*;
 use pyo3::PyCell;
 use std::collections::HashMap;

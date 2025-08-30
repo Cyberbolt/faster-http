@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use pyo3::prelude::*;
-use crate::error::RequestError;
+use crate::core::error::RequestError;
 use hyper_util::rt::TokioExecutor;
 // Removed unused imports
 

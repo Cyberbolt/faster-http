@@ -1,6 +1,6 @@
 use crate::config::ClientConfig;
-use crate::hyper_client::HyperHttpClient;
-use crate::request::HttpRequest;
+use crate::client::hyper_client::HyperHttpClient;
+use crate::models::HttpRequest;
 use pyo3::prelude::*;
 use pyo3_asyncio::tokio::future_into_py;
 use std::collections::HashMap;
@@ -9,8 +9,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::auth::extract_auth;
-use crate::core::{build_and_send_request, send_request_direct};
-use crate::error::RequestError;
+use crate::core::core::{build_and_send_request, send_request_direct};
+use crate::core::error::RequestError;
 // Removed unused import build_url_with_python_params
 
 // Asynchronous HTTP client
@@ -462,8 +462,8 @@ impl AsyncHttpClient {
         auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
-    ) -> PyResult<crate::streaming_stub::StreamingClient> {
-        use crate::streaming_stub::StreamingClient;
+    ) -> PyResult<crate::stubs::streaming_stub::StreamingClient> {
+        use crate::stubs::streaming_stub::StreamingClient;
 
         self.check_not_closed()?;
 
@@ -536,8 +536,8 @@ impl AsyncHttpClient {
     }
 
     #[getter]
-    pub fn event_hooks(&self) -> PyResult<crate::hooks::EventHooksProxy> {
-        Ok(crate::hooks::EventHooksProxy::new(
+    pub fn event_hooks(&self) -> PyResult<crate::utils::hooks::EventHooksProxy> {
+        Ok(crate::utils::hooks::EventHooksProxy::new(
             self.config.event_hooks.clone(),
         ))
     }
@@ -671,7 +671,7 @@ impl AsyncHttpClient {
             
             let config = self.config.clone();
             return future_into_py(py, async move {
-                crate::core::send_request_direct(
+                crate::core::core::send_request_direct(
                     &client,
                     &method_owned,
                     &full_url,

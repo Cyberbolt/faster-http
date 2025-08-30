@@ -2,9 +2,9 @@
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use crate::config::ClientConfig;
-use crate::hyper_client::{HyperHttpClient, HyperClientConfig};
-use crate::response::HttpResponse;
-use crate::error::RequestError;
+use crate::client::hyper_client::{HyperHttpClient, HyperClientConfig};
+use crate::models::HttpResponse;
+use crate::core::error::RequestError;
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::runtime::Runtime;
 
@@ -16,7 +16,7 @@ where
     F: std::future::Future<Output = PyResult<T>> + Send + 'static,
     T: Send + 'static,
 {
-    use crate::error::RuntimeInitFailed;
+    use crate::core::error::RuntimeInitFailed;
     
     // Use shared streaming runtime for all operations
     // This avoids complex nested runtime detection

@@ -3,48 +3,28 @@
 
 use pyo3::prelude::*;
 
-// Module declarations
-mod api;
-mod async_client;
-mod auth;
-mod batch; // Batch request processing
-mod client;
-mod config;
-pub mod connection_pool; // HTTP connection pool implementation
-mod core;
-mod error;
-mod gil_optimized; // GIL processing module
-mod hooks;
-mod hyper_client; // New hyper-based client module
-mod ureq_client; // Ureq-based synchronous client module
-// mod memory_pool; // Removed - over-engineered  
-mod models;
-mod precompiled; // Precompiled HTTP methods and headers for performance
-mod proxy_config_stub; // Temporary stub for proxy configuration
-mod request;
-mod response;
-mod runtime;
-mod ssl_config_stub; // Temporary stub for SSL configuration
-mod streaming_stub; // Temporary stub for streaming functionality
-mod sync_core; // Synchronous HTTP client implementation
-mod transport; // Transport implementations including MockTransport
-mod transport_stub; // Temporary stub for transport configuration
-mod utils;
-// mod zero_copy; // Removed - over-engineered optimization
+// Module declarations organized by functionality
+mod client;       // HTTP client implementations
+mod transport;    // Transport layer
+mod models;       // Data models and types
+mod auth;         // Authentication
+mod config;       // Configuration management
+mod core;         // Core functionality
+mod optimization; // Performance optimizations
+mod utils;        // Utility functions
+mod stubs;        // Placeholder implementations
 
 // Re-export main types and functions
 pub use auth::*;
-pub use error::*;
-pub use request::HttpRequest;
-pub use response::HttpResponse;
+pub use core::*;
+pub use models::{HttpRequest, HttpResponse};
 // StreamingHttpResponse and StreamingClient removed - httpx doesn't have these classes
-pub use async_client::AsyncHttpClient;
-pub use client::HttpClient;
+pub use client::{AsyncHttpClient, HttpClient};
 pub use config::ClientConfig;
-pub use sync_core::SyncHttpClient;
+pub use core::SyncHttpClient;
 // Re-export API functions (request function is available via Python module, not Rust re-export)
-pub use api::{delete, get, head, options, patch, post, put, stream};
-pub use hooks::EventHooksProxy;
+pub use core::api::{delete, get, head, options, patch, post, put, stream};
+pub use utils::EventHooksProxy;
 pub use models::{
     HttpBasicAuth, HttpCookies, HttpCookiesIterator, HttpDigestAuth, HttpHeaders, HttpHeadersIterator, HttpLimits, HttpNetRCAuth,
     HttpQueryParams, HttpTimeout, HttpUrl,
@@ -105,30 +85,30 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     // m.add_class::<transport::HTTPSRedirectTransport>()?;
 
     // Add API functions
-    m.add_function(wrap_pyfunction!(api::get, m)?)?;
-    m.add_function(wrap_pyfunction!(api::post, m)?)?;
-    m.add_function(wrap_pyfunction!(api::put, m)?)?;
-    m.add_function(wrap_pyfunction!(api::patch, m)?)?;
-    m.add_function(wrap_pyfunction!(api::delete, m)?)?;
-    m.add_function(wrap_pyfunction!(api::head, m)?)?;
-    m.add_function(wrap_pyfunction!(api::options, m)?)?;
-    m.add_function(wrap_pyfunction!(api::request, m)?)?;
-    m.add_function(wrap_pyfunction!(api::stream, m)?)?;
+    m.add_function(wrap_pyfunction!(core::api::get, m)?)?;
+    m.add_function(wrap_pyfunction!(core::api::post, m)?)?;
+    m.add_function(wrap_pyfunction!(core::api::put, m)?)?;
+    m.add_function(wrap_pyfunction!(core::api::patch, m)?)?;
+    m.add_function(wrap_pyfunction!(core::api::delete, m)?)?;
+    m.add_function(wrap_pyfunction!(core::api::head, m)?)?;
+    m.add_function(wrap_pyfunction!(core::api::options, m)?)?;
+    m.add_function(wrap_pyfunction!(core::api::request, m)?)?;
+    m.add_function(wrap_pyfunction!(core::api::stream, m)?)?;
 
     // Add batch processing functions for performance
-    m.add_function(wrap_pyfunction!(batch::batch_request, m)?)?;
-    m.add_class::<batch::SmartBatcher>()?;
+    m.add_function(wrap_pyfunction!(optimization::batch_request, m)?)?;
+    m.add_class::<optimization::SmartBatcher>()?;
 
     // Add zero-copy utilities for performance
     // m.add_class::<zero_copy::ZeroCopyUtils>()?; // Removed - over-engineered
 
     // Add GIL-free processing for performance
-    m.add_function(wrap_pyfunction!(gil_optimized::gil_processed_request, m)?)?; // Updated function name for objective terminology
-    m.add_function(wrap_pyfunction!(gil_optimized::gil_processed_async_request, m)?)?; // Updated function name for objective terminology
-    m.add_function(wrap_pyfunction!(gil_optimized::gil_processed_batch_request, m)?)?; // Updated function name for objective terminology
+    m.add_function(wrap_pyfunction!(optimization::gil_processed_request, m)?)?; // Updated function name for objective terminology
+    m.add_function(wrap_pyfunction!(optimization::gil_processed_async_request, m)?)?; // Updated function name for objective terminology
+    m.add_function(wrap_pyfunction!(optimization::gil_processed_batch_request, m)?)?; // Updated function name for objective terminology
 
     // Add exception factory functions
-    m.add_function(wrap_pyfunction!(error::new_http_status_error, m)?)?;
+    m.add_function(wrap_pyfunction!(core::error::new_http_status_error, m)?)?;
 
     // Add exception types (httpx-compatible only)
     m.add("HTTPError", py.get_type::<HTTPError>())?;

@@ -1,4 +1,4 @@
-use crate::error::HTTPStatusError;
+use crate::core::error::HTTPStatusError;
 use bytes::Bytes;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -93,7 +93,7 @@ impl HttpResponse {
         let final_request = request.or_else(|| {
             // Create a default HttpRequest object if none provided
             Python::with_gil(|py| {
-                crate::request::HttpRequest::new(
+                crate::models::request::HttpRequest::new(
                     "GET".to_string(),
                     url.clone(),
                     None,

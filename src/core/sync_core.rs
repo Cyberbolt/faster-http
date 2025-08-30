@@ -2,8 +2,8 @@
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use crate::config::ClientConfig;
-use crate::response::HttpResponse;
-use crate::ureq_client::{UreqHttpClient, UreqClientConfig};
+use crate::models::HttpResponse;
+use crate::transport::ureq_client::{UreqHttpClient, UreqClientConfig};
 
 #[pyclass(module = "faster_http")]
 pub struct SyncHttpClient {

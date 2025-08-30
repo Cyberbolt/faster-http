@@ -2,11 +2,11 @@
 // Implements complete Python-free request processing chains in Rust
 
 use crate::config::ClientConfig;
-use crate::error::RequestError;
-use crate::response::HttpResponse;
-use crate::hyper_client::HyperHttpClient;
-use crate::ureq_client::UreqHttpClient;
-use crate::precompiled::{parse_method_configured, process_headers_configured};
+use crate::core::error::RequestError;
+use crate::models::HttpResponse;
+use crate::client::hyper_client::HyperHttpClient;
+use crate::transport::ureq_client::UreqHttpClient;
+use crate::optimization::precompiled::{parse_method_configured, process_headers_configured};
 // use crate::zero_copy::ZeroCopyBuffer; // Removed - over-engineered
 use pyo3::prelude::*;
 use pyo3::{PyObject, Python};
@@ -179,7 +179,7 @@ pub struct GilFreeSyncProcessor {
 #[allow(dead_code)]
 impl GilFreeSyncProcessor {
     pub fn new(config: &ClientConfig) -> PyResult<Self> {
-        let ureq_config = crate::ureq_client::UreqClientConfig {
+        let ureq_config = crate::transport::ureq_client::UreqClientConfig {
             timeout: config.default_timeout,
             follow_redirects: config.follow_redirects,
             max_redirects: config.max_redirects as u32,

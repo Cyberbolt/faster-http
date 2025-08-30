@@ -1,9 +1,9 @@
 use crate::auth::{extract_auth_from_object, AuthType};
-use crate::hooks::EventHooks;
-use crate::hyper_client::{HyperHttpClient, HyperClientConfig};
-use crate::proxy_config_stub::ProxySystem;
-use crate::ssl_config_stub::SslConfig;
-use crate::transport_stub::TransportConfig;
+use crate::utils::hooks::EventHooks;
+use crate::client::hyper_client::{HyperHttpClient, HyperClientConfig};
+use crate::config::proxy_config_stub::ProxySystem;
+use crate::config::ssl_config_stub::SslConfig;
+use crate::stubs::transport_stub::TransportConfig;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

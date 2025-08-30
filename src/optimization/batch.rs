@@ -2,9 +2,9 @@
 // Reduces Python-Rust boundary calls and enables parallel processing
 
 use crate::config::ClientConfig;
-use crate::response::HttpResponse;
-use crate::core::send_request_direct;
-use crate::hyper_client::HyperHttpClient;
+use crate::models::HttpResponse;
+use crate::core::core::send_request_direct;
+use crate::client::hyper_client::HyperHttpClient;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use tokio::task::JoinSet;
