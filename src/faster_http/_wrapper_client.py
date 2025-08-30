@@ -13,12 +13,9 @@ ARCHITECTURAL ENHANCEMENT: Smart Request Routing
 from collections.abc import Callable
 from typing import Any
 
-# aiohttp import removed - all requests go through Rust
+# Direct Rust client imports - Python layer is interface-only
 from ._core import AsyncHttpClient as RustAsyncHttpClient
 from ._core import HttpClient as RustHttpClient
-
-# Import GIL-free processing
-from ._core import gil_processed_request  # Updated function name for objective terminology
 
 # _is_localhost_url function removed - all requests go through Rust
 
@@ -112,9 +109,8 @@ class Client:
         All requests are routed through the GIL-free Rust implementation
         for true zero-GIL processing.
         """
-        # Use GIL-free processing for performance
-        # Build request object for GIL-free processing
-        request_obj = self._rust_client.build_request(
+        # Direct Rust execution - no Python business logic
+        return self._rust_client.request(
             method=method,
             url=url,
             content=content,
@@ -124,28 +120,10 @@ class Client:
             params=params,
             headers=headers,
             timeout=timeout,
+            auth=auth,
+            follow_redirects=follow_redirects,
             cookies=cookies,
         )
-
-        # Process request with minimal GIL interaction
-        try:
-            return gil_processed_request(request_obj, use_async=False)
-        except Exception:
-            # Fallback to standard Rust client if GIL-free processing fails
-            return self._rust_client.request(
-                method=method,
-                url=url,
-                content=content,
-                data=data,
-                json=json,
-                files=files,
-                params=params,
-                headers=headers,
-                timeout=timeout,
-                auth=auth,
-                follow_redirects=follow_redirects,
-                cookies=cookies,
-            )
 
     def get(self, url: str, **kwargs):
         """Send GET request."""
@@ -397,43 +375,21 @@ class AsyncClient:
         This bypasses the standard future_into_py conversion overhead.
         """
 
-        # Build request and use GIL-free async path
-        try:
-            # Build request object with all parameters merged
-            request_obj = self._rust_client.build_request(
-                method=method,
-                url=url,
-                content=content,
-                data=data,
-                json=json,
-                files=files,
-                params=params,
-                headers=headers,
-                timeout=timeout,
-                cookies=cookies,
-            )
-
-            # Use GIL-free async processing
-            from ._core import gil_processed_async_request  # Updated function name for objective terminology
-
-            return await gil_processed_async_request(request_obj)
-
-        except Exception:
-            # Fallback to standard Rust async client if GIL-free processing fails
-            return await self._rust_client.request(
-                method=method,
-                url=url,
-                content=content,
-                data=data,
-                json=json,
-                files=files,
-                params=params,
-                headers=headers,
-                timeout=timeout,
-                auth=auth,
-                follow_redirects=follow_redirects,
-                cookies=cookies,
-            )
+        # Direct async Rust execution - no Python business logic
+        return await self._rust_client.request(
+            method=method,
+            url=url,
+            content=content,
+            data=data,
+            json=json,
+            files=files,
+            params=params,
+            headers=headers,
+            timeout=timeout,
+            auth=auth,
+            follow_redirects=follow_redirects,
+            cookies=cookies,
+        )
 
     async def get(self, url: str, **kwargs):
         """Send GET request."""

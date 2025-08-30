@@ -80,7 +80,7 @@ impl PoolConfig {
             keep_alive_timeout: Duration::from_secs(30), // Short keep-alive
             max_total_connections: 100, // Low total connections
             connect_timeout: Duration::from_secs(10),  // Generous connection timeout
-            request_timeout: Duration::from_secs(60), // Long request timeout
+            request_timeout: Duration::from_secs(30), // Standard request timeout - unified
             http2_only: false,
             http1_only: false,
             mode: ConfigMode::Conservative,
@@ -108,7 +108,7 @@ impl PoolConfig {
             keep_alive_timeout: Duration::from_secs(300), // 5 minutes keep-alive
             max_total_connections: 2000, // High resource connection limit
             connect_timeout: Duration::from_millis(2000),  // Standard connection timeout
-            request_timeout: Duration::from_secs(10), // Standard request timeout
+            request_timeout: Duration::from_secs(30), // Standard request timeout - unified
             http2_only: false,
             http1_only: false,
             mode: ConfigMode::ResourceIntensive,
@@ -123,7 +123,7 @@ impl PoolConfig {
             keep_alive_timeout: Duration::from_secs(300), // 5 minutes keep-alive
             max_total_connections: 10000, // Standard connection pool size
             connect_timeout: Duration::from_millis(500),  // Standard connection timeout
-            request_timeout: Duration::from_secs(2), // Standard request timeout
+            request_timeout: Duration::from_secs(30), // Standard request timeout - CRITICAL FIX!
             http2_only: false,
             http1_only: false,
             mode: ConfigMode::ResourceIntensive,
@@ -138,7 +138,7 @@ impl PoolConfig {
             keep_alive_timeout: Duration::from_secs(90), // Configured for async connection lifecycle
             max_total_connections: 800, // Configured for async concurrent processing
             connect_timeout: Duration::from_millis(200),  // Standard connection timeout
-            request_timeout: Duration::from_millis(1200), // Configured for async processing
+            request_timeout: Duration::from_secs(30), // Match client timeout for consistency
             http2_only: false,
             http1_only: true, // HTTP/1.1 only for consistent async processing
             mode: ConfigMode::ResourceIntensive,
@@ -153,7 +153,7 @@ impl PoolConfig {
             keep_alive_timeout: Duration::from_secs(45), // High resource keepalive for async processing
             max_total_connections: 2000, // High resource connections for async concurrent processing
             connect_timeout: Duration::from_millis(100),  // Standard connection timeout
-            request_timeout: Duration::from_millis(800), // High resource request timeout
+            request_timeout: Duration::from_secs(30), // Match client timeout for consistency
             http2_only: false,
             http1_only: true, // HTTP/1.1 only for async processing
             mode: ConfigMode::ResourceIntensive,
@@ -168,7 +168,7 @@ impl PoolConfig {
             keep_alive_timeout: Duration::from_secs(60), // Balanced keepalive for async patterns
             max_total_connections: 1000, // Balanced connections for concurrent processing
             connect_timeout: Duration::from_millis(500),  // Balanced connection timeout
-            request_timeout: Duration::from_millis(1500), // Balanced request timeout
+            request_timeout: Duration::from_secs(30), // Match client timeout for consistency
             http2_only: false,
             http1_only: true, // HTTP/1.1 only for async processing
             mode: ConfigMode::ResourceIntensive,
@@ -183,7 +183,7 @@ impl PoolConfig {
             keep_alive_timeout: Duration::from_secs(30), // Concurrent keepalive for async processing
             max_total_connections: 3000, // Concurrent connection limit for async processing
             connect_timeout: Duration::from_millis(200),  // Standard connection timeout
-            request_timeout: Duration::from_millis(800), // Concurrent request timeout for async processing
+            request_timeout: Duration::from_secs(30), // Match client timeout for consistency
             http2_only: false,
             http1_only: true, // HTTP/1.1 only for async processing
             mode: ConfigMode::ResourceIntensive,
@@ -194,14 +194,14 @@ impl PoolConfig {
     /// Standard settings: Configured for async workloads
     pub fn async_standard() -> Self {
         Self {
-            max_idle_per_host: 260,    // Standard configuration: Configured for capacity
-            keep_alive_timeout: Duration::from_secs(30), // Standard configuration: Configured for connection lifecycle
-            max_total_connections: 1600, // Standard configuration: Configured for parallelism
-            connect_timeout: Duration::from_millis(280),  // Standard configuration: Configured for response
-            request_timeout: Duration::from_millis(800), // Standard configuration: Configured response timeout
+            max_idle_per_host: 250,    // Match sync client configuration
+            keep_alive_timeout: Duration::from_secs(30), // Standard 30s keep-alive
+            max_total_connections: 1200, // Match sync client total connections
+            connect_timeout: Duration::from_secs(5),  // Reasonable connect timeout
+            request_timeout: Duration::from_secs(30), // Match sync client timeout - CRITICAL FIX!
             http2_only: false,
-            http1_only: true, // HTTP/1.1 only for async processing
-            mode: ConfigMode::ResourceIntensive,
+            http1_only: false, // Allow both HTTP/1.1 and HTTP/2
+            mode: ConfigMode::Standard, // Use standard instead of resource intensive
         }
     }
 

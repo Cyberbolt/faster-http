@@ -17,48 +17,39 @@ pub fn get_global_runtime() -> Option<&'static tokio::runtime::Runtime> {
             .map(|n| n.get())
             .unwrap_or(8); // Fallback to 8 cores
         
-        // ASYNC-CONFIGURED: Use more worker threads for async HTTP workload
-        // HTTP clients benefit from more parallelism than CPU-bound tasks
-        let worker_threads = (cpu_count * 2).min(16); // Double the workers, cap at 16
-        let max_blocking_threads = 32; // Reduce blocking threads for async focus
+        // OPTIMIZED: Use CPU count for optimal async/await performance
+        // Avoid over-allocation which can hurt performance
+        let worker_threads = cpu_count.max(4).min(12); // Better balance for high-core systems
+        let max_blocking_threads = 16; // Reasonable blocking thread pool
         
         if let Ok(runtime) = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(worker_threads) // More workers for async HTTP parallelism
-            .max_blocking_threads(max_blocking_threads) // Focused blocking thread pool
+            .worker_threads(worker_threads) // Optimal worker count
+            .max_blocking_threads(max_blocking_threads)
             .enable_all() // Enable all Tokio features
-            .thread_name("faster-http-async") // Named threads for debugging
-            .thread_stack_size(4 * 1024 * 1024) // 4MB stack - smaller for async efficiency
-            .global_queue_interval(7) // Work stealing with small prime interval
-            .event_interval(12) // Tuned event loop polling interval
-            .max_io_events_per_tick(10240) // High I/O events per tick for async workloads
+            .thread_name("faster-http") // Simple thread naming
             .build() 
         {
-            eprintln!("Tokio Runtime initialized: {} worker threads, {} max blocking threads (async-tuned)", 
+            eprintln!("Tokio Runtime initialized: {} worker threads, {} max blocking threads (optimized)", 
                      worker_threads, max_blocking_threads);
             return Some(runtime);
         }
         
-        // Fallback: Configured runtime
+        // Fallback: Simple runtime
         if let Ok(runtime) = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(cpu_count.max(4))
-            .max_blocking_threads(16)
+            .worker_threads(cpu_count.max(2).min(4))
             .enable_all()
-            .global_queue_interval(11)
-            .event_interval(17)
-            .max_io_events_per_tick(2048)
             .build() 
         {
-            eprintln!("Configured Tokio Runtime initialized: {} worker threads", cpu_count);
+            eprintln!("Simple Tokio Runtime initialized: {} worker threads", cpu_count.max(2).min(4));
             return Some(runtime);
         }
         
-        // Standard fallback
+        // Default fallback
         if let Ok(runtime) = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
-            .worker_threads(cpu_count)
-            .build() 
+            .build() // Use default configuration
         {
-            eprintln!("Standard Tokio Runtime initialized: {} worker threads", cpu_count);
+            eprintln!("Default Tokio Runtime initialized");
             return Some(runtime);
         }
         

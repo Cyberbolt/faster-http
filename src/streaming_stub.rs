@@ -26,8 +26,7 @@ where
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .thread_name("faster-http-streaming")
-            .worker_threads(2) // Configured for streaming processing
-            .build()
+            .build() // Use default configuration for optimal performance
             .map_err(|e| format!("Failed to create streaming runtime: {}", e))
     });
     

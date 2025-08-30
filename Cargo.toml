@@ -44,7 +44,7 @@ pythonize = "0.20.0"
 http = "1.0"
 base64 = "0.22"
 uuid = { version = "1.0", features = ["v4"] }
-multipart = "0.18"
+multipart = { version = "0.18", default-features = false, features = ["client"] }
 # Synchronous HTTP client (with TLS support)
 ureq = { version = "2.10", default-features = false, features = ["json", "tls"] }
 # reqwest = { version = "0.12", features = ["blocking", "json"] }  # Removed to reduce dependencies

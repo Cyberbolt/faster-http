@@ -46,8 +46,8 @@ impl HyperHttpClient {
     /// Create a new HyperHttpClient with the given configuration
     /// Uses standard configuration for concurrent processing
     pub fn new(config: HyperClientConfig) -> PyResult<Self> {
-        // Use standard configuration for concurrent async processing
-        let mut pool_config = PoolConfig::async_standard();
+        // Use concurrent configuration for high-performance async processing
+        let mut pool_config = PoolConfig::async_concurrent();
         
         // Override specific settings based on client config
         if let Some(timeout) = config.timeout {
