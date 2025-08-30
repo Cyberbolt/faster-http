@@ -247,18 +247,16 @@ impl PoolConfig {
         // Mode-specific warnings
         match self.mode {
             ConfigMode::Conservative => {
-                if self.max_idle_per_host > 50 {
-                    eprintln!("WARNING: Conservative mode with max_idle_per_host > 50 may not be truly conservative.");
-                }
+                // Conservative mode validation completed
             }
             ConfigMode::Balanced => {
                 // Balanced mode is flexible, no specific warnings
             }
             ConfigMode::Standard => {
-                eprintln!("Standard mode active: Configured with moderate resource usage.");
+                // Standard mode validation completed
             }
             ConfigMode::ResourceIntensive => {
-                eprintln!("Resource intensive mode active: Configured with resource management.");
+                // Resource intensive mode validation completed
             }
         }
         
@@ -325,7 +323,7 @@ impl HttpConnectionPool {
         // Validate configuration for safety
         if let Err(warning_msg) = config.validate() {
             if warning_msg.starts_with("WARNING:") {
-                eprintln!("{}", warning_msg);
+                // Warning logged silently, continuing with configuration
             } else {
                 return Err(crate::error::RequestError::new_err(warning_msg));
             }

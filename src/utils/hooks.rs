@@ -111,8 +111,8 @@ impl EventHooks {
                     inspect_module.call_method1("iscoroutine", (result.clone(),))
                 {
                     if is_coroutine.is_true()? {
-                        // Log a warning instead of trying to run async hooks in spawn_blocking
-                        eprintln!("Warning: Async request hooks are not supported in spawn_blocking context");
+                        // Skip async hooks silently in spawn_blocking context
+                        // Async hooks are not supported in synchronous execution context
                     }
                 }
             }
@@ -135,8 +135,8 @@ impl EventHooks {
                     inspect_module.call_method1("iscoroutine", (result.clone(),))
                 {
                     if is_coroutine.is_true()? {
-                        // Log a warning instead of trying to run async hooks in spawn_blocking
-                        eprintln!("Warning: Async response hooks are not supported in spawn_blocking context");
+                        // Skip async hooks silently in spawn_blocking context
+                        // Async hooks are not supported in synchronous execution context
                     }
                 }
             }

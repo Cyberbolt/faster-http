@@ -233,7 +233,5 @@ __all__ = [
 
 if __name__ == "__main__":
     import sys
-
-    print("faster-http: HTTP client compatible with httpx")
-    print("Usage: python -m faster_http")
+    # Module information available through __doc__ or help() if needed
     sys.exit(0)

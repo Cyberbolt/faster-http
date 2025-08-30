@@ -204,9 +204,9 @@ impl ProxySystem {
                                 self.proxies.insert(scheme.to_string(), proxy_config);
                             }
                         }
-                        Err(e) => {
-                            // Log warning but don't fail - environment might have invalid proxy
-                            eprintln!("Warning: Invalid proxy URL in {}: {}", env_var, e);
+                        Err(_e) => {
+                            // Silently skip invalid proxy URLs from environment variables
+                            // Environment might have malformed proxy settings
                         }
                     }
                 }

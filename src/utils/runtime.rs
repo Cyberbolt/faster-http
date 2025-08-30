@@ -29,8 +29,6 @@ pub fn get_global_runtime() -> Option<&'static tokio::runtime::Runtime> {
             .thread_name("faster-http") // Simple thread naming
             .build() 
         {
-            eprintln!("Tokio Runtime initialized: {} worker threads, {} max blocking threads (optimized)", 
-                     worker_threads, max_blocking_threads);
             return Some(runtime);
         }
         
@@ -40,7 +38,6 @@ pub fn get_global_runtime() -> Option<&'static tokio::runtime::Runtime> {
             .enable_all()
             .build() 
         {
-            eprintln!("Simple Tokio Runtime initialized: {} worker threads", cpu_count.max(2).min(4));
             return Some(runtime);
         }
         
@@ -49,7 +46,6 @@ pub fn get_global_runtime() -> Option<&'static tokio::runtime::Runtime> {
             .enable_all()
             .build() // Use default configuration
         {
-            eprintln!("Default Tokio Runtime initialized");
             return Some(runtime);
         }
         
@@ -59,11 +55,9 @@ pub fn get_global_runtime() -> Option<&'static tokio::runtime::Runtime> {
             .max_io_events_per_tick(512) // Higher I/O events for single-thread
             .build() 
         {
-            eprintln!("Warning: Single-threaded Tokio Runtime initialized (performance may be limited)");
             return Some(runtime);
         }
         
-        eprintln!("ERROR: Failed to create any Tokio runtime!");
         None
     });
     
