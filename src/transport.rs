@@ -329,7 +329,7 @@ lambda request: type('MockResponse', (), {
             let mock_transport = MockTransport::new(handler.to_object(py));
 
             // Create a test request
-            let request = HttpRequest::new(
+            let _request = HttpRequest::new(
                 "GET".to_string(),
                 "https://example.com".to_string(),
                 None,
