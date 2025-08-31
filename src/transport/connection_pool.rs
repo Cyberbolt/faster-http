@@ -709,10 +709,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_validation() {
-        let mut config = PoolConfig::default();
-
         // Test invalid configurations
-        config.max_idle_per_host = 0;
+        let mut config = PoolConfig { 
+            max_idle_per_host: 0, 
+            ..Default::default() 
+        };
         assert!(config.validate().is_err());
 
         config.max_idle_per_host = 50;

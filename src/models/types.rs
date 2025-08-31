@@ -1148,8 +1148,7 @@ impl AsyncBaseTransport {
             "__import__('asyncio').Future().set_result(None) or __import__('asyncio').Future()",
             None,
             None,
-        )
-        .and_then(|future| Ok(future.to_object(py)))
+        ).map(|future| future.to_object(py))
     }
 
     /// async def handle_async_request(self, request) -> Response:

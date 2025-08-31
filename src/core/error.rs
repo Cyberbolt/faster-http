@@ -15,8 +15,11 @@ pyo3::create_exception!(faster_http, RequestError, HTTPError);
 // Should include both .request and .response attributes
 pyo3::create_exception!(faster_http, HTTPStatusError, HTTPError);
 
+// Transport and Protocol exceptions (defined first for inheritance)  
+pyo3::create_exception!(faster_http, TransportError, RequestError);
+
 // Network related exceptions - matches httpx network error hierarchy
-pyo3::create_exception!(faster_http, NetworkError, RequestError);
+pyo3::create_exception!(faster_http, NetworkError, TransportError);
 
 // Connection related exceptions - matches httpx.ConnectError
 pyo3::create_exception!(faster_http, ConnectError, NetworkError);
@@ -104,8 +107,7 @@ pub fn new_http_status_error(
     Ok(exc_instance.to_object(py))
 }
 
-// Transport and Protocol exceptions
-pyo3::create_exception!(faster_http, TransportError, RequestError);
+// Protocol exceptions (TransportError already defined above)
 pyo3::create_exception!(faster_http, ProtocolError, TransportError);
 pyo3::create_exception!(faster_http, LocalProtocolError, ProtocolError);
 pyo3::create_exception!(faster_http, RemoteProtocolError, ProtocolError);

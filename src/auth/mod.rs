@@ -1,4 +1,4 @@
 // Authentication module
-pub mod auth;
+pub mod types;
 
-pub use auth::*;
+pub use types::*;

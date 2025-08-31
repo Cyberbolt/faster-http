@@ -20,7 +20,7 @@ pub fn get_global_runtime() -> Option<&'static tokio::runtime::Runtime> {
 
         // OPTIMIZED: Use CPU count for optimal async/await performance
         // Avoid over-allocation which can hurt performance
-        let worker_threads = cpu_count.max(4).min(12); // Better balance for high-core systems
+        let worker_threads = cpu_count.clamp(4, 12); // Better balance for high-core systems
         let max_blocking_threads = 16; // Reasonable blocking thread pool
 
         if let Ok(runtime) = tokio::runtime::Builder::new_multi_thread()
@@ -35,7 +35,7 @@ pub fn get_global_runtime() -> Option<&'static tokio::runtime::Runtime> {
 
         // Fallback: Simple runtime
         if let Ok(runtime) = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(cpu_count.max(2).min(4))
+            .worker_threads(cpu_count.clamp(2, 4))
             .enable_all()
             .build()
         {

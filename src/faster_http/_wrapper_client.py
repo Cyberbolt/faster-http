@@ -16,6 +16,10 @@ from typing import Any
 # Direct Rust client imports - Python layer is interface-only
 from ._core import AsyncHttpClient as RustAsyncHttpClient
 from ._core import HttpClient as RustHttpClient
+from ._timeout import Timeout
+
+# Create module-level default timeout to avoid B008 warning
+_DEFAULT_TIMEOUT = Timeout(timeout=5.0)
 
 # _is_localhost_url function removed - all requests go through Rust
 
@@ -34,6 +38,7 @@ class Client:
 
     def __init__(
         self,
+        *,
         auth: Any | None = None,
         params: dict[str, str] | None = None,
         headers: dict[str, str] | None = None,
@@ -44,7 +49,7 @@ class Client:
         http2: bool = False,
         proxy: Any | None = None,
         mounts: dict[str, Any] | None = None,
-        timeout: float | dict[str, float] | None = 5.0,
+        timeout = _DEFAULT_TIMEOUT,
         follow_redirects: bool = False,
         limits: Any | None = None,
         max_redirects: int = 20,
@@ -125,33 +130,132 @@ class Client:
             cookies=cookies,
         )
 
-    def get(self, url: str, **kwargs):
+    def get(
+        self,
+        url: str,
+        *,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        auth: Any | None = None,
+        follow_redirects: bool | None = None,
+        timeout: float | dict[str, float] | None = None,
+        extensions: dict[str, Any] | None = None
+    ):
         """Send GET request."""
-        return self.request("GET", url, **kwargs)
+        return self.request("GET", url, params=params, headers=headers, cookies=cookies,
+                          auth=auth, follow_redirects=follow_redirects, timeout=timeout)
 
-    def post(self, url: str, **kwargs):
+    def post(
+        self,
+        url: str,
+        *,
+        content: bytes | None = None,
+        data: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        auth: Any | None = None,
+        follow_redirects: bool | None = None,
+        timeout: float | dict[str, float] | None = None,
+        extensions: dict[str, Any] | None = None
+    ):
         """Send POST request."""
-        return self.request("POST", url, **kwargs)
+        return self.request("POST", url, content=content, data=data, files=files, json=json,
+                          params=params, headers=headers, cookies=cookies, auth=auth,
+                          follow_redirects=follow_redirects, timeout=timeout)
 
-    def put(self, url: str, **kwargs):
+    def put(
+        self,
+        url: str,
+        *,
+        content: bytes | None = None,
+        data: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        auth: Any | None = None,
+        follow_redirects: bool | None = None,
+        timeout: float | dict[str, float] | None = None,
+        extensions: dict[str, Any] | None = None
+    ):
         """Send PUT request."""
-        return self.request("PUT", url, **kwargs)
+        return self.request("PUT", url, content=content, data=data, files=files, json=json,
+                          params=params, headers=headers, cookies=cookies, auth=auth,
+                          follow_redirects=follow_redirects, timeout=timeout)
 
-    def patch(self, url: str, **kwargs):
+    def patch(
+        self,
+        url: str,
+        *,
+        content: bytes | None = None,
+        data: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        auth: Any | None = None,
+        follow_redirects: bool | None = None,
+        timeout: float | dict[str, float] | None = None,
+        extensions: dict[str, Any] | None = None
+    ):
         """Send PATCH request."""
-        return self.request("PATCH", url, **kwargs)
+        return self.request("PATCH", url, content=content, data=data, files=files, json=json,
+                          params=params, headers=headers, cookies=cookies, auth=auth,
+                          follow_redirects=follow_redirects, timeout=timeout)
 
-    def delete(self, url: str, **kwargs):
+    def delete(
+        self,
+        url: str,
+        *,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        auth: Any | None = None,
+        follow_redirects: bool | None = None,
+        timeout: float | dict[str, float] | None = None,
+        extensions: dict[str, Any] | None = None
+    ):
         """Send DELETE request."""
-        return self.request("DELETE", url, **kwargs)
+        return self.request("DELETE", url, params=params, headers=headers, cookies=cookies,
+                          auth=auth, follow_redirects=follow_redirects, timeout=timeout)
 
-    def head(self, url: str, **kwargs):
+    def head(
+        self,
+        url: str,
+        *,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        auth: Any | None = None,
+        follow_redirects: bool | None = None,
+        timeout: float | dict[str, float] | None = None,
+        extensions: dict[str, Any] | None = None
+    ):
         """Send HEAD request."""
-        return self.request("HEAD", url, **kwargs)
+        return self.request("HEAD", url, params=params, headers=headers, cookies=cookies,
+                          auth=auth, follow_redirects=follow_redirects, timeout=timeout)
 
-    def options(self, url: str, **kwargs):
+    def options(
+        self,
+        url: str,
+        *,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        auth: Any | None = None,
+        follow_redirects: bool | None = None,
+        timeout: float | dict[str, float] | None = None,
+        extensions: dict[str, Any] | None = None
+    ):
         """Send OPTIONS request."""
-        return self.request("OPTIONS", url, **kwargs)
+        return self.request("OPTIONS", url, params=params, headers=headers, cookies=cookies,
+                          auth=auth, follow_redirects=follow_redirects, timeout=timeout)
 
     def send(self, request):
         """
@@ -267,18 +371,33 @@ class Client:
         """Get follow_redirects setting."""
         return self._rust_client.follow_redirects
 
-    # Connection pool monitoring methods
-    def get_connection_stats(self):
-        """Get connection pool statistics for monitoring."""
+    # Internal connection pool monitoring methods (not part of httpx API)
+    def _get_connection_stats(self):
+        """Internal: Get connection pool statistics for monitoring."""
         return self._rust_client.get_connection_stats()
 
-    def is_connection_healthy(self):
-        """Check if connection pool is healthy."""
+    def _is_connection_healthy(self):
+        """Internal: Check if connection pool is healthy."""
         return self._rust_client.is_connection_healthy()
 
-    async def cleanup_connections(self):
-        """Cleanup idle connections in the pool."""
+    async def _cleanup_connections(self):
+        """Internal: Cleanup idle connections in the pool."""
         return await self._rust_client.cleanup_connections()
+
+    # Missing httpx compatibility methods
+    def is_closed(self):
+        """Check if the client is closed."""
+        return getattr(self._rust_client, 'is_closed', lambda: False)()
+
+    @property
+    def timeout(self):
+        """Get the timeout setting."""
+        return getattr(self._rust_client, 'timeout', self._timeout)
+
+    @property
+    def trust_env(self):
+        """Get the trust_env setting."""
+        return getattr(self._rust_client, 'trust_env', True)
 
 
 # ============================================================================
@@ -299,6 +418,7 @@ class AsyncClient:
 
     def __init__(
         self,
+        *,
         auth: Any | None = None,
         params: dict[str, str] | None = None,
         headers: dict[str, str] | None = None,
@@ -309,7 +429,7 @@ class AsyncClient:
         http2: bool = False,
         proxy: Any | None = None,
         mounts: dict[str, Any] | None = None,
-        timeout: float | dict[str, float] | None = 5.0,
+        timeout = _DEFAULT_TIMEOUT,
         follow_redirects: bool = False,
         limits: Any | None = None,
         max_redirects: int = 20,
@@ -391,33 +511,132 @@ class AsyncClient:
             cookies=cookies,
         )
 
-    async def get(self, url: str, **kwargs):
+    async def get(
+        self,
+        url: str,
+        *,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        auth: Any | None = None,
+        follow_redirects: bool | None = None,
+        timeout: float | dict[str, float] | None = None,
+        extensions: dict[str, Any] | None = None
+    ):
         """Send GET request."""
-        return await self.request("GET", url, **kwargs)
+        return await self.request("GET", url, params=params, headers=headers, cookies=cookies,
+                                auth=auth, follow_redirects=follow_redirects, timeout=timeout)
 
-    async def post(self, url: str, **kwargs):
+    async def post(
+        self,
+        url: str,
+        *,
+        content: bytes | None = None,
+        data: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        auth: Any | None = None,
+        follow_redirects: bool | None = None,
+        timeout: float | dict[str, float] | None = None,
+        extensions: dict[str, Any] | None = None
+    ):
         """Send POST request."""
-        return await self.request("POST", url, **kwargs)
+        return await self.request("POST", url, content=content, data=data, files=files, json=json,
+                                params=params, headers=headers, cookies=cookies, auth=auth,
+                                follow_redirects=follow_redirects, timeout=timeout)
 
-    async def put(self, url: str, **kwargs):
+    async def put(
+        self,
+        url: str,
+        *,
+        content: bytes | None = None,
+        data: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        auth: Any | None = None,
+        follow_redirects: bool | None = None,
+        timeout: float | dict[str, float] | None = None,
+        extensions: dict[str, Any] | None = None
+    ):
         """Send PUT request."""
-        return await self.request("PUT", url, **kwargs)
+        return await self.request("PUT", url, content=content, data=data, files=files, json=json,
+                                params=params, headers=headers, cookies=cookies, auth=auth,
+                                follow_redirects=follow_redirects, timeout=timeout)
 
-    async def patch(self, url: str, **kwargs):
+    async def patch(
+        self,
+        url: str,
+        *,
+        content: bytes | None = None,
+        data: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        auth: Any | None = None,
+        follow_redirects: bool | None = None,
+        timeout: float | dict[str, float] | None = None,
+        extensions: dict[str, Any] | None = None
+    ):
         """Send PATCH request."""
-        return await self.request("PATCH", url, **kwargs)
+        return await self.request("PATCH", url, content=content, data=data, files=files, json=json,
+                                params=params, headers=headers, cookies=cookies, auth=auth,
+                                follow_redirects=follow_redirects, timeout=timeout)
 
-    async def delete(self, url: str, **kwargs):
+    async def delete(
+        self,
+        url: str,
+        *,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        auth: Any | None = None,
+        follow_redirects: bool | None = None,
+        timeout: float | dict[str, float] | None = None,
+        extensions: dict[str, Any] | None = None
+    ):
         """Send DELETE request."""
-        return await self.request("DELETE", url, **kwargs)
+        return await self.request("DELETE", url, params=params, headers=headers, cookies=cookies,
+                                auth=auth, follow_redirects=follow_redirects, timeout=timeout)
 
-    async def head(self, url: str, **kwargs):
+    async def head(
+        self,
+        url: str,
+        *,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        auth: Any | None = None,
+        follow_redirects: bool | None = None,
+        timeout: float | dict[str, float] | None = None,
+        extensions: dict[str, Any] | None = None
+    ):
         """Send HEAD request."""
-        return await self.request("HEAD", url, **kwargs)
+        return await self.request("HEAD", url, params=params, headers=headers, cookies=cookies,
+                                auth=auth, follow_redirects=follow_redirects, timeout=timeout)
 
-    async def options(self, url: str, **kwargs):
+    async def options(
+        self,
+        url: str,
+        *,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        auth: Any | None = None,
+        follow_redirects: bool | None = None,
+        timeout: float | dict[str, float] | None = None,
+        extensions: dict[str, Any] | None = None
+    ):
         """Send OPTIONS request."""
-        return await self.request("OPTIONS", url, **kwargs)
+        return await self.request("OPTIONS", url, params=params, headers=headers, cookies=cookies,
+                                auth=auth, follow_redirects=follow_redirects, timeout=timeout)
 
     async def send(self, request):
         """
@@ -533,15 +752,30 @@ class AsyncClient:
         """Get follow_redirects setting."""
         return self._rust_client.follow_redirects
 
-    # Connection pool monitoring methods
-    def get_connection_stats(self):
-        """Get connection pool statistics for monitoring."""
+    # Internal connection pool monitoring methods (not part of httpx API)
+    def _get_connection_stats(self):
+        """Internal: Get connection pool statistics for monitoring."""
         return self._rust_client.get_connection_stats()
 
-    def is_connection_healthy(self):
-        """Check if connection pool is healthy."""
+    def _is_connection_healthy(self):
+        """Internal: Check if connection pool is healthy."""
         return self._rust_client.is_connection_healthy()
 
-    async def cleanup_connections(self):
-        """Cleanup idle connections in the pool."""
+    async def _cleanup_connections(self):
+        """Internal: Cleanup idle connections in the pool."""
         return await self._rust_client.cleanup_connections()
+
+    # Missing httpx compatibility methods
+    def is_closed(self):
+        """Check if the client is closed."""
+        return getattr(self._rust_client, 'is_closed', lambda: False)()
+
+    @property
+    def timeout(self):
+        """Get the timeout setting."""
+        return getattr(self._rust_client, 'timeout', self._timeout)
+
+    @property
+    def trust_env(self):
+        """Get the trust_env setting."""
+        return getattr(self._rust_client, 'trust_env', True)

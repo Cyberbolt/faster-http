@@ -1,7 +1,7 @@
 // Utility module
 pub mod hooks;
 pub mod runtime;
-pub mod utils;
+pub mod helpers;
 
 pub use hooks::EventHooksProxy;
-pub use utils::*;
+pub use helpers::*;

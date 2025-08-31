@@ -59,7 +59,7 @@ impl GilFreeRequestContext {
             .collect();
 
         // Create zero-copy content buffer
-        let content_buffer = content.map(|data| Bytes::from(data));
+        let content_buffer = content.map(Bytes::from);
 
         // Convert timeout
         let timeout_duration = timeout.map(Duration::from_secs_f64);

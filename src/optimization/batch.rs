@@ -3,7 +3,7 @@
 
 use crate::client::hyper_client::HyperHttpClient;
 use crate::config::ClientConfig;
-use crate::core::core::send_request_direct;
+use crate::core::engine::send_request_direct;
 use crate::models::HttpResponse;
 use bytes::Bytes;
 use pyo3::prelude::*;

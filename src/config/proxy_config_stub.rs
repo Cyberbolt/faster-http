@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use url::Url;
 
 /// Proxy configuration system for HTTP/HTTPS connections
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ProxySystem {
     /// Proxy configurations per scheme
     proxies: HashMap<String, ProxyConfig>,
@@ -34,15 +34,7 @@ pub struct ProxyAuth {
     pub password: String,
 }
 
-impl Default for ProxySystem {
-    fn default() -> Self {
-        Self {
-            proxies: HashMap::new(),
-            trust_env: false, // faster-http不自动读取环境变量proxy，与httpx差异化
-            default_proxy: None,
-        }
-    }
-}
+// Default implementation is derived automatically
 
 impl ProxySystem {
     /// Create proxy system from Python httpx-compatible parameters

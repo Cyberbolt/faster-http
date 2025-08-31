@@ -6,6 +6,7 @@ use std::collections::HashMap;
 
 // Structure to group common request parameters
 #[derive(Default)]
+#[allow(dead_code)] // Allow unused fields for now - proxy and trust_env will be implemented later
 pub struct RequestParams {
     pub params: Option<HashMap<String, PyObject>>,
     pub headers: Option<HashMap<String, String>>,
@@ -14,6 +15,8 @@ pub struct RequestParams {
     pub follow_redirects: Option<bool>,
     pub cookies: Option<HashMap<String, String>>,
     pub verify: Option<PyObject>,
+    pub proxy: Option<PyObject>,
+    pub trust_env: Option<bool>,
 }
 
 // Unified synchronous request execution
@@ -187,25 +190,30 @@ fn create_ephemeral_config_with_verify(
 // Top-level API functions that create ephemeral clients (matching httpx behavior)
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
-#[pyo3(signature = (url, *, params=None, headers=None, timeout=None, auth=None, follow_redirects=None, cookies=None, verify=None))]
+#[allow(unused_variables)]
+#[pyo3(signature = (url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn get(
     url: &str,
     params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
-    timeout: Option<f64>,
-    auth: Option<PyObject>,
-    follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
-    verify: Option<PyObject>,
+    auth: Option<PyObject>,
+    proxy: Option<PyObject>,
+    follow_redirects: bool,
+    verify: bool,
+    timeout: f64,
+    trust_env: bool,
 ) -> PyResult<HttpResponse> {
     let request_params = RequestParams {
         params,
         headers,
-        timeout,
+        timeout: Some(timeout),
         auth,
-        follow_redirects,
+        follow_redirects: Some(follow_redirects),
         cookies,
-        verify,
+        verify: Some(Python::with_gil(|py| verify.to_object(py))),
+        proxy,
+        trust_env: Some(trust_env),
     };
     execute_get_request(url, request_params)
 }
@@ -242,6 +250,8 @@ fn execute_get_request(url: &str, params: RequestParams) -> PyResult<HttpRespons
 
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
+#[allow(unused_variables)]
+#[pyo3(signature = (url, *, content=None, data=None, json=None, files=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn post(
     url: &str,
     content: Option<Vec<u8>>,
@@ -250,11 +260,13 @@ pub fn post(
     files: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, PyObject>>,
     headers: Option<PyObject>,
-    timeout: Option<f64>,
-    auth: Option<PyObject>,
-    follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
-    verify: Option<PyObject>,
+    auth: Option<PyObject>,
+    proxy: Option<PyObject>,
+    follow_redirects: bool,
+    verify: bool,
+    timeout: f64,
+    trust_env: bool,
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
@@ -262,9 +274,9 @@ pub fn post(
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
         cookies.clone(),
-        timeout,
-        follow_redirects.unwrap_or(false),
-        verify.as_ref(),
+        Some(timeout),
+        follow_redirects,
+        Some(&Python::with_gil(|py| verify.to_object(py))),
     )?;
 
     let extracted_headers = extract_headers(headers)?;
@@ -278,15 +290,17 @@ pub fn post(
         files,
         params,
         extracted_headers,
-        timeout,
+        Some(timeout),
         auth_tuple,
-        follow_redirects.unwrap_or(false),
+        follow_redirects,
         cookies,
     )
 }
 
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
+#[allow(unused_variables)]
+#[pyo3(signature = (url, *, content=None, data=None, json=None, files=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn put(
     url: &str,
     content: Option<Vec<u8>>,
@@ -295,11 +309,13 @@ pub fn put(
     files: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
-    timeout: Option<f64>,
-    auth: Option<PyObject>,
-    follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
-    verify: Option<PyObject>,
+    auth: Option<PyObject>,
+    proxy: Option<PyObject>,
+    follow_redirects: bool,
+    verify: bool,
+    timeout: f64,
+    trust_env: bool,
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
@@ -307,9 +323,9 @@ pub fn put(
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
         cookies.clone(),
-        timeout,
-        follow_redirects.unwrap_or(false),
-        verify.as_ref(),
+        Some(timeout),
+        follow_redirects,
+        Some(&Python::with_gil(|py| verify.to_object(py))),
     )?;
 
     execute_request_with_sync_client(
@@ -322,15 +338,17 @@ pub fn put(
         files,
         params,
         headers,
-        timeout,
+        Some(timeout),
         auth_tuple,
-        follow_redirects.unwrap_or(false),
+        follow_redirects,
         cookies,
     )
 }
 
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
+#[allow(unused_variables)]
+#[pyo3(signature = (url, *, content=None, data=None, json=None, files=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn patch(
     url: &str,
     content: Option<Vec<u8>>,
@@ -339,11 +357,13 @@ pub fn patch(
     files: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
-    timeout: Option<f64>,
-    auth: Option<PyObject>,
-    follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
-    verify: Option<PyObject>,
+    auth: Option<PyObject>,
+    proxy: Option<PyObject>,
+    follow_redirects: bool,
+    verify: bool,
+    timeout: f64,
+    trust_env: bool,
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
@@ -351,9 +371,9 @@ pub fn patch(
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
         cookies.clone(),
-        timeout,
-        follow_redirects.unwrap_or(false),
-        verify.as_ref(),
+        Some(timeout),
+        follow_redirects,
+        Some(&Python::with_gil(|py| verify.to_object(py))),
     )?;
 
     execute_request_with_sync_client(
@@ -366,34 +386,39 @@ pub fn patch(
         files,
         params,
         headers,
-        timeout,
+        Some(timeout),
         auth_tuple,
-        follow_redirects.unwrap_or(false),
+        follow_redirects,
         cookies,
     )
 }
 
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
-#[pyo3(signature = (url, *, params=None, headers=None, timeout=None, auth=None, follow_redirects=None, cookies=None, verify=None))]
+#[allow(unused_variables)]
+#[pyo3(signature = (url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn delete(
     url: &str,
     params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
-    timeout: Option<f64>,
-    auth: Option<PyObject>,
-    follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
-    verify: Option<PyObject>,
+    auth: Option<PyObject>,
+    proxy: Option<PyObject>,
+    follow_redirects: bool,
+    verify: bool,
+    timeout: f64,
+    trust_env: bool,
 ) -> PyResult<HttpResponse> {
     let request_params = RequestParams {
         params,
         headers,
-        timeout,
+        timeout: Some(timeout),
         auth,
-        follow_redirects,
+        follow_redirects: Some(follow_redirects),
         cookies,
-        verify,
+        verify: Some(Python::with_gil(|py| verify.to_object(py))),
+        proxy,
+        trust_env: Some(trust_env),
     };
     execute_delete_request(url, request_params)
 }
@@ -429,15 +454,19 @@ fn execute_delete_request(url: &str, params: RequestParams) -> PyResult<HttpResp
 
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
+#[allow(unused_variables)]
+#[pyo3(signature = (url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn head(
     url: &str,
     params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
-    timeout: Option<f64>,
-    auth: Option<PyObject>,
-    follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
-    verify: Option<PyObject>,
+    auth: Option<PyObject>,
+    proxy: Option<PyObject>,
+    follow_redirects: bool,
+    verify: bool,
+    timeout: f64,
+    trust_env: bool,
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
@@ -445,9 +474,9 @@ pub fn head(
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
         cookies.clone(),
-        timeout,
-        follow_redirects.unwrap_or(false),
-        verify.as_ref(),
+        Some(timeout),
+        follow_redirects,
+        Some(&Python::with_gil(|py| verify.to_object(py))),
     )?;
 
     execute_request_with_sync_client(
@@ -460,24 +489,28 @@ pub fn head(
         None,
         params,
         headers,
-        timeout,
+        Some(timeout),
         auth_tuple,
-        follow_redirects.unwrap_or(false),
+        follow_redirects,
         cookies,
     )
 }
 
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
+#[allow(unused_variables)]
+#[pyo3(signature = (url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn options(
     url: &str,
     params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
-    timeout: Option<f64>,
-    auth: Option<PyObject>,
-    follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
-    verify: Option<PyObject>,
+    auth: Option<PyObject>,
+    proxy: Option<PyObject>,
+    follow_redirects: bool,
+    verify: bool,
+    timeout: f64,
+    trust_env: bool,
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
@@ -485,9 +518,9 @@ pub fn options(
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
         cookies.clone(),
-        timeout,
-        follow_redirects.unwrap_or(false),
-        verify.as_ref(),
+        Some(timeout),
+        follow_redirects,
+        Some(&Python::with_gil(|py| verify.to_object(py))),
     )?;
 
     execute_request_with_sync_client(
@@ -500,9 +533,9 @@ pub fn options(
         None,
         params,
         headers,
-        timeout,
+        Some(timeout),
         auth_tuple,
-        follow_redirects.unwrap_or(false),
+        follow_redirects,
         cookies,
     )
 }
@@ -510,6 +543,8 @@ pub fn options(
 // Generic request function that creates ephemeral client
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
+#[allow(unused_variables)]
+#[pyo3(signature = (method, url, *, content=None, data=None, json=None, files=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn request(
     method: &str,
     url: &str,
@@ -519,11 +554,13 @@ pub fn request(
     files: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, PyObject>>,
     headers: Option<PyObject>,
-    timeout: Option<f64>,
-    auth: Option<PyObject>,
-    follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
-    verify: Option<PyObject>,
+    auth: Option<PyObject>,
+    proxy: Option<PyObject>,
+    follow_redirects: bool,
+    verify: bool,
+    timeout: f64,
+    trust_env: bool,
 ) -> PyResult<HttpResponse> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
@@ -531,9 +568,9 @@ pub fn request(
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
         cookies.clone(),
-        timeout,
-        follow_redirects.unwrap_or(false),
-        verify.as_ref(),
+        Some(timeout),
+        follow_redirects,
+        Some(&Python::with_gil(|py| verify.to_object(py))),
     )?;
 
     let extracted_headers = extract_headers(headers)?;
@@ -547,9 +584,9 @@ pub fn request(
         files,
         params,
         extracted_headers,
-        timeout,
+        Some(timeout),
         auth_tuple,
-        follow_redirects.unwrap_or(false),
+        follow_redirects,
         cookies,
     )
 }
@@ -557,6 +594,8 @@ pub fn request(
 // Streaming request function with ephemeral config management
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
+#[allow(unused_variables)]
+#[pyo3(signature = (method, url, *, content=None, data=None, json=None, files=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn stream(
     method: &str,
     url: &str,
@@ -566,11 +605,13 @@ pub fn stream(
     files: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, PyObject>>,
     headers: Option<HashMap<String, String>>,
-    timeout: Option<f64>,
-    auth: Option<PyObject>,
-    follow_redirects: Option<bool>,
     cookies: Option<HashMap<String, String>>,
-    verify: Option<PyObject>,
+    auth: Option<PyObject>,
+    proxy: Option<PyObject>,
+    follow_redirects: bool,
+    verify: bool,
+    timeout: f64,
+    trust_env: bool,
 ) -> PyResult<StreamingClient> {
     // Extract auth parameter
     let auth_tuple = extract_auth_parameter(auth)?;
@@ -578,9 +619,9 @@ pub fn stream(
     // Create ephemeral config for this request only with verify support
     let config = create_ephemeral_config_with_verify(
         cookies.clone(),
-        timeout,
-        follow_redirects.unwrap_or(false),
-        verify.as_ref(),
+        Some(timeout),
+        follow_redirects,
+        Some(&Python::with_gil(|py| verify.to_object(py))),
     )?;
 
     Ok(StreamingClient::new(
@@ -593,9 +634,9 @@ pub fn stream(
         files,
         params,
         headers,
-        timeout,
+        Some(timeout),
         auth_tuple,
-        follow_redirects.unwrap_or(false),
+        follow_redirects,
         cookies,
     ))
 }

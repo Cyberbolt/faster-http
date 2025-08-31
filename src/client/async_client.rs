@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::auth::extract_auth;
-use crate::core::core::{build_and_send_request, send_request_direct};
+use crate::core::engine::{build_and_send_request, send_request_direct};
 use crate::core::error::RequestError;
 // Removed unused import build_url_with_python_params
 
@@ -688,7 +688,7 @@ impl AsyncHttpClient {
 
             let config = self.config.clone();
             return future_into_py(py, async move {
-                crate::core::core::send_request_direct(
+                crate::core::engine::send_request_direct(
                     &client,
                     &method_owned,
                     &full_url,
