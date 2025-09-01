@@ -7,7 +7,7 @@ pub mod sync_core;
 // Conditional exports based on usage
 #[allow(unused_imports)]
 pub use error::*;
-#[allow(unused_imports)] 
+#[allow(unused_imports)]
 pub use sync_core::SyncHttpClient;
 
 use pyo3::prelude::*;

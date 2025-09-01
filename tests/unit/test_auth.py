@@ -101,31 +101,35 @@ class TestAuth:
         """Test Auth base class can be created and has correct methods."""
         if client_factory.client_type == "httpx":
             import httpx
+
             auth = httpx.Auth()
         else:
             import faster_http
+
             auth = faster_http.Auth()
 
         # Test basic creation
         assert auth is not None
 
         # Test required methods exist
-        assert hasattr(auth, 'auth_flow')
-        assert hasattr(auth, 'sync_auth_flow')
-        assert hasattr(auth, 'async_auth_flow')
+        assert hasattr(auth, "auth_flow")
+        assert hasattr(auth, "sync_auth_flow")
+        assert hasattr(auth, "async_auth_flow")
 
         # Test required properties exist
-        assert hasattr(auth, 'requires_request_body')
-        assert hasattr(auth, 'requires_response_body')
+        assert hasattr(auth, "requires_request_body")
+        assert hasattr(auth, "requires_response_body")
 
     @httpx_compatibility_test
     def test_auth_base_class_properties(self, client_factory):
         """Test Auth base class properties return correct default values."""
         if client_factory.client_type == "httpx":
             import httpx
+
             auth = httpx.Auth()
         else:
             import faster_http
+
             auth = faster_http.Auth()
 
         # Test property default values match httpx
@@ -137,9 +141,11 @@ class TestAuth:
         """Test Auth base class methods raise NotImplementedError."""
         if client_factory.client_type == "httpx":
             import httpx
+
             auth = httpx.Auth()
         else:
             import faster_http
+
             auth = faster_http.Auth()
 
         # Create a mock request object

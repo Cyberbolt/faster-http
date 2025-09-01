@@ -1148,7 +1148,8 @@ impl AsyncBaseTransport {
             "__import__('asyncio').Future().set_result(None) or __import__('asyncio').Future()",
             None,
             None,
-        ).map(|future| future.to_object(py))
+        )
+        .map(|future| future.to_object(py))
     }
 
     /// async def handle_async_request(self, request) -> Response:
@@ -1432,5 +1433,346 @@ _async_auth_flow()
 
     fn __repr__(&self) -> String {
         "<Auth>".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    // Test HttpHeaders functionality
+    #[test]
+    fn test_http_headers_new() {
+        let headers = HttpHeaders::new(None);
+        assert_eq!(headers.inner.len(), 0);
+
+        let mut map = HashMap::new();
+        map.insert("Content-Type".to_string(), "application/json".to_string());
+        let headers = HttpHeaders::new(Some(map));
+        assert_eq!(headers.inner.len(), 1);
+    }
+
+    #[test]
+    fn test_http_headers_get() {
+        let mut map = HashMap::new();
+        map.insert("Content-Type".to_string(), "application/json".to_string());
+        let headers = HttpHeaders::new(Some(map));
+
+        // Test getting existing header
+        assert_eq!(headers.get("content-type", None), Some("application/json".to_string()));
+        
+        // Test getting non-existent header with default
+        assert_eq!(headers.get("non-existent", Some("default".to_string())), Some("default".to_string()));
+        
+        // Test getting non-existent header without default
+        assert_eq!(headers.get("non-existent", None), None);
+    }
+
+    #[test]
+    fn test_http_headers_get_list() {
+        let mut map = HashMap::new();
+        map.insert("Accept".to_string(), "text/html,application/json".to_string());
+        map.insert("Content-Type".to_string(), "application/json".to_string());
+        let headers = HttpHeaders::new(Some(map));
+
+        // Test without comma splitting
+        let values = headers.get_list("Accept", Some(false));
+        assert_eq!(values, vec!["text/html,application/json"]);
+
+        // Test with comma splitting
+        let values = headers.get_list("Accept", Some(true));
+        assert_eq!(values, vec!["text/html", "application/json"]);
+
+        // Test non-existent header
+        let values = headers.get_list("non-existent", None);
+        assert_eq!(values.len(), 0);
+    }
+
+    #[test]
+    fn test_http_headers_contains() {
+        let mut map = HashMap::new();
+        map.insert("Content-Type".to_string(), "application/json".to_string());
+        let headers = HttpHeaders::new(Some(map));
+
+        // Test case-insensitive contains
+        assert!(headers.__contains__("Content-Type"));
+        assert!(headers.__contains__("content-type"));
+        assert!(headers.__contains__("CONTENT-TYPE"));
+        assert!(!headers.__contains__("Accept"));
+    }
+
+    #[test]
+    fn test_http_headers_items_keys_values() {
+        let mut map = HashMap::new();
+        map.insert("Content-Type".to_string(), "application/json".to_string());
+        map.insert("Accept".to_string(), "text/html".to_string());
+        let headers = HttpHeaders::new(Some(map));
+
+        let items = headers.items();
+        assert_eq!(items.len(), 2);
+
+        let keys = headers.keys();
+        assert_eq!(keys.len(), 2);
+        assert!(keys.contains(&"Content-Type".to_string()));
+        assert!(keys.contains(&"Accept".to_string()));
+
+        let values = headers.values();
+        assert_eq!(values.len(), 2);
+        assert!(values.contains(&"application/json".to_string()));
+        assert!(values.contains(&"text/html".to_string()));
+    }
+
+    // Test HttpCookies functionality
+    #[test]
+    fn test_http_cookies_new() {
+        let cookies = HttpCookies::new(None);
+        assert_eq!(cookies.__len__(), 0);
+
+        let mut map = HashMap::new();
+        map.insert("sessionid".to_string(), "abc123".to_string());
+        let cookies = HttpCookies::new(Some(map));
+        assert_eq!(cookies.__len__(), 1);
+    }
+
+    #[test]
+    fn test_http_cookies_contains() {
+        let mut cookies = HttpCookies::new(None);
+        cookies.__setitem__("sessionid".to_string(), "abc123".to_string());
+
+        assert!(cookies.__contains__("sessionid"));
+        assert!(!cookies.__contains__("non-existent"));
+    }
+
+    // Test HttpUrl functionality  
+    #[test]
+    fn test_http_url_new() -> Result<(), url::ParseError> {
+        let url = HttpUrl::new("https://example.com/path?param=value".to_string())
+            .map_err(|_| url::ParseError::EmptyHost)?;
+        assert_eq!(url.scheme(), "https");
+        assert_eq!(url.host(), Some("example.com".to_string()));
+        assert_eq!(url.path(), "/path");
+        Ok(())
+    }
+
+    #[test]
+    fn test_http_url_new_invalid() {
+        // Test invalid URL
+        assert!(HttpUrl::new("not-a-url".to_string()).is_err());
+    }
+
+    #[test]
+    fn test_http_url_properties() -> Result<(), url::ParseError> {
+        let url = HttpUrl::new("https://user:pass@example.com:8080/path?param=value#fragment".to_string())
+            .map_err(|_| url::ParseError::EmptyHost)?;
+        
+        assert_eq!(url.scheme(), "https");
+        assert_eq!(url.host(), Some("example.com".to_string()));
+        assert_eq!(url.port(), Some(8080));
+        assert_eq!(url.path(), "/path");
+        assert_eq!(url.fragment(), "fragment");
+        assert_eq!(url.username(), "user");
+        assert_eq!(url.password(), Some("pass".to_string()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_http_url_str_with_auth() -> Result<(), url::ParseError> {
+        let url = HttpUrl::new("https://user:pass@example.com/path".to_string())
+            .map_err(|_| url::ParseError::EmptyHost)?;
+        let str_repr = url.__str__();
+        // Should not contain auth info in string representation for security
+        assert!(!str_repr.contains("user"));
+        assert!(!str_repr.contains("pass"));
+        assert!(str_repr.contains("example.com"));
+        Ok(())
+    }
+
+    // Test HttpTimeout functionality (internal validation logic)
+    #[test]
+    fn test_http_timeout_get_read_timeout() {
+        let timeout = HttpTimeout {
+            connect: Some(5.0),
+            read: Some(10.0),
+            write: Some(15.0),
+            pool: Some(20.0),
+        };
+        assert_eq!(timeout.get_read_timeout(), 10.0);
+
+        let timeout_no_read = HttpTimeout {
+            connect: Some(5.0),
+            read: None,
+            write: Some(15.0),
+            pool: Some(20.0),
+        };
+        assert_eq!(timeout_no_read.get_read_timeout(), 30.0); // Default fallback
+    }
+
+    // Test HttpBasicAuth functionality
+    #[test]
+    fn test_http_basic_auth_new() {
+        let auth = HttpBasicAuth::new("user".to_string(), "pass".to_string());
+        assert_eq!(auth.username(), "user");
+        assert_eq!(auth.password(), "pass");
+    }
+
+    #[test]
+    fn test_http_basic_auth_to_tuple() {
+        let auth = HttpBasicAuth::new("user".to_string(), "pass".to_string());
+        let (username, password) = auth.to_tuple();
+        assert_eq!(username, "user");
+        assert_eq!(password, "pass");
+    }
+
+    #[test]
+    fn test_http_basic_auth_repr() {
+        let auth = HttpBasicAuth::new("user".to_string(), "pass".to_string());
+        let repr = auth.__repr__();
+        assert!(repr.contains("BasicAuth"));
+        assert!(repr.contains("user"));
+        assert!(!repr.contains("pass")); // Password should not be in repr for security
+    }
+
+    // Test HttpDigestAuth functionality
+    #[test]
+    fn test_http_digest_auth_new() {
+        let auth = HttpDigestAuth::new("user".to_string(), "pass".to_string());
+        assert_eq!(auth.username(), "user");
+        assert_eq!(auth.password(), "pass");
+    }
+
+    #[test]
+    fn test_http_digest_auth_requires_response_body() {
+        let auth = HttpDigestAuth::new("user".to_string(), "pass".to_string());
+        assert!(auth.requires_response_body()); // Digest auth needs response body
+        assert!(!auth.requires_request_body());
+    }
+
+    #[test]
+    fn test_http_digest_auth_to_tuple() {
+        let auth = HttpDigestAuth::new("user".to_string(), "pass".to_string());
+        let (username, password) = auth.to_tuple();
+        assert_eq!(username, "user");
+        assert_eq!(password, "pass");
+    }
+
+    // Test UseClientDefault
+    #[test]
+    fn test_use_client_default() {
+        let default = UseClientDefault::new();
+        assert_eq!(default.__repr__(), "USE_CLIENT_DEFAULT");
+        assert_eq!(default.__str__(), "USE_CLIENT_DEFAULT");
+    }
+
+    // Test Transport classes
+    #[test]
+    fn test_base_transports() {
+        let base = BaseTransport::new();
+        assert_eq!(base.__repr__(), "<BaseTransport>");
+        
+        let async_base = AsyncBaseTransport::new();
+        assert_eq!(async_base.__repr__(), "<AsyncBaseTransport>");
+        
+        let http = HTTPTransport::new();
+        assert_eq!(http.__repr__(), "<HTTPTransport>");
+        
+        let async_http = AsyncHTTPTransport::new();
+        assert_eq!(async_http.__repr__(), "<AsyncHTTPTransport>");
+    }
+
+    // Test Stream classes
+    #[test]
+    fn test_stream_classes() {
+        let byte_stream = ByteStream::new();
+        assert_eq!(byte_stream.__repr__(), "<ByteStream>");
+        
+        let sync_stream = SyncByteStream::new();
+        assert_eq!(sync_stream.__repr__(), "<SyncByteStream>");
+        
+        let async_stream = AsyncByteStream::new();
+        assert_eq!(async_stream.__repr__(), "<AsyncByteStream>");
+    }
+
+    // Test ASGI/WSGI transports
+    #[test]
+    fn test_asgi_wsgi_transports() {
+        let asgi = ASGITransport::new();
+        assert_eq!(asgi.__repr__(), "<ASGITransport>");
+        
+        let wsgi = WSGITransport::new();
+        assert_eq!(wsgi.__repr__(), "<WSGITransport>");
+    }
+
+    // Test Auth base class
+    #[test]
+    fn test_auth_base_class() {
+        let auth = Auth::new();
+        assert_eq!(auth.__repr__(), "<Auth>");
+        
+        // Test default property values
+        assert!(!auth.requires_request_body());
+        assert!(!auth.requires_response_body());
+    }
+
+    // Test iterator implementations
+    #[test]
+    fn test_http_headers_iterator() {
+        let mut map = HashMap::new();
+        map.insert("Content-Type".to_string(), "application/json".to_string());
+        map.insert("Accept".to_string(), "text/html".to_string());
+        let headers = HttpHeaders::new(Some(map));
+
+        let iterator = headers.__iter__();
+        assert_eq!(iterator.keys.len(), 2);
+        assert_eq!(iterator.index, 0);
+    }
+
+    #[test]
+    fn test_http_cookies_iterator() {
+        let mut map = HashMap::new();
+        map.insert("cookie1".to_string(), "value1".to_string());
+        map.insert("cookie2".to_string(), "value2".to_string());
+        let cookies = HttpCookies::new(Some(map));
+        
+        let iterator = cookies.__iter__();
+        assert_eq!(iterator.keys.len(), 2);
+        assert_eq!(iterator.index, 0);
+    }
+
+    // Test edge cases and error conditions
+    #[test]
+    fn test_http_url_edge_cases() -> Result<(), url::ParseError> {
+        // Test URL with no trailing slash
+        let url1 = HttpUrl::new("https://example.com".to_string())
+            .map_err(|_| url::ParseError::EmptyHost)?;
+        let str_repr1 = url1.__str__();
+        assert!(!str_repr1.ends_with('/'));
+        
+        // Test URL with trailing slash
+        let url2 = HttpUrl::new("https://example.com/".to_string())
+            .map_err(|_| url::ParseError::EmptyHost)?;
+        let str_repr2 = url2.__str__();
+        assert!(str_repr2.ends_with('/'));
+        
+        // Test URL with empty fragment
+        let url3 = HttpUrl::new("https://example.com/path".to_string())
+            .map_err(|_| url::ParseError::EmptyHost)?;
+        assert_eq!(url3.fragment(), ""); // Should return empty string, not None
+        
+        Ok(())
+    }
+
+    // Test URL params property
+    #[test]
+    fn test_http_url_params() -> Result<(), url::ParseError> {
+        let url = HttpUrl::new("https://example.com/path?key1=value1&key2=value2".to_string())
+            .map_err(|_| url::ParseError::EmptyHost)?;
+        let params = url.params();
+        
+        // Test internal state
+        assert_eq!(params.inner.len(), 2);
+        assert!(params.inner.contains_key("key1"));
+        assert!(params.inner.contains_key("key2"));
+        Ok(())
     }
 }

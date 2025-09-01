@@ -43,13 +43,15 @@ class HTTPSTestServer:
         )
 
         # Create certificate
-        subject = issuer = x509.Name([
-            x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "CA"),
-            x509.NameAttribute(NameOID.LOCALITY_NAME, "San Francisco"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Test"),
-            x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
-        ])
+        subject = issuer = x509.Name(
+            [
+                x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+                x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "CA"),
+                x509.NameAttribute(NameOID.LOCALITY_NAME, "San Francisco"),
+                x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Test"),
+                x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
+            ]
+        )
 
         cert = (
             x509.CertificateBuilder()
@@ -60,26 +62,30 @@ class HTTPSTestServer:
             .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
             .not_valid_after(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1))
             .add_extension(
-                x509.SubjectAlternativeName([
-                    x509.DNSName("localhost"),
-                    x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
-                ]),
+                x509.SubjectAlternativeName(
+                    [
+                        x509.DNSName("localhost"),
+                        x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
+                    ]
+                ),
                 critical=False,
             )
             .sign(private_key, hashes.SHA256())
         )
 
         # Write certificate and key to temporary files
-        with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.crt') as cert_temp:
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".crt") as cert_temp:
             cert_temp.write(cert.public_bytes(serialization.Encoding.PEM))
             cert_file_name = cert_temp.name
 
-        with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.key') as key_temp:
-            key_temp.write(private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            ))
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".key") as key_temp:
+            key_temp.write(
+                private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.PKCS8,
+                    encryption_algorithm=serialization.NoEncryption(),
+                )
+            )
             key_file_name = key_temp.name
 
         self.cert_file = cert_file_name
@@ -98,8 +104,9 @@ class HTTPSTestServer:
 
         # Find available port
         import socket
+
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.bind(('localhost', 0))
+        sock.bind(("localhost", 0))
         self.port = sock.getsockname()[1]
         sock.close()
 
@@ -109,21 +116,21 @@ class HTTPSTestServer:
                 pass  # Suppress logging
 
             def do_GET(self):
-                if self.path == '/get':
+                if self.path == "/get":
                     self.send_response(200)
-                    self.send_header('Content-Type', 'application/json')
+                    self.send_header("Content-Type", "application/json")
                     self.end_headers()
                     self.wfile.write(b'{"url": "https://localhost/get", "method": "GET"}')
-                elif self.path == '/status/200':
+                elif self.path == "/status/200":
                     self.send_response(200)
-                    self.send_header('Content-Type', 'application/json')
+                    self.send_header("Content-Type", "application/json")
                     self.end_headers()
                     self.wfile.write(b'{"status": "ok"}')
                 else:
                     self.send_response(404)
                     self.end_headers()
 
-        self.server = HTTPServer(('localhost', self.port), TestHandler)
+        self.server = HTTPServer(("localhost", self.port), TestHandler)
 
         # Create SSL context
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
@@ -170,12 +177,14 @@ class TestHTTPSSupport:
             # For HTTPS testing, we need to disable SSL verification for self-signed certs
             if client_factory.library == "httpx":
                 import httpx
+
                 client = httpx.Client(verify=False)
                 response = client.get(f"{https_server}/get")
                 client.close()
             else:
                 # faster_http should also support verify=False parameter
                 import faster_http
+
                 response = faster_http.get(f"{https_server}/get", verify=False)
 
             assert response.status_code == 200
@@ -195,11 +204,13 @@ class TestHTTPSSupport:
         try:
             if client_factory.library == "httpx":
                 import httpx
+
                 client = httpx.Client(verify=False)
                 response = client.get(f"{https_server}/status/200")
                 client.close()
             else:
                 import faster_http
+
                 response = faster_http.get(f"{https_server}/status/200", verify=False)
 
             assert response.status_code == 200
@@ -222,6 +233,7 @@ class TestHTTPSSupport:
 
             # Test async client as well
             import asyncio
+
             async def test_async_client():
                 async_client = faster_http.AsyncClient(verify=False)
                 assert async_client is not None

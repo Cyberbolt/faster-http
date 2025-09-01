@@ -203,7 +203,7 @@ class TestExceptions:
             "HTTPStatusError",
             "NetworkError",
             "TransportError",
-            "ProtocolError"
+            "ProtocolError",
         ]
 
         for exc_name in exceptions_to_test:
@@ -248,8 +248,12 @@ class TestExceptions:
             assert str(e) == "Connection failed"
 
         # Test catching any HTTP-related exception as HTTPError
-        for exception_class in [faster_http.RequestError, faster_http.ConnectError,
-                               faster_http.TimeoutException, faster_http.HTTPStatusError]:
+        for exception_class in [
+            faster_http.RequestError,
+            faster_http.ConnectError,
+            faster_http.TimeoutException,
+            faster_http.HTTPStatusError,
+        ]:
             try:
                 raise exception_class("Test error")
             except faster_http.HTTPError:

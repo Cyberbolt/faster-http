@@ -11,7 +11,8 @@ import pytest
 
 from tests.utils.httpx_comparison import httpx_compatibility_test
 from tests.utils.response_adapter import verify_json_response
-from tests.utils.tdd_helpers import AssertionHelpers, DataGenerator, TDDTestCase
+
+# Removed TDD helper imports as they were non-standard
 
 
 def get_exception_class(client_factory, exception_name):
@@ -45,15 +46,14 @@ def get_exception_class(client_factory, exception_name):
         return getattr(faster_http, exception_name)
 
 
-class TestBasicHTTPMethods(TDDTestCase):
+class TestBasicHTTPMethods:
     """Test basic HTTP methods with top-level functions."""
 
     @pytest.fixture(autouse=True)
     def setup(self, test_server):
         """Setup test server URL for each test."""
         self.base_url = test_server.base_url
-        self.data_gen = DataGenerator()
-        self.assert_helpers = AssertionHelpers()
+        # Removed TDD helper instances as they were non-standard
 
     @httpx_compatibility_test
     def test_httpx_get(self, client_factory):
@@ -277,7 +277,7 @@ class TestBasicHTTPMethods(TDDTestCase):
                 assert response_data["json"] == kwargs["json"]
 
 
-class TestClientCoreFeatures(TDDTestCase):
+class TestClientCoreFeatures:
     """Test Client class core functionality."""
 
     @pytest.fixture(autouse=True)
@@ -455,7 +455,7 @@ class TestClientCoreFeatures(TDDTestCase):
             assert response_headers["X-Default-Header"] == "default-value"
 
 
-class TestResponseCoreAttributes(TDDTestCase):
+class TestResponseCoreAttributes:
     """Test Response object core attributes."""
 
     @pytest.fixture(autouse=True)
@@ -598,7 +598,7 @@ class TestResponseCoreAttributes(TDDTestCase):
         assert "test=value" in request_url
 
 
-class TestBasicParameterSupport(TDDTestCase):
+class TestBasicParameterSupport:
     """Test basic parameter support (params, headers, data, json, timeout)."""
 
     @pytest.fixture(autouse=True)

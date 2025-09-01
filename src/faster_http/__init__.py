@@ -103,82 +103,285 @@ _rust_request = request
 # Create module-level default timeout to avoid B008 warning
 _MODULE_DEFAULT_TIMEOUT = Timeout(timeout=5.0)
 
+
+def _process_timeout_for_request(timeout):
+    """Helper function to process timeout parameter for all request methods."""
+    from ._timeout_utils import extract_timeout_for_rust, process_timeout_param
+
+    processed_timeout = process_timeout_param(timeout)
+    return extract_timeout_for_rust(processed_timeout)
+
+
 # Create Python wrapper functions with proper default values
-def get(url, *, params=None, headers=None, cookies=None, auth=None, proxy=None,
-        follow_redirects=False, verify=True, timeout=_MODULE_DEFAULT_TIMEOUT, trust_env=True):
+def get(
+    url,
+    *,
+    params=None,
+    headers=None,
+    cookies=None,
+    auth=None,
+    proxy=None,
+    follow_redirects=False,
+    verify=True,
+    timeout=_MODULE_DEFAULT_TIMEOUT,
+    trust_env=True,
+):
     """Send GET request with httpx-compatible defaults."""
-    # Convert timeout to float for Rust layer
-    timeout_val = timeout.connect if hasattr(timeout, 'connect') and timeout.connect is not None else 5.0
-    return _rust_get(url, params=params, headers=headers, cookies=cookies, auth=auth,
-                     proxy=proxy, follow_redirects=follow_redirects, verify=verify,
-                     timeout=timeout_val, trust_env=trust_env)
+    rust_timeout = _process_timeout_for_request(timeout)
+    return _rust_get(
+        url,
+        params=params,
+        headers=headers,
+        cookies=cookies,
+        auth=auth,
+        proxy=proxy,
+        follow_redirects=follow_redirects,
+        verify=verify,
+        timeout=rust_timeout,
+        trust_env=trust_env,
+    )
 
-def post(url, *, content=None, data=None, json=None, files=None, params=None, headers=None,
-         cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True,
-         timeout=_MODULE_DEFAULT_TIMEOUT, trust_env=True):
+
+def post(
+    url,
+    *,
+    content=None,
+    data=None,
+    json=None,
+    files=None,
+    params=None,
+    headers=None,
+    cookies=None,
+    auth=None,
+    proxy=None,
+    follow_redirects=False,
+    verify=True,
+    timeout=_MODULE_DEFAULT_TIMEOUT,
+    trust_env=True,
+):
     """Send POST request with httpx-compatible defaults."""
-    timeout_val = timeout.connect if hasattr(timeout, 'connect') and timeout.connect is not None else 5.0
-    return _rust_post(url, content=content, data=data, json=json, files=files, params=params,
-                      headers=headers, cookies=cookies, auth=auth, proxy=proxy,
-                      follow_redirects=follow_redirects, verify=verify, timeout=timeout_val,
-                      trust_env=trust_env)
+    rust_timeout = _process_timeout_for_request(timeout)
+    return _rust_post(
+        url,
+        content=content,
+        data=data,
+        json=json,
+        files=files,
+        params=params,
+        headers=headers,
+        cookies=cookies,
+        auth=auth,
+        proxy=proxy,
+        follow_redirects=follow_redirects,
+        verify=verify,
+        timeout=rust_timeout,
+        trust_env=trust_env,
+    )
 
-def put(url, *, content=None, data=None, json=None, files=None, params=None, headers=None,
-        cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True,
-        timeout=_MODULE_DEFAULT_TIMEOUT, trust_env=True):
+
+def put(
+    url,
+    *,
+    content=None,
+    data=None,
+    json=None,
+    files=None,
+    params=None,
+    headers=None,
+    cookies=None,
+    auth=None,
+    proxy=None,
+    follow_redirects=False,
+    verify=True,
+    timeout=_MODULE_DEFAULT_TIMEOUT,
+    trust_env=True,
+):
     """Send PUT request with httpx-compatible defaults."""
-    timeout_val = timeout.connect if hasattr(timeout, 'connect') and timeout.connect is not None else 5.0
-    return _rust_put(url, content=content, data=data, json=json, files=files, params=params,
-                     headers=headers, cookies=cookies, auth=auth, proxy=proxy,
-                     follow_redirects=follow_redirects, verify=verify, timeout=timeout_val,
-                     trust_env=trust_env)
+    rust_timeout = _process_timeout_for_request(timeout)
+    return _rust_put(
+        url,
+        content=content,
+        data=data,
+        json=json,
+        files=files,
+        params=params,
+        headers=headers,
+        cookies=cookies,
+        auth=auth,
+        proxy=proxy,
+        follow_redirects=follow_redirects,
+        verify=verify,
+        timeout=rust_timeout,
+        trust_env=trust_env,
+    )
 
-def patch(url, *, content=None, data=None, json=None, files=None, params=None, headers=None,
-          cookies=None, auth=None, proxy=None, follow_redirects=False, verify=True,
-          timeout=_MODULE_DEFAULT_TIMEOUT, trust_env=True):
+
+def patch(
+    url,
+    *,
+    content=None,
+    data=None,
+    json=None,
+    files=None,
+    params=None,
+    headers=None,
+    cookies=None,
+    auth=None,
+    proxy=None,
+    follow_redirects=False,
+    verify=True,
+    timeout=_MODULE_DEFAULT_TIMEOUT,
+    trust_env=True,
+):
     """Send PATCH request with httpx-compatible defaults."""
-    timeout_val = timeout.connect if hasattr(timeout, 'connect') and timeout.connect is not None else 5.0
-    return _rust_patch(url, content=content, data=data, json=json, files=files, params=params,
-                       headers=headers, cookies=cookies, auth=auth, proxy=proxy,
-                       follow_redirects=follow_redirects, verify=verify, timeout=timeout_val,
-                       trust_env=trust_env)
+    rust_timeout = _process_timeout_for_request(timeout)
+    return _rust_patch(
+        url,
+        content=content,
+        data=data,
+        json=json,
+        files=files,
+        params=params,
+        headers=headers,
+        cookies=cookies,
+        auth=auth,
+        proxy=proxy,
+        follow_redirects=follow_redirects,
+        verify=verify,
+        timeout=rust_timeout,
+        trust_env=trust_env,
+    )
 
-def delete(url, *, params=None, headers=None, cookies=None, auth=None, proxy=None,
-           follow_redirects=False, verify=True, timeout=_MODULE_DEFAULT_TIMEOUT, trust_env=True):
+
+def delete(
+    url,
+    *,
+    params=None,
+    headers=None,
+    cookies=None,
+    auth=None,
+    proxy=None,
+    follow_redirects=False,
+    verify=True,
+    timeout=_MODULE_DEFAULT_TIMEOUT,
+    trust_env=True,
+):
     """Send DELETE request with httpx-compatible defaults."""
-    timeout_val = timeout.connect if hasattr(timeout, 'connect') and timeout.connect is not None else 5.0
-    return _rust_delete(url, params=params, headers=headers, cookies=cookies, auth=auth,
-                        proxy=proxy, follow_redirects=follow_redirects, verify=verify,
-                        timeout=timeout_val, trust_env=trust_env)
+    rust_timeout = _process_timeout_for_request(timeout)
+    return _rust_delete(
+        url,
+        params=params,
+        headers=headers,
+        cookies=cookies,
+        auth=auth,
+        proxy=proxy,
+        follow_redirects=follow_redirects,
+        verify=verify,
+        timeout=rust_timeout,
+        trust_env=trust_env,
+    )
 
-def head(url, *, params=None, headers=None, cookies=None, auth=None, proxy=None,
-         follow_redirects=False, verify=True, timeout=_MODULE_DEFAULT_TIMEOUT, trust_env=True):
+
+def head(
+    url,
+    *,
+    params=None,
+    headers=None,
+    cookies=None,
+    auth=None,
+    proxy=None,
+    follow_redirects=False,
+    verify=True,
+    timeout=_MODULE_DEFAULT_TIMEOUT,
+    trust_env=True,
+):
     """Send HEAD request with httpx-compatible defaults."""
-    timeout_val = timeout.connect if hasattr(timeout, 'connect') and timeout.connect is not None else 5.0
-    return _rust_head(url, params=params, headers=headers, cookies=cookies, auth=auth,
-                      proxy=proxy, follow_redirects=follow_redirects, verify=verify,
-                      timeout=timeout_val, trust_env=trust_env)
+    rust_timeout = _process_timeout_for_request(timeout)
+    return _rust_head(
+        url,
+        params=params,
+        headers=headers,
+        cookies=cookies,
+        auth=auth,
+        proxy=proxy,
+        follow_redirects=follow_redirects,
+        verify=verify,
+        timeout=rust_timeout,
+        trust_env=trust_env,
+    )
 
-def options(url, *, params=None, headers=None, cookies=None, auth=None, proxy=None,
-            follow_redirects=False, verify=True, timeout=_MODULE_DEFAULT_TIMEOUT, trust_env=True):
+
+def options(
+    url,
+    *,
+    params=None,
+    headers=None,
+    cookies=None,
+    auth=None,
+    proxy=None,
+    follow_redirects=False,
+    verify=True,
+    timeout=_MODULE_DEFAULT_TIMEOUT,
+    trust_env=True,
+):
     """Send OPTIONS request with httpx-compatible defaults."""
-    timeout_val = timeout.connect if hasattr(timeout, 'connect') and timeout.connect is not None else 5.0
-    return _rust_options(url, params=params, headers=headers, cookies=cookies, auth=auth,
-                         proxy=proxy, follow_redirects=follow_redirects, verify=verify,
-                         timeout=timeout_val, trust_env=trust_env)
+    rust_timeout = _process_timeout_for_request(timeout)
+    return _rust_options(
+        url,
+        params=params,
+        headers=headers,
+        cookies=cookies,
+        auth=auth,
+        proxy=proxy,
+        follow_redirects=follow_redirects,
+        verify=verify,
+        timeout=rust_timeout,
+        trust_env=trust_env,
+    )
 
-def request(method, url, *, content=None, data=None, json=None, files=None, params=None,
-            headers=None, cookies=None, auth=None, proxy=None, follow_redirects=False,
-            verify=True, timeout=_MODULE_DEFAULT_TIMEOUT, trust_env=True):
+
+def request(
+    method,
+    url,
+    *,
+    content=None,
+    data=None,
+    json=None,
+    files=None,
+    params=None,
+    headers=None,
+    cookies=None,
+    auth=None,
+    proxy=None,
+    follow_redirects=False,
+    verify=True,
+    timeout=_MODULE_DEFAULT_TIMEOUT,
+    trust_env=True,
+):
     """Send HTTP request with httpx-compatible defaults."""
-    timeout_val = timeout.connect if hasattr(timeout, 'connect') and timeout.connect is not None else 5.0
-    return _rust_request(method, url, content=content, data=data, json=json, files=files,
-                         params=params, headers=headers, cookies=cookies, auth=auth,
-                         proxy=proxy, follow_redirects=follow_redirects, verify=verify,
-                         timeout=timeout_val, trust_env=trust_env)
+    rust_timeout = _process_timeout_for_request(timeout)
+    return _rust_request(
+        method,
+        url,
+        content=content,
+        data=data,
+        json=json,
+        files=files,
+        params=params,
+        headers=headers,
+        cookies=cookies,
+        auth=auth,
+        proxy=proxy,
+        follow_redirects=follow_redirects,
+        verify=verify,
+        timeout=rust_timeout,
+        trust_env=trust_env,
+    )
+
 
 # All exception classes are now implemented in Rust and imported from _core
 # Remove non-httpx compatible aliases - these don't exist in httpx
+
 
 # Enhance HTTPStatusError and RequestError to support keyword arguments
 # Store original constructors in closure scope to avoid variable deletion issues
@@ -214,6 +417,7 @@ def _create_enhanced_exceptions():
     RequestError.__init__ = enhanced_requesterror_init
 
     return enhanced_httpstatuserror_init, enhanced_requesterror_init
+
 
 # Create enhanced exceptions and store references to prevent garbage collection
 _enhanced_httpstatuserror_init, _enhanced_requesterror_init = _create_enhanced_exceptions()
@@ -320,7 +524,11 @@ try:
 except NameError:
     pass
 
+# Note: Internal variables are kept for module function usage
+# API visibility is controlled through __all__ list above
+
 if __name__ == "__main__":
     import sys
+
     # Module information available through __doc__ or help() if needed
     sys.exit(0)

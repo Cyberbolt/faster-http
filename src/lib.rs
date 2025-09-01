@@ -9,14 +9,14 @@ mod client; // HTTP client implementations
 mod config; // Configuration management
 mod core; // Core functionality
 mod models; // Data models and types
-mod optimization; // Performance optimizations
+// mod optimization; // Performance optimizations - REMOVED for pure conversion layer
 mod stubs;
 mod transport; // Transport layer
 mod utils; // Utility functions // Placeholder implementations
 
 // Re-export main types and functions - specific imports to avoid shadowing
-pub use auth::{AuthType, extract_auth_from_object, extract_auth};
-pub use core::{main, error::*, sync_core::SyncHttpClient};
+pub use auth::{extract_auth, extract_auth_from_object, AuthType};
+pub use core::{error::*, main, sync_core::SyncHttpClient};
 pub use models::{HttpRequest, HttpResponse};
 // StreamingHttpResponse and StreamingClient removed - httpx doesn't have these classes
 pub use client::{AsyncHttpClient, HttpClient};
@@ -98,23 +98,12 @@ fn _core(py: Python, m: &PyModule) -> PyResult<()> {
     // Add main function for httpx compatibility
     m.add_function(wrap_pyfunction!(core::main, m)?)?;
 
-    // Add batch processing functions for performance
-    m.add_function(wrap_pyfunction!(optimization::batch_request, m)?)?;
-    m.add_class::<optimization::SmartBatcher>()?;
+    // Batch processing functions removed - pure conversion layer principle
 
     // Add zero-copy utilities for performance
     // m.add_class::<zero_copy::ZeroCopyUtils>()?; // Removed - over-engineered
 
-    // Add GIL-free processing for performance
-    m.add_function(wrap_pyfunction!(optimization::gil_processed_request, m)?)?; // Updated function name for objective terminology
-    m.add_function(wrap_pyfunction!(
-        optimization::gil_processed_async_request,
-        m
-    )?)?; // Updated function name for objective terminology
-    m.add_function(wrap_pyfunction!(
-        optimization::gil_processed_batch_request,
-        m
-    )?)?; // Updated function name for objective terminology
+    // GIL-free processing removed - pure conversion layer principle
 
     // Exception factory functions - removed new_http_status_error as httpx doesn't have it
 

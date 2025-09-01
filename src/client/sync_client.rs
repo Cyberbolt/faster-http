@@ -306,9 +306,9 @@ impl HttpClient {
         self.check_not_closed()?;
 
         // Handle both client-level auth and request-level auth
-        let final_auth = if auth.is_some() {
+        let final_auth = if let Some(auth_obj) = auth {
             // Request-level auth takes priority
-            crate::auth::extract_auth_from_object(&auth.unwrap())?
+            crate::auth::extract_auth_from_object(&auth_obj)?
         } else {
             // Use client-level auth as fallback
             self.config.auth.clone()

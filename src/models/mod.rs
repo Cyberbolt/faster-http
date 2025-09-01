@@ -1,8 +1,8 @@
 // Data models module
-pub mod types;
 pub mod request;
 pub mod response;
+pub mod types;
 
-pub use types::*;
 pub use request::HttpRequest;
 pub use response::HttpResponse;
+pub use types::*;

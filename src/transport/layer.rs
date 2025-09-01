@@ -336,7 +336,7 @@ lambda request: type('MockResponse', (), {
                     None,
                     None,
                 )
-                .unwrap();
+                .expect("Python handler lambda should evaluate successfully");
 
             let mock_transport = MockTransport::new(handler.to_object(py));
 
@@ -353,7 +353,7 @@ lambda request: type('MockResponse', (), {
                 None,
                 None,
             )
-            .unwrap();
+            .expect("Test HttpRequest should be created successfully");
 
             // Since we need a proper Response object, this test is simplified
             // In practice, the handler would return a proper HttpResponse object

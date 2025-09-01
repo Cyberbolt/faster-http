@@ -19,8 +19,6 @@ sys.path.insert(0, str(project_root / "src"))
 # Import test utilities after path setup
 # These imports are done after sys.path modification for proper module loading
 from tests.utils.httpx_comparison import AsyncClientFactory, ClientFactory  # noqa: E402
-from tests.utils.tdd_framework import SimpleAsyncClientFactory, SimpleClientFactory  # noqa: E402
-from tests.utils.tdd_helpers import AssertionHelpers, DataGenerator, ErrorSimulator, PerformanceMeasurer  # noqa: E402
 from tests.utils.test_server import HTTPTestServer  # noqa: E402
 
 # ============================================================================
@@ -98,49 +96,8 @@ def httpx_async_client_factory():
 
 
 # ============================================================================
-# TDD Helper fixtures
+# TDD Helper fixtures (removed as tdd_helpers was deleted)
 # ============================================================================
-
-
-@pytest.fixture
-def data_generator():
-    """Data generator for creating test data."""
-    return DataGenerator()
-
-
-@pytest.fixture
-def error_simulator():
-    """Error simulator for testing error conditions."""
-    return ErrorSimulator()
-
-
-@pytest.fixture
-def performance_measurer():
-    """Performance measurement utilities."""
-    return PerformanceMeasurer()
-
-
-@pytest.fixture
-def assert_helpers():
-    """Additional assertion helpers."""
-    return AssertionHelpers()
-
-
-# ============================================================================
-# TDD-specific fixtures
-# ============================================================================
-
-
-@pytest.fixture
-def tdd_client():
-    """Simple client factory for TDD tests."""
-    return SimpleClientFactory()
-
-
-@pytest.fixture
-def tdd_async_client():
-    """Simple async client factory for TDD tests."""
-    return SimpleAsyncClientFactory()
 
 
 # ============================================================================

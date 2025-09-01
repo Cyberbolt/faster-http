@@ -422,7 +422,9 @@ iter_text_impl(text, chunk_size)
             Ok(locals
                 .get_item("iter_text_impl")?
                 .ok_or_else(|| {
-                    crate::core::error::InternalError::new_err("Failed to get iter_text_impl from locals")
+                    crate::core::error::InternalError::new_err(
+                        "Failed to get iter_text_impl from locals",
+                    )
                 })?
                 .call1((text, chunk_size))?
                 .to_object(py))
@@ -855,5 +857,359 @@ impl pyo3::ToPyObject for HttpResponse {
     fn to_object(&self, py: Python) -> PyObject {
         // Return the PyClass instance as a PyObject
         self.clone().into_py(py)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    // Test HttpResponse creation and basic properties
+    #[test]
+    fn test_http_response_new() {
+        let mut headers = HashMap::new();
+        headers.insert("content-type".to_string(), "application/json".to_string());
+        
+        let body = Bytes::from("test body");
+        let response = HttpResponse::new(
+            200,
+            headers.clone(),
+            body.clone(),
+            "https://example.com".to_string(),
+            1.5,
+            false,
+            "HTTP/1.1".to_string(),
+            HashMap::new(),
+            Some("utf-8".to_string()),
+            Vec::new(),
+            None,
+            9
+        );
+
+        assert_eq!(response.status_code(), 200);
+        assert_eq!(response.http_version(), "HTTP/1.1");
+        assert_eq!(response.num_bytes_downloaded(), 9);
+        assert_eq!(response.encoding(), Some("utf-8"));
+        assert!(response._closed);
+    }
+
+    // Test status code classification methods
+    #[test]
+    fn test_http_response_status_classifications() {
+        // Test informational (1xx)
+        let response_info = create_test_response(100);
+        assert!(response_info.is_informational());
+        assert!(!response_info.is_success());
+        assert!(!response_info.is_redirect());
+        assert!(!response_info.is_client_error());
+        assert!(!response_info.is_server_error());
+        assert!(!response_info.is_error());
+
+        // Test success (2xx)
+        let response_success = create_test_response(200);
+        assert!(!response_success.is_informational());
+        assert!(response_success.is_success());
+        assert!(!response_success.is_redirect());
+        assert!(!response_success.is_client_error());
+        assert!(!response_success.is_server_error());
+        assert!(!response_success.is_error());
+
+        // Test redirect (3xx)
+        let response_redirect = create_test_response(301);
+        assert!(!response_redirect.is_informational());
+        assert!(!response_redirect.is_success());
+        assert!(response_redirect.is_redirect());
+        assert!(!response_redirect.is_client_error());
+        assert!(!response_redirect.is_server_error());
+        assert!(!response_redirect.is_error());
+
+        // Test client error (4xx)
+        let response_client_error = create_test_response(404);
+        assert!(!response_client_error.is_informational());
+        assert!(!response_client_error.is_success());
+        assert!(!response_client_error.is_redirect());
+        assert!(response_client_error.is_client_error());
+        assert!(!response_client_error.is_server_error());
+        assert!(response_client_error.is_error());
+
+        // Test server error (5xx)
+        let response_server_error = create_test_response(500);
+        assert!(!response_server_error.is_informational());
+        assert!(!response_server_error.is_success());
+        assert!(!response_server_error.is_redirect());
+        assert!(!response_server_error.is_client_error());
+        assert!(response_server_error.is_server_error());
+        assert!(response_server_error.is_error());
+    }
+
+    // Test text content access with different encodings
+    #[test]
+    fn test_http_response_text_utf8() -> PyResult<()> {
+        let response = create_test_response_with_body(200, "Hello, World!".as_bytes(), Some("utf-8"));
+        let text = response.text()?;
+        assert_eq!(text, "Hello, World!");
+        Ok(())
+    }
+
+    #[test]
+    fn test_http_response_text_latin1() -> PyResult<()> {
+        let latin1_bytes = vec![72, 101, 108, 108, 111]; // "Hello" in Latin-1
+        let response = create_test_response_with_body(200, &latin1_bytes, Some("latin-1"));
+        let text = response.text()?;
+        assert_eq!(text, "Hello");
+        Ok(())
+    }
+
+    #[test]
+    fn test_http_response_text_default_encoding() -> PyResult<()> {
+        let response = create_test_response_with_body(200, "Hello".as_bytes(), None);
+        let text = response.text()?;
+        assert_eq!(text, "Hello");
+        Ok(())
+    }
+
+    // Test headers access
+    #[test]
+    fn test_http_response_headers() {
+        let mut headers = HashMap::new();
+        headers.insert("content-type".to_string(), "application/json".to_string());
+        headers.insert("content-length".to_string(), "42".to_string());
+        
+        let response = create_test_response_with_headers(200, headers.clone());
+        let response_headers = response.headers();
+        
+        // Verify headers are accessible using public methods
+        let headers_map = response_headers.to_hashmap();
+        assert!(headers_map.contains_key("content-type"));
+        assert!(headers_map.contains_key("content-length"));
+        assert_eq!(headers_map.get("content-type"), Some(&"application/json".to_string()));
+    }
+
+    // Test cookies access  
+    #[test]
+    fn test_http_response_cookies() {
+        let mut cookies = HashMap::new();
+        cookies.insert("sessionid".to_string(), "abc123".to_string());
+        cookies.insert("csrf_token".to_string(), "xyz789".to_string());
+        
+        let response = create_test_response_with_cookies(200, cookies.clone());
+        let response_cookies = response.cookies();
+        
+        // Verify cookies are accessible using public methods
+        let cookies_map = response_cookies.to_hashmap();
+        assert!(cookies_map.contains_key("sessionid"));
+        assert!(cookies_map.contains_key("csrf_token"));
+        assert_eq!(cookies_map.get("sessionid"), Some(&"abc123".to_string()));
+    }
+
+    // Test history functionality
+    #[test]
+    fn test_http_response_history() {
+        let response = create_test_response(200);
+        assert_eq!(response.history().len(), 0);
+        
+        // Test with_history method
+        let new_history = vec![];
+        let response_with_history = response.with_history(new_history);
+        assert_eq!(response_with_history.history().len(), 0);
+        assert_eq!(response_with_history.status_code(), 200);
+    }
+
+    // Test extensions
+    #[test] 
+    fn test_http_response_extensions() {
+        let response = create_test_response(200);
+        let extensions = response.extensions();
+        
+        // Should contain at least http_version and reason_phrase extensions
+        assert!(extensions.contains_key("http_version"));
+        assert!(extensions.contains_key("reason_phrase"));
+    }
+
+    // Test next_request
+    #[test]
+    fn test_http_response_next_request() {
+        let response = create_test_response(200);
+        assert!(response.next_request().is_none());
+    }
+
+    // Test request getter
+    #[test]
+    fn test_http_response_request() {
+        let response = create_test_response(200);
+        // Should have a default request created
+        assert!(response.request().is_some());
+    }
+
+    // Test redirect status detection
+    #[test]
+    fn test_redirect_status_detection() {
+        let response_301 = create_test_response(301);
+        let response_302 = create_test_response(302);
+        let response_307 = create_test_response(307);
+        let response_308 = create_test_response(308);
+        
+        assert!(response_301.is_redirect());
+        assert!(response_302.is_redirect());
+        assert!(response_307.is_redirect());
+        assert!(response_308.is_redirect());
+    }
+
+    // Test edge case status codes
+    #[test]
+    fn test_edge_case_status_codes() {
+        // Test boundary conditions
+        let response_99 = create_test_response(99);   // Below informational
+        let response_199 = create_test_response(199); // Edge of informational
+        let response_299 = create_test_response(299); // Edge of success
+        let response_399 = create_test_response(399); // Edge of redirect
+        let response_499 = create_test_response(499); // Edge of client error
+        let response_599 = create_test_response(599); // Server error
+        
+        assert!(!response_99.is_informational());
+        assert!(response_199.is_informational());
+        assert!(response_299.is_success());
+        assert!(response_399.is_redirect());
+        assert!(response_499.is_client_error());
+        assert!(response_599.is_server_error());
+    }
+
+    // Test body content access
+    #[test]
+    fn test_http_response_body_content() {
+        let body_content = "test response body";
+        let response = create_test_response_with_body(200, body_content.as_bytes(), None);
+        
+        assert_eq!(response.body.len(), body_content.len());
+        assert_eq!(&response.body[..], body_content.as_bytes());
+    }
+
+    // Test empty response
+    #[test]
+    fn test_http_response_empty() {
+        let response = create_test_response_with_body(204, &[], None);
+        
+        assert_eq!(response.status_code(), 204);
+        assert_eq!(response.body.len(), 0);
+        assert!(response.is_success());
+    }
+
+    // Test large body handling
+    #[test]
+    fn test_http_response_large_body() {
+        let large_body = vec![b'x'; 10_000]; // 10KB of 'x'
+        let response = create_test_response_with_body(200, &large_body, None);
+        
+        assert_eq!(response.body.len(), 10_000);
+        assert_eq!(response.num_bytes_downloaded(), large_body.len());
+    }
+
+    // Test encoding detection functions
+    #[test]
+    fn test_detect_encoding() {
+        let mut headers = HashMap::new();
+        headers.insert("content-type".to_string(), "text/html; charset=utf-8".to_string());
+        let encoding = detect_encoding(&headers);
+        assert_eq!(encoding, Some("utf-8".to_string()));
+
+        headers.insert("content-type".to_string(), "text/html; charset=latin-1".to_string());
+        let encoding = detect_encoding(&headers);
+        assert_eq!(encoding, Some("latin-1".to_string()));
+
+        // Test default encoding
+        let empty_headers = HashMap::new();
+        let encoding = detect_encoding(&empty_headers);
+        assert_eq!(encoding, Some("utf-8".to_string()));
+    }
+
+    // Test encoding name normalization
+    #[test]
+    fn test_normalize_encoding_name() {
+        assert_eq!(normalize_encoding_name("UTF-8"), "utf-8");
+        assert_eq!(normalize_encoding_name("utf_8"), "utf-8");
+        assert_eq!(normalize_encoding_name("ISO-8859-1"), "latin-1");
+        assert_eq!(normalize_encoding_name("latin1"), "latin-1");
+        assert_eq!(normalize_encoding_name("US-ASCII"), "ascii");
+        assert_eq!(normalize_encoding_name("windows-1252"), "cp1252");
+    }
+
+    // Test HTTP version detection
+    #[test]
+    fn test_detect_http_version() {
+        assert_eq!(detect_http_version(&hyper::Version::HTTP_09), "HTTP/0.9");
+        assert_eq!(detect_http_version(&hyper::Version::HTTP_10), "HTTP/1.0");
+        assert_eq!(detect_http_version(&hyper::Version::HTTP_11), "HTTP/1.1");
+        assert_eq!(detect_http_version(&hyper::Version::HTTP_2), "HTTP/2");
+        assert_eq!(detect_http_version(&hyper::Version::HTTP_3), "HTTP/3");
+    }
+
+    // Helper functions for creating test responses
+    fn create_test_response(status_code: u16) -> HttpResponse {
+        HttpResponse::new(
+            status_code,
+            HashMap::new(),
+            Bytes::from(""),
+            "https://example.com".to_string(),
+            0.1,
+            (300..400).contains(&status_code),
+            "HTTP/1.1".to_string(),
+            HashMap::new(),
+            Some("utf-8".to_string()),
+            Vec::new(),
+            None,
+            0
+        )
+    }
+
+    fn create_test_response_with_body(status_code: u16, body: &[u8], encoding: Option<&str>) -> HttpResponse {
+        HttpResponse::new(
+            status_code,
+            HashMap::new(),
+            Bytes::from(body.to_vec()),
+            "https://example.com".to_string(),
+            0.1,
+            (300..400).contains(&status_code),
+            "HTTP/1.1".to_string(),
+            HashMap::new(),
+            encoding.map(|s| s.to_string()),
+            Vec::new(),
+            None,
+            body.len()
+        )
+    }
+
+    fn create_test_response_with_headers(status_code: u16, headers: HashMap<String, String>) -> HttpResponse {
+        HttpResponse::new(
+            status_code,
+            headers,
+            Bytes::from(""),
+            "https://example.com".to_string(),
+            0.1,
+            (300..400).contains(&status_code),
+            "HTTP/1.1".to_string(),
+            HashMap::new(),
+            Some("utf-8".to_string()),
+            Vec::new(),
+            None,
+            0
+        )
+    }
+
+    fn create_test_response_with_cookies(status_code: u16, cookies: HashMap<String, String>) -> HttpResponse {
+        HttpResponse::new(
+            status_code,
+            HashMap::new(),
+            Bytes::from(""),
+            "https://example.com".to_string(),
+            0.1,
+            (300..400).contains(&status_code),
+            "HTTP/1.1".to_string(),
+            cookies,
+            Some("utf-8".to_string()),
+            Vec::new(),
+            None,
+            0
+        )
     }
 }

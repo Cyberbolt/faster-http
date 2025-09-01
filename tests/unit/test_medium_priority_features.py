@@ -22,36 +22,36 @@ class TestRequestObjectFeatures:
         with client_factory() as client:
             # Test all major Request attributes
             request = client.build_request(
-                'POST',
+                "POST",
                 f"{self.base_url}/post",
-                json={'test': 'data'},
-                headers={'Custom-Header': 'value'},
-                params={'param': 'value'}
+                json={"test": "data"},
+                headers={"Custom-Header": "value"},
+                params={"param": "value"},
             )
 
             # Basic properties
-            assert request.method == 'POST'
+            assert request.method == "POST"
             assert isinstance(request.url, str | object)  # URL object
-            assert hasattr(request, 'headers')
-            assert hasattr(request, 'content')
-            assert hasattr(request, 'stream')
-            assert hasattr(request, 'extensions')
+            assert hasattr(request, "headers")
+            assert hasattr(request, "content")
+            assert hasattr(request, "stream")
+            assert hasattr(request, "extensions")
 
             # Methods
-            assert hasattr(request, 'read')
-            assert hasattr(request, 'aread')
+            assert hasattr(request, "read")
+            assert hasattr(request, "aread")
 
             # Verify content is accessible
             content = request.read()
             assert isinstance(content, bytes)
-            assert b'test' in content
+            assert b"test" in content
 
     @httpx_compatibility_test
     @pytest.mark.asyncio
     async def test_request_object_async_methods(self, async_client_factory):
         """Test Request object async methods."""
         async with async_client_factory() as client:
-            request = client.build_request('GET', f"{self.base_url}/get")
+            request = client.build_request("GET", f"{self.base_url}/get")
 
             # Test async read method
             content = await request.aread()
@@ -71,31 +71,28 @@ class TestClientExtendedMethods:
         """Test Client.build_request() method works correctly."""
         with client_factory() as client:
             request = client.build_request(
-                'POST',
-                f"{self.base_url}/post",
-                json={'key': 'value'},
-                headers={'X-Test': 'header'}
+                "POST", f"{self.base_url}/post", json={"key": "value"}, headers={"X-Test": "header"}
             )
 
             # Verify request object is properly built
-            assert request.method == 'POST'
-            assert 'X-Test' in request.headers
-            assert request.headers['X-Test'] == 'header'
-            assert b'key' in request.read()
+            assert request.method == "POST"
+            assert "X-Test" in request.headers
+            assert request.headers["X-Test"] == "header"
+            assert b"key" in request.read()
 
     @httpx_compatibility_test
     def test_client_send_method(self, client_factory):
         """Test Client.send() method works correctly."""
         with client_factory() as client:
             # Build a request
-            request = client.build_request('GET', f"{self.base_url}/json")
+            request = client.build_request("GET", f"{self.base_url}/json")
 
             # Send the pre-built request
             response = client.send(request)
 
             # Verify response
             assert response.status_code == 200
-            assert response.headers.get('Content-Type') == 'application/json'
+            assert response.headers.get("Content-Type") == "application/json"
 
             # Verify JSON content
             json_data = response.json()
@@ -107,15 +104,11 @@ class TestClientExtendedMethods:
         """Test AsyncClient.build_request() and send() methods."""
         async with async_client_factory() as client:
             # Build a request
-            request = client.build_request(
-                'POST',
-                f"{self.base_url}/post",
-                json={'async': True}
-            )
+            request = client.build_request("POST", f"{self.base_url}/post", json={"async": True})
 
             # Verify request properties
-            assert request.method == 'POST'
-            assert b'async' in request.read()
+            assert request.method == "POST"
+            assert b"async" in request.read()
 
             # Send the request
             response = await client.send(request)
@@ -141,8 +134,8 @@ class TestResponseStreamingMethods:
             # Test iter_bytes returns generator
             iter_bytes_result = response.iter_bytes()
             assert isinstance(iter_bytes_result, types.GeneratorType)
-            assert hasattr(iter_bytes_result, '__iter__')
-            assert hasattr(iter_bytes_result, '__next__')
+            assert hasattr(iter_bytes_result, "__iter__")
+            assert hasattr(iter_bytes_result, "__next__")
 
             # Test iter_text returns generator
             iter_text_result = response.iter_text()
@@ -166,8 +159,8 @@ class TestResponseStreamingMethods:
             # Test aiter_bytes returns async generator
             aiter_bytes_result = response.aiter_bytes()
             assert isinstance(aiter_bytes_result, types.AsyncGeneratorType)
-            assert hasattr(aiter_bytes_result, '__aiter__')
-            assert hasattr(aiter_bytes_result, '__anext__')
+            assert hasattr(aiter_bytes_result, "__aiter__")
+            assert hasattr(aiter_bytes_result, "__anext__")
 
             # Test aiter_text returns async generator
             aiter_text_result = response.aiter_text()
@@ -246,7 +239,7 @@ class TestConfigurationClasses:
         limits = http.Limits(max_connections=100, max_keepalive_connections=20)
         assert limits.max_connections == 100
         assert limits.max_keepalive_connections == 20
-        assert hasattr(limits, 'keepalive_expiry')
+        assert hasattr(limits, "keepalive_expiry")
 
 
 class TestResponseReadMethods:
@@ -303,18 +296,18 @@ class TestIntegratedWorkflow:
         with client_factory() as client:
             # 1. Build a complex request
             request = client.build_request(
-                'POST',
+                "POST",
                 f"{self.base_url}/post",
-                json={'workflow': 'test', 'features': ['request', 'streaming', 'config']},
-                headers={'X-Workflow': 'medium-priority'},
-                params={'test': 'complete'}
+                json={"workflow": "test", "features": ["request", "streaming", "config"]},
+                headers={"X-Workflow": "medium-priority"},
+                params={"test": "complete"},
             )
 
             # 2. Verify request properties
-            assert request.method == 'POST'
-            assert 'X-Workflow' in request.headers
+            assert request.method == "POST"
+            assert "X-Workflow" in request.headers
             content = request.read()
-            assert b'workflow' in content
+            assert b"workflow" in content
 
             # 3. Send the request
             response = client.send(request)
@@ -341,11 +334,7 @@ class TestIntegratedWorkflow:
         """Test complete async workflow."""
         async with async_client_factory() as client:
             # 1. Build request
-            request = client.build_request(
-                'GET',
-                f"{self.base_url}/json",
-                headers={'X-Async': 'true'}
-            )
+            request = client.build_request("GET", f"{self.base_url}/json", headers={"X-Async": "true"})
 
             # 2. Send request
             response = await client.send(request)

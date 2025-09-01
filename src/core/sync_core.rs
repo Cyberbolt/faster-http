@@ -126,12 +126,13 @@ impl SyncHttpClient {
                     (None, Some(dict))
                 } else {
                     // Fallback: convert to string
-                    let s = data_obj
-                        .call_method0(py, "__str__")
-                        .unwrap()
-                        .extract::<String>(py)
-                        .unwrap();
-                    (Some(s.into_bytes()), None)
+                    match data_obj.call_method0(py, "__str__").and_then(|s| s.extract::<String>(py)) {
+                        Ok(s) => (Some(s.into_bytes()), None),
+                        Err(_) => {
+                            // If string conversion fails, use empty bytes as fallback
+                            (Some(Vec::new()), None)
+                        }
+                    }
                 }
             })
         } else {

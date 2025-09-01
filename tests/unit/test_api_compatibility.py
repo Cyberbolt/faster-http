@@ -6,15 +6,14 @@ following the core project rule: "faster-http不得实现httpx不支持的接口
 """
 
 
-
 def test_api_exact_match():
     """Ensure faster-http interface exactly matches httpx."""
     import httpx
 
     import faster_http
 
-    httpx_public = {attr for attr in dir(httpx) if not attr.startswith('_')}
-    faster_http_public = {attr for attr in dir(faster_http) if not attr.startswith('_')}
+    httpx_public = {attr for attr in dir(httpx) if not attr.startswith("_")}
+    faster_http_public = {attr for attr in dir(faster_http) if not attr.startswith("_")}
 
     missing = httpx_public - faster_http_public
     extra = faster_http_public - httpx_public
@@ -30,12 +29,11 @@ def test_interface_count():
 
     import faster_http
 
-    httpx_count = len([attr for attr in dir(httpx) if not attr.startswith('_')])
-    faster_http_count = len([attr for attr in dir(faster_http) if not attr.startswith('_')])
+    httpx_count = len([attr for attr in dir(httpx) if not attr.startswith("_")])
+    faster_http_count = len([attr for attr in dir(faster_http) if not attr.startswith("_")])
 
     assert httpx_count == faster_http_count, (
-        f"Interface count mismatch: httpx has {httpx_count}, "
-        f"faster-http has {faster_http_count}"
+        f"Interface count mismatch: httpx has {httpx_count}, faster-http has {faster_http_count}"
     )
 
 
@@ -45,9 +43,20 @@ def test_specific_interface_presence():
 
     # Core classes that httpx provides
     required_classes = [
-        'AsyncClient', 'Client', 'Request', 'Response', 'URL',
-        'Headers', 'QueryParams', 'Cookies', 'Timeout', 'Proxy',
-        'HTTPError', 'HTTPStatusError', 'RequestError', 'NetworkError',
+        "AsyncClient",
+        "Client",
+        "Request",
+        "Response",
+        "URL",
+        "Headers",
+        "QueryParams",
+        "Cookies",
+        "Timeout",
+        "Proxy",
+        "HTTPError",
+        "HTTPStatusError",
+        "RequestError",
+        "NetworkError",
     ]
 
     for class_name in required_classes:
@@ -60,9 +69,13 @@ def test_specific_interface_absence():
 
     # Interfaces that were incorrectly added but don't exist in httpx
     forbidden_interfaces = [
-        'ConnectionError', 'RequestTimeout', 'SSLError',
-        'new_http_status_error', 'DEFAULT_CIPHERS', 'DEFAULT_TIMEOUT_CONFIG',
-        'proxy'  # module, not class
+        "ConnectionError",
+        "RequestTimeout",
+        "SSLError",
+        "new_http_status_error",
+        "DEFAULT_CIPHERS",
+        "DEFAULT_TIMEOUT_CONFIG",
+        "proxy",  # module, not class
     ]
 
     for interface_name in forbidden_interfaces:
@@ -78,7 +91,7 @@ def test_httpx_compatibility_types():
     import faster_http
 
     # Test that we have the same types for key interfaces
-    for attr_name in ['AsyncClient', 'Client', 'Request', 'Response']:
+    for attr_name in ["AsyncClient", "Client", "Request", "Response"]:
         httpx_attr = getattr(httpx, attr_name)
         faster_http_attr = getattr(faster_http, attr_name)
 

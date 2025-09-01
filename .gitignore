@@ -207,3 +207,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Project specific temporary files
+*.tmp
+*.temp
+test_connection_*
+
+# Maturin / PyO3 build artifacts
+*.pyd
+*.dylib
+/wheelhouse/
