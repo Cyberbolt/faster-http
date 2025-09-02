@@ -154,22 +154,40 @@ impl StreamingClient {
         // Data is already Option<PyObject>, no conversion needed
         let data_obj = slf.data.clone();
 
+        // Build request using Builder pattern to eliminate parameter complexity
+        let mut builder = crate::core::api::HttpRequestBuilder::new()
+            .with_follow_redirects(follow_redirects)
+            .with_verify(true) // Default verify value
+            .with_timeout(timeout.unwrap_or(5.0));
+
+        if let Some(c) = content {
+            builder = builder.with_content(c);
+        }
+        if let Some(d) = data_obj {
+            builder = builder.with_data(d);
+        }
+        if let Some(j) = json {
+            builder = builder.with_json(j);
+        }
+        if let Some(f) = files {
+            builder = builder.with_files(f);
+        }
+        if let Some(p) = params {
+            builder = builder.with_params(p);
+        }
+        if let Some(h) = headers {
+            builder = builder.with_headers(Python::with_gil(|py| h.to_object(py)));
+        }
+        if let Some(c) = cookies {
+            builder = builder.with_cookies(c);
+        }
+        if let Some(a) = auth {
+            builder = builder.with_auth(Python::with_gil(|py| a.to_object(py)));
+        }
+
         // Execute request using synchronous client to avoid async runtime issues
-        let response = crate::core::api::execute_request_with_sync_client(
-            &config,
-            &method,
-            &url,
-            content,
-            data_obj,
-            json,
-            files,
-            params,
-            headers,
-            timeout,
-            auth,
-            follow_redirects,
-            cookies,
-        )?;
+        let response =
+            crate::core::api::execute_request_with_sync_client(&config, &method, &url, builder)?;
 
         slf.response = Some(response);
         slf._is_closed = false;

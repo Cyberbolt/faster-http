@@ -63,6 +63,19 @@ impl HyperHttpClient {
         Ok(Self { client, config })
     }
 
+    /// Create a new HyperHttpClient - same as new() for backward compatibility
+    /// Prewarming was causing performance issues and has been removed
+    pub fn new_with_warmup(config: HyperClientConfig) -> PyResult<Self> {
+        Self::new(config)
+    }
+
+    /// Warm up connection pool for specific domains - removed for performance
+    /// Domain warmup was causing unnecessary network overhead
+    pub async fn warmup_domains(&self, _domains: Vec<String>) -> PyResult<()> {
+        // No-op: warmup removed to improve performance
+        Ok(())
+    }
+
     /// Create a simple HTTP request using hyper's native client
     /// This method automatically reuses connections via hyper's built-in pooling
     pub async fn request(

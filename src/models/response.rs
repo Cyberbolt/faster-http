@@ -107,7 +107,9 @@ impl HttpResponse {
             );
             // Convert to PyObject in the calling context that already has GIL
             Python::with_gil(|py| {
-                Py::new(py, default_request).ok().map(|obj| obj.to_object(py))
+                Py::new(py, default_request)
+                    .ok()
+                    .map(|obj| obj.to_object(py))
             })
         });
 
@@ -481,9 +483,7 @@ iter_lines_impl(lines)
 
         future_into_py(py, async move {
             // Avoid nested GIL calls - use py.allow_threads for safety
-            Python::with_gil(|py| -> PyResult<Py<PyBytes>> { 
-                Ok(PyBytes::new(py, &body).into()) 
-            })
+            Python::with_gil(|py| -> PyResult<Py<PyBytes>> { Ok(PyBytes::new(py, &body).into()) })
         })
     }
 

@@ -69,12 +69,10 @@ impl ClientConfig {
             (None, None)
         };
 
-        // Simple timeout conversion
-        let timeout_value = if let Some(timeout_obj) = timeout {
-            Python::with_gil(|py| timeout_obj.extract::<f64>(py).ok())
-        } else {
-            None
-        };
+        // Simple timeout processing - back to original approach for performance
+        let default_timeout = timeout
+            .and_then(|t| Python::with_gil(|py| t.extract::<f64>(py).ok()))
+            .map(Duration::from_secs_f64);
 
         // Create default configurations with minimal setup
         let default_headers = headers.unwrap_or_default();
@@ -83,7 +81,6 @@ impl ClientConfig {
         let cookie_jar = Arc::new(Mutex::new(HashMap::new()));
         let event_hooks = Arc::new(Mutex::new(EventHooks::default()));
         let default_params = params.unwrap_or_default();
-        let default_timeout = timeout_value.map(Duration::from_secs_f64);
 
         // Create simple hyper client configurations
         let redirect_config = HyperClientConfig {
@@ -98,9 +95,9 @@ impl ClientConfig {
             ..Default::default()
         };
 
-        // Create hyper clients
-        let redirect_client = HyperHttpClient::new(redirect_config)?;
-        let no_redirect_client = HyperHttpClient::new(no_redirect_config)?;
+        // Create hyper clients with connection pool prewarming for better performance
+        let redirect_client = HyperHttpClient::new_with_warmup(redirect_config)?;
+        let no_redirect_client = HyperHttpClient::new_with_warmup(no_redirect_config)?;
 
         Ok(Self {
             base_url,
@@ -138,11 +135,25 @@ impl ClientConfig {
         merged
     }
 
-    /// Simplified timeout resolution
+    /// Simplified timeout resolution  
     pub fn effective_timeout(&self, request_timeout: Option<f64>) -> Option<Duration> {
         request_timeout
             .map(Duration::from_secs_f64)
             .or(self.default_timeout)
+    }
+
+    /// Simple timeout resolution with Python object support
+    pub fn effective_timeout_from_python(
+        &self,
+        request_timeout: Option<PyObject>,
+    ) -> PyResult<Option<Duration>> {
+        match request_timeout {
+            Some(timeout_obj) => {
+                let timeout_secs = Python::with_gil(|py| timeout_obj.extract::<f64>(py))?;
+                Ok(Some(Duration::from_secs_f64(timeout_secs)))
+            }
+            None => Ok(self.default_timeout),
+        }
     }
 
     /// Simple base URL handling

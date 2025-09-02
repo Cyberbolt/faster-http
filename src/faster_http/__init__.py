@@ -111,12 +111,25 @@ _rust_request = request
 _MODULE_DEFAULT_TIMEOUT = Timeout(timeout=5.0)
 
 
-def _process_timeout_for_request(timeout: float | Timeout | None) -> Any:
-    """Helper function to process timeout parameter for all request methods."""
-    from ._timeout_utils import extract_timeout_for_rust, process_timeout_param
-
-    processed_timeout = process_timeout_param(timeout)
-    return extract_timeout_for_rust(processed_timeout)
+# Process timeout object before passing to Rust (performance rollback)
+def _process_timeout_for_request(timeout):
+    """Process timeout parameter to extract float value for Rust layer."""
+    if timeout is None:
+        return None
+    elif isinstance(timeout, int | float):
+        return float(timeout)
+    elif hasattr(timeout, "_inner") and hasattr(timeout._inner, "timeout"):
+        # Handle Timeout object
+        return float(timeout._inner.timeout)
+    elif hasattr(timeout, "timeout"):
+        # Handle simplified timeout object
+        return float(timeout.timeout)
+    else:
+        # Fallback for other types
+        try:
+            return float(timeout)
+        except (TypeError, ValueError):
+            return 5.0  # Default timeout
 
 
 # Create Python wrapper functions with proper default values
@@ -134,7 +147,8 @@ def get(
     trust_env: bool = True,
 ) -> Response:
     """Send GET request with httpx-compatible defaults."""
-    rust_timeout = _process_timeout_for_request(timeout)
+    # Process timeout for Rust layer (performance rollback fix)
+    processed_timeout = _process_timeout_for_request(timeout)
     return _rust_get(
         url,
         params=params,
@@ -144,7 +158,7 @@ def get(
         proxy=proxy,
         follow_redirects=follow_redirects,
         verify=verify,
-        timeout=rust_timeout,
+        timeout=processed_timeout,
         trust_env=trust_env,
     )
 
@@ -167,7 +181,8 @@ def post(
     trust_env: bool = True,
 ) -> Response:
     """Send POST request with httpx-compatible defaults."""
-    rust_timeout = _process_timeout_for_request(timeout)
+    # Process timeout for Rust layer (performance rollback fix)
+    processed_timeout = _process_timeout_for_request(timeout)
     return _rust_post(
         url,
         content=content,
@@ -181,7 +196,7 @@ def post(
         proxy=proxy,
         follow_redirects=follow_redirects,
         verify=verify,
-        timeout=rust_timeout,
+        timeout=processed_timeout,
         trust_env=trust_env,
     )
 
@@ -204,7 +219,8 @@ def put(
     trust_env: bool = True,
 ) -> Response:
     """Send PUT request with httpx-compatible defaults."""
-    rust_timeout = _process_timeout_for_request(timeout)
+    # Process timeout for Rust layer (performance rollback fix)
+    processed_timeout = _process_timeout_for_request(timeout)
     return _rust_put(
         url,
         content=content,
@@ -218,7 +234,7 @@ def put(
         proxy=proxy,
         follow_redirects=follow_redirects,
         verify=verify,
-        timeout=rust_timeout,
+        timeout=processed_timeout,
         trust_env=trust_env,
     )
 
@@ -241,7 +257,8 @@ def patch(
     trust_env: bool = True,
 ) -> Response:
     """Send PATCH request with httpx-compatible defaults."""
-    rust_timeout = _process_timeout_for_request(timeout)
+    # Process timeout for Rust layer (performance rollback fix)
+    processed_timeout = _process_timeout_for_request(timeout)
     return _rust_patch(
         url,
         content=content,
@@ -255,7 +272,7 @@ def patch(
         proxy=proxy,
         follow_redirects=follow_redirects,
         verify=verify,
-        timeout=rust_timeout,
+        timeout=processed_timeout,
         trust_env=trust_env,
     )
 
@@ -274,7 +291,8 @@ def delete(
     trust_env: bool = True,
 ) -> Response:
     """Send DELETE request with httpx-compatible defaults."""
-    rust_timeout = _process_timeout_for_request(timeout)
+    # Process timeout for Rust layer (performance rollback fix)
+    processed_timeout = _process_timeout_for_request(timeout)
     return _rust_delete(
         url,
         params=params,
@@ -284,7 +302,7 @@ def delete(
         proxy=proxy,
         follow_redirects=follow_redirects,
         verify=verify,
-        timeout=rust_timeout,
+        timeout=processed_timeout,
         trust_env=trust_env,
     )
 
@@ -303,7 +321,8 @@ def head(
     trust_env: bool = True,
 ) -> Response:
     """Send HEAD request with httpx-compatible defaults."""
-    rust_timeout = _process_timeout_for_request(timeout)
+    # Process timeout for Rust layer (performance rollback fix)
+    processed_timeout = _process_timeout_for_request(timeout)
     return _rust_head(
         url,
         params=params,
@@ -313,7 +332,7 @@ def head(
         proxy=proxy,
         follow_redirects=follow_redirects,
         verify=verify,
-        timeout=rust_timeout,
+        timeout=processed_timeout,
         trust_env=trust_env,
     )
 
@@ -332,7 +351,8 @@ def options(
     trust_env: bool = True,
 ) -> Response:
     """Send OPTIONS request with httpx-compatible defaults."""
-    rust_timeout = _process_timeout_for_request(timeout)
+    # Process timeout for Rust layer (performance rollback fix)
+    processed_timeout = _process_timeout_for_request(timeout)
     return _rust_options(
         url,
         params=params,
@@ -342,7 +362,7 @@ def options(
         proxy=proxy,
         follow_redirects=follow_redirects,
         verify=verify,
-        timeout=rust_timeout,
+        timeout=processed_timeout,
         trust_env=trust_env,
     )
 
@@ -366,7 +386,8 @@ def request(
     trust_env: bool = True,
 ) -> Response:
     """Send HTTP request with httpx-compatible defaults."""
-    rust_timeout = _process_timeout_for_request(timeout)
+    # Process timeout for Rust layer (performance rollback fix)
+    processed_timeout = _process_timeout_for_request(timeout)
     return _rust_request(
         method,
         url,
@@ -381,7 +402,7 @@ def request(
         proxy=proxy,
         follow_redirects=follow_redirects,
         verify=verify,
-        timeout=rust_timeout,
+        timeout=processed_timeout,
         trust_env=trust_env,
     )
 

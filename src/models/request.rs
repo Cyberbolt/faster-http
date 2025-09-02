@@ -240,7 +240,7 @@ impl HttpRequest {
     pub fn new_internal(
         method: String,
         url: String,
-        headers: HashMap<String, String>,
+        mut headers: HashMap<String, String>,
         content: Option<Vec<u8>>,
         params: Option<HashMap<String, PyObject>>,
         cookies: Option<HashMap<String, String>>,
@@ -249,16 +249,57 @@ impl HttpRequest {
         json: Option<PyObject>,
         stream: Option<bool>,
     ) -> Self {
+        // Handle JSON serialization like in the public constructor
+        let mut final_content = content.map(Bytes::from);
+        let final_json = json.clone();
+
+        if let Some(json_obj) = &json {
+            // Serialize JSON to content bytes
+            let json_result = Python::with_gil(|py| -> PyResult<Bytes> {
+                let json_module = py.import("json")?;
+                let json_str = json_module
+                    .call_method1("dumps", (json_obj,))?
+                    .extract::<String>()?;
+                Ok(Bytes::from(json_str.into_bytes()))
+            });
+
+            match json_result {
+                Ok(json_bytes) => {
+                    final_content = Some(json_bytes);
+
+                    // Add JSON content-type header if not already present
+                    if !headers
+                        .iter()
+                        .any(|(k, _)| k.to_lowercase() == "content-type")
+                    {
+                        headers.insert("content-type".to_string(), "application/json".to_string());
+                    }
+                }
+                Err(_) => {
+                    // If JSON serialization fails, keep original content
+                    // This maintains compatibility with the old behavior
+                }
+            }
+        }
+
+        // Add or update content-length header if content is present
+        if let Some(ref content_bytes) = final_content {
+            headers.insert(
+                "content-length".to_string(),
+                content_bytes.len().to_string(),
+            );
+        }
+
         Self {
             method,
             url,
             headers,
-            content: content.map(Bytes::from),
+            content: final_content,
             params: params.unwrap_or_default(),
             cookies: cookies.unwrap_or_default(),
             data,
             files,
-            json,
+            json: final_json,
             stream: stream.unwrap_or(false),
         }
     }

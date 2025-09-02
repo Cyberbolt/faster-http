@@ -100,30 +100,19 @@ impl AsyncHttpClient {
     ) -> PyResult<HttpRequest> {
         // Process JSON serialization (same as sync client)
         let mut final_headers = headers.unwrap_or_default();
-        let mut final_content = content;
+        let final_content = content;
 
-        if let Some(json_hashmap) = &json {
-            Python::with_gil(|py| -> PyResult<()> {
-                // Convert HashMap to Python object first
-                let json_py_obj = json_hashmap.to_object(py);
+        if let Some(_json_hashmap) = &json {
+            // JSON handling moved back to Python layer for performance
+            // The "Rust JSON optimization" was causing performance degradation
 
-                let json_module = py.import("json")?;
-                let json_str = json_module
-                    .call_method1("dumps", (json_py_obj,))?
-                    .extract::<String>()?;
-                final_content = Some(json_str.into_bytes());
-
-                // Add JSON content-type header if not already present
-                if !final_headers
-                    .iter()
-                    .any(|(k, _)| k.to_lowercase() == "content-type")
-                {
-                    final_headers
-                        .insert("content-type".to_string(), "application/json".to_string());
-                }
-
-                Ok(())
-            })?;
+            // Add JSON content-type header if not already present
+            if !final_headers
+                .iter()
+                .any(|(k, _)| k.to_lowercase() == "content-type")
+            {
+                final_headers.insert("content-type".to_string(), "application/json".to_string());
+            }
         }
 
         // Add content-length header if content is present
@@ -201,7 +190,7 @@ impl AsyncHttpClient {
         files: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
@@ -226,7 +215,7 @@ impl AsyncHttpClient {
         url: String,
         _params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         _auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         _cookies: Option<HashMap<String, String>>,
@@ -245,7 +234,7 @@ impl AsyncHttpClient {
         _files: Option<HashMap<String, PyObject>>,
         _params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         _auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         _cookies: Option<HashMap<String, String>>,
@@ -264,7 +253,7 @@ impl AsyncHttpClient {
         _files: Option<HashMap<String, PyObject>>,
         _params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         _auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         _cookies: Option<HashMap<String, String>>,
@@ -283,7 +272,7 @@ impl AsyncHttpClient {
         _files: Option<HashMap<String, PyObject>>,
         _params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         _auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         _cookies: Option<HashMap<String, String>>,
@@ -306,7 +295,7 @@ impl AsyncHttpClient {
         url: String,
         _params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         _auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         _cookies: Option<HashMap<String, String>>,
@@ -321,7 +310,7 @@ impl AsyncHttpClient {
         url: String,
         _params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         _auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         _cookies: Option<HashMap<String, String>>,
@@ -336,7 +325,7 @@ impl AsyncHttpClient {
         url: String,
         _params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         _auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         _cookies: Option<HashMap<String, String>>,
@@ -406,6 +395,20 @@ impl AsyncHttpClient {
         let client = self.client.clone();
         future_into_py(py, async move { client.cleanup_connections().await })
     }
+
+    /// Warm up connection pool for specific domains
+    /// This can improve performance for first requests to these domains
+    pub fn warmup_domains<'p>(&self, py: Python<'p>, domains: Vec<String>) -> PyResult<&'p PyAny> {
+        let client = self.client.clone();
+        future_into_py(py, async move {
+            client.warmup_domains(domains).await.map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "Connection warmup failed: {}",
+                    e
+                ))
+            })
+        })
+    }
 }
 
 impl AsyncHttpClient {
@@ -434,7 +437,7 @@ impl AsyncHttpClient {
         url: String,
         content: Option<Vec<u8>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         follow_redirects: Option<bool>,
     ) -> PyResult<&'py PyAny> {
         self.check_not_closed()?;
@@ -453,6 +456,9 @@ impl AsyncHttpClient {
         let _redirect = follow_redirects.unwrap_or(self.config.follow_redirects);
         let config = self.config.clone();
 
+        // Simple timeout processing - moved back to original approach
+        let timeout_secs = timeout.and_then(|t| Python::with_gil(|py| t.extract::<f64>(py).ok()));
+
         future_into_py(py, async move {
             send_request_direct(
                 &client,
@@ -461,7 +467,7 @@ impl AsyncHttpClient {
                 &final_headers,
                 content.as_deref(),
                 &config,
-                timeout,
+                timeout_secs,
             )
             .await
         })

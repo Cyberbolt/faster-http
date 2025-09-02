@@ -130,7 +130,7 @@ impl UreqHttpClient {
             // SECURITY CRITICAL: Only disable certificate verification when explicitly requested
             // This creates a security vulnerability - use only for testing or with trusted networks
             use rustls::ClientConfig;
-            
+
             // Create insecure TLS config with explicit security warnings
             let tls_config = ClientConfig::builder()
                 .dangerous() // This method name indicates the security risk
@@ -138,7 +138,7 @@ impl UreqHttpClient {
                 .with_no_client_auth();
 
             agent_builder = agent_builder.tls_config(Arc::new(tls_config));
-            
+
             // Additional runtime warning for security awareness
             eprintln!("⚠️  WARNING: Starting HTTP client with TLS verification DISABLED. Use only in trusted environments!");
         } else {
@@ -877,7 +877,7 @@ mod tests {
         let now = UnixTime::now();
 
         let result = verifier.verify_server_cert(&empty_cert, &[], &server_name, &[], now);
-        
+
         // This should pass because InsecureNoVerifier accepts all certificates
         // WARNING: This is intentionally insecure behavior for testing
         assert!(result.is_ok());
@@ -890,7 +890,10 @@ mod tests {
         // Test that InsecureNoVerifier can be created
         // We can't test signature verification directly due to private constructors
         // but we verify the verifier exists and has security warning field
-        assert_eq!(verifier._security_warning, "TLS verification disabled - INSECURE");
+        assert_eq!(
+            verifier._security_warning,
+            "TLS verification disabled - INSECURE"
+        );
         assert_eq!(
             std::mem::size_of_val(&verifier),
             std::mem::size_of::<InsecureNoVerifier>()
@@ -903,7 +906,10 @@ mod tests {
 
         // Test that InsecureNoVerifier can be created for TLS 1.3
         // We verify the security warning is properly set
-        assert_eq!(verifier._security_warning, "TLS verification disabled - INSECURE");
+        assert_eq!(
+            verifier._security_warning,
+            "TLS verification disabled - INSECURE"
+        );
         assert_eq!(
             std::mem::size_of_val(&verifier),
             std::mem::size_of::<InsecureNoVerifier>()
@@ -920,7 +926,7 @@ mod tests {
         assert!(schemes.contains(&rustls::SignatureScheme::RSA_PKCS1_SHA256));
         assert!(schemes.contains(&rustls::SignatureScheme::ECDSA_NISTP256_SHA256));
         assert!(schemes.contains(&rustls::SignatureScheme::ED25519));
-        
+
         // Verify insecure schemes are NOT included for better security posture
         assert!(!schemes.contains(&rustls::SignatureScheme::RSA_PKCS1_SHA1));
         assert!(!schemes.contains(&rustls::SignatureScheme::ECDSA_SHA1_Legacy));

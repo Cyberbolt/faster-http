@@ -32,7 +32,10 @@ impl std::fmt::Debug for ClientCert {
         f.debug_struct("ClientCert")
             .field("cert_file", &self.cert_file)
             .field("key_file", &self.key_file)
-            .field("password", &self.password.as_ref().map(|_| "***REDACTED***"))
+            .field(
+                "password",
+                &self.password.as_ref().map(|_| "***REDACTED***"),
+            )
             .finish()
     }
 }

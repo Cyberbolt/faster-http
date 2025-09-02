@@ -4,46 +4,301 @@ use crate::stubs::streaming_stub::StreamingClient;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 
-// Structure to group common request parameters
+// Request parameters structure to eliminate too many arguments issue
 #[derive(Default)]
-#[allow(dead_code)] // Allow unused fields for now - proxy and trust_env will be implemented later
 pub struct RequestParams {
+    pub content: Option<Vec<u8>>,
+    pub data: Option<PyObject>,
+    pub json: Option<HashMap<String, PyObject>>,
+    pub files: Option<HashMap<String, PyObject>>,
     pub params: Option<HashMap<String, PyObject>>,
-    pub headers: Option<HashMap<String, String>>,
-    pub timeout: Option<f64>,
-    pub auth: Option<PyObject>,
-    pub follow_redirects: Option<bool>,
+    pub headers: Option<PyObject>,
     pub cookies: Option<HashMap<String, String>>,
-    pub verify: Option<PyObject>,
-    pub proxy: Option<PyObject>,
-    pub trust_env: Option<bool>,
+    pub auth: Option<PyObject>,
+    pub follow_redirects: bool,
+    pub verify: bool,
+    pub timeout: f64,
 }
 
-// Unified synchronous request execution
-#[allow(clippy::too_many_arguments)]
-pub fn execute_request_with_sync_client(
-    config: &ClientConfig,
+// Configuration parameters grouped to reduce function argument count
+#[derive(Clone)]
+struct RequestConfig {
+    follow_redirects: bool,
+    verify: bool,
+    timeout: f64,
+}
+
+struct RequestData {
+    content: Option<Vec<u8>>,
+    data: Option<PyObject>,
+    json: Option<HashMap<String, PyObject>>,
+    files: Option<HashMap<String, PyObject>>,
+}
+
+struct RequestMeta {
+    params: Option<HashMap<String, PyObject>>,
+    headers: Option<PyObject>,
+    cookies: Option<HashMap<String, String>>,
+    auth: Option<PyObject>,
+}
+
+// Removed helper methods to avoid too many arguments issue
+
+// Simplified internal functions with reduced parameter counts
+fn execute_simple_request(
     method: &str,
     url: &str,
+    data: RequestData,
+    meta: RequestMeta,
+    config: RequestConfig,
+) -> PyResult<HttpResponse> {
+    let params = RequestParams {
+        content: data.content,
+        data: data.data,
+        json: data.json,
+        files: data.files,
+        params: meta.params,
+        headers: meta.headers,
+        cookies: meta.cookies,
+        auth: meta.auth,
+        follow_redirects: config.follow_redirects,
+        verify: config.verify,
+        timeout: config.timeout,
+    };
+    execute_core_request(method, url, params)
+}
+
+// Core request executor with minimal parameters - eliminates complexity
+fn execute_core_request(method: &str, url: &str, params: RequestParams) -> PyResult<HttpResponse> {
+    let mut builder = HttpRequestBuilder::new()
+        .with_follow_redirects(params.follow_redirects)
+        .with_verify(params.verify)
+        .with_timeout(params.timeout);
+
+    if let Some(c) = params.content {
+        builder = builder.with_content(c);
+    }
+    if let Some(d) = params.data {
+        builder = builder.with_data(d);
+    }
+    if let Some(j) = params.json {
+        builder = builder.with_json(j);
+    }
+    if let Some(f) = params.files {
+        builder = builder.with_files(f);
+    }
+    if let Some(p) = params.params {
+        builder = builder.with_params(p);
+    }
+    if let Some(h) = params.headers {
+        builder = builder.with_headers(h);
+    }
+    if let Some(c) = params.cookies {
+        builder = builder.with_cookies(c);
+    }
+    if let Some(a) = params.auth {
+        builder = builder.with_auth(a);
+    }
+
+    builder.execute(method, url)
+}
+
+// Production-grade Builder pattern for HTTP requests - eliminates parameter complexity
+#[derive(Default, Clone)]
+pub struct HttpRequestBuilder {
     content: Option<Vec<u8>>,
     data: Option<PyObject>,
     json: Option<HashMap<String, PyObject>>,
     files: Option<HashMap<String, PyObject>>,
     params: Option<HashMap<String, PyObject>>,
-    headers: Option<HashMap<String, String>>,
-    timeout: Option<f64>,
-    auth_tuple: Option<(String, String)>,
-    follow_redirects: bool,
+    headers: Option<PyObject>,
     cookies: Option<HashMap<String, String>>,
+    auth: Option<PyObject>,
+    follow_redirects: bool,
+    verify: bool,
+    timeout: f64,
+}
+
+impl HttpRequestBuilder {
+    // Create new builder with defaults
+    pub fn new() -> Self {
+        Self {
+            content: None,
+            data: None,
+            json: None,
+            files: None,
+            params: None,
+            headers: None,
+            cookies: None,
+            auth: None,
+            follow_redirects: false,
+            verify: true,
+            timeout: 5.0,
+        }
+    }
+
+    // Builder methods for setting parameters
+    pub fn with_content(mut self, content: Vec<u8>) -> Self {
+        self.content = Some(content);
+        self
+    }
+
+    pub fn with_data(mut self, data: PyObject) -> Self {
+        self.data = Some(data);
+        self
+    }
+
+    pub fn with_json(mut self, json: HashMap<String, PyObject>) -> Self {
+        self.json = Some(json);
+        self
+    }
+
+    pub fn with_files(mut self, files: HashMap<String, PyObject>) -> Self {
+        self.files = Some(files);
+        self
+    }
+
+    pub fn with_params(mut self, params: HashMap<String, PyObject>) -> Self {
+        self.params = Some(params);
+        self
+    }
+
+    pub fn with_headers(mut self, headers: PyObject) -> Self {
+        self.headers = Some(headers);
+        self
+    }
+
+    pub fn with_cookies(mut self, cookies: HashMap<String, String>) -> Self {
+        self.cookies = Some(cookies);
+        self
+    }
+
+    pub fn with_auth(mut self, auth: PyObject) -> Self {
+        self.auth = Some(auth);
+        self
+    }
+
+    pub fn with_follow_redirects(mut self, follow_redirects: bool) -> Self {
+        self.follow_redirects = follow_redirects;
+        self
+    }
+
+    pub fn with_verify(mut self, verify: bool) -> Self {
+        self.verify = verify;
+        self
+    }
+
+    pub fn with_timeout(mut self, timeout: f64) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    // Execute the HTTP request
+    pub fn execute(self, method: &str, url: &str) -> PyResult<HttpResponse> {
+        // Extract auth parameter - unified processing
+        let auth_tuple = extract_auth_parameter(self.auth)?;
+
+        // Extract headers - unified processing
+        let extracted_headers = extract_headers(self.headers)?;
+
+        // Create ephemeral config - unified processing
+        let client_config = create_ephemeral_config_with_verify(
+            self.cookies.clone(),
+            Some(self.timeout),
+            self.follow_redirects,
+            Some(&Python::with_gil(|py| self.verify.to_object(py))),
+        )?;
+
+        // Use the config to create a client
+        let sync_client = SyncHttpClient::new_with_config(client_config)?;
+
+        // Convert HashMap types to PyObject for sync_client
+        let json_obj = self
+            .json
+            .as_ref()
+            .map(|j| Python::with_gil(|py| j.to_object(py)));
+        let files_obj = self
+            .files
+            .as_ref()
+            .map(|f| Python::with_gil(|py| f.to_object(py)));
+
+        // Execute request using client - all common logic centralized
+        sync_client.send_request(
+            method,
+            url,
+            self.content,
+            self.data,
+            json_obj,
+            files_obj,
+            self.params,
+            extracted_headers,
+            Some(self.timeout),
+            auth_tuple,
+            Some(self.follow_redirects),
+            self.cookies,
+        )
+    }
+
+    // Execute streaming request
+    pub fn execute_stream(self, method: &str, url: &str) -> PyResult<StreamingClient> {
+        // Extract auth parameter for streaming
+        let auth_tuple = extract_auth_parameter(self.auth)?;
+        let config = create_ephemeral_config_with_verify(
+            self.cookies.clone(),
+            Some(self.timeout),
+            self.follow_redirects,
+            Some(&Python::with_gil(|py| self.verify.to_object(py))),
+        )?;
+
+        // Convert headers for streaming client
+        let headers_hashmap = match self.headers {
+            Some(h) => Python::with_gil(|py| h.extract::<HashMap<String, String>>(py).ok()),
+            None => None,
+        };
+
+        Ok(StreamingClient::new(
+            config,
+            method.to_string(),
+            url.to_string(),
+            self.content,
+            self.data,
+            self.json,
+            self.files,
+            self.params,
+            headers_hashmap,
+            Some(self.timeout),
+            auth_tuple,
+            self.follow_redirects,
+            self.cookies,
+        ))
+    }
+}
+
+// Removed - RequestConfig no longer needed with Builder pattern
+
+// Legacy function for backward compatibility - uses reduced parameter set
+pub fn execute_request_with_sync_client(
+    config: &ClientConfig,
+    method: &str,
+    url: &str,
+    builder: HttpRequestBuilder,
 ) -> PyResult<HttpResponse> {
     // Use the provided config to create a client with proper timeout settings
     let sync_client = SyncHttpClient::new_with_config(config.clone())?;
 
-    // Convert HashMap types to PyObject for sync_client (data is already PyObject)
-    let json_obj = json
+    // Extract auth parameter
+    let auth_tuple = extract_auth_parameter(builder.auth)?;
+
+    // Extract headers
+    let extracted_headers = extract_headers(builder.headers)?;
+
+    // Convert HashMap types to PyObject for sync_client
+    let json_obj = builder
+        .json
         .as_ref()
         .map(|j| Python::with_gil(|py| j.to_object(py)));
-    let files_obj = files
+    let files_obj = builder
+        .files
         .as_ref()
         .map(|f| Python::with_gil(|py| f.to_object(py)));
 
@@ -51,16 +306,16 @@ pub fn execute_request_with_sync_client(
     sync_client.send_request(
         method,
         url,
-        content,
-        data,
+        builder.content,
+        builder.data,
         json_obj,
         files_obj,
-        params,
-        headers,
-        timeout,
+        builder.params,
+        extracted_headers,
+        Some(builder.timeout),
         auth_tuple,
-        Some(follow_redirects),
-        cookies,
+        Some(builder.follow_redirects),
+        builder.cookies,
     )
 }
 use crate::auth::{extract_auth, extract_auth_from_object};
@@ -122,37 +377,7 @@ fn extract_auth_parameter(auth: Option<PyObject>) -> PyResult<Option<(String, St
     }
 }
 
-// Legacy ephemeral config creation - replaced by create_ephemeral_config_with_verify
-// Keeping for potential future use cases without verify parameter
-#[allow(dead_code)]
-fn create_ephemeral_config(
-    cookies: Option<HashMap<String, String>>,
-    timeout: Option<f64>,
-    follow_redirects: bool,
-) -> PyResult<ClientConfig> {
-    ClientConfig::new(
-        None,                               // base_url
-        extract_timeout_parameter(timeout), // timeout - convert f64 to PyObject
-        None,                               // headers
-        None,                               // verify
-        Some(follow_redirects),             // follow_redirects
-        None,                               // auth
-        None,                               // proxy
-        None,                               // proxies
-        cookies,                            // cookies
-        None,                               // http1
-        None,                               // http2
-        None,                               // event_hooks
-        None,                               // cert
-        None,                               // trust_env
-        None,                               // transport
-        None,                               // mounts
-        None,                               // limits
-        None,                               // max_redirects
-        None,                               // default_encoding
-        None,                               // params
-    )
-}
+// Removed dead code - ephemeral config creation without verify parameter
 
 // Ephemeral config creation with parameter handling
 fn create_ephemeral_config_with_verify(
@@ -187,10 +412,10 @@ fn create_ephemeral_config_with_verify(
     })
 }
 
-// Top-level API functions that create ephemeral clients (matching httpx behavior)
+// Python GET wrapper - delegates to core executor with proper parameter management
+// Note: Function signature must match httpx API for compatibility
+#[allow(clippy::too_many_arguments)] // Required for httpx API compatibility
 #[pyfunction]
-#[allow(clippy::too_many_arguments)]
-#[allow(unused_variables)]
 #[pyo3(signature = (url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn get(
     url: &str,
@@ -198,59 +423,40 @@ pub fn get(
     headers: Option<HashMap<String, String>>,
     cookies: Option<HashMap<String, String>>,
     auth: Option<PyObject>,
-    proxy: Option<PyObject>,
+    proxy: Option<PyObject>, // Accepted for compatibility but not implemented
     follow_redirects: bool,
     verify: bool,
     timeout: f64,
-    trust_env: bool,
+    trust_env: bool, // Accepted for compatibility but not implemented
 ) -> PyResult<HttpResponse> {
-    let request_params = RequestParams {
-        params,
-        headers,
-        timeout: Some(timeout),
-        auth,
-        follow_redirects: Some(follow_redirects),
-        cookies,
-        verify: Some(Python::with_gil(|py| verify.to_object(py))),
-        proxy,
-        trust_env: Some(trust_env),
+    // Handle compatibility parameters (accepted for httpx compatibility)
+    let _ = (proxy, trust_env);
+
+    let data = RequestData {
+        content: None,
+        data: None,
+        json: None,
+        files: None,
     };
-    execute_get_request(url, request_params)
+    let meta = RequestMeta {
+        params,
+        headers: headers.map(|h| Python::with_gil(|py| h.to_object(py))),
+        cookies,
+        auth,
+    };
+    let config = RequestConfig {
+        follow_redirects,
+        verify,
+        timeout,
+    };
+
+    execute_simple_request("GET", url, data, meta, config)
 }
 
-// Helper function for GET requests
-fn execute_get_request(url: &str, params: RequestParams) -> PyResult<HttpResponse> {
-    // Extract auth parameter
-    let auth_tuple = extract_auth_parameter(params.auth)?;
-
-    // Create ephemeral config for this request only with verify support
-    let config = create_ephemeral_config_with_verify(
-        params.cookies.clone(),
-        params.timeout,
-        params.follow_redirects.unwrap_or(false),
-        params.verify.as_ref(),
-    )?;
-
-    execute_request_with_sync_client(
-        &config,
-        "GET",
-        url,
-        None,
-        None,
-        None,
-        None,
-        params.params,
-        params.headers,
-        params.timeout,
-        auth_tuple,
-        params.follow_redirects.unwrap_or(false),
-        params.cookies,
-    )
-}
-
+// Python POST wrapper - delegates to core executor with proper parameter management
+// Note: Function signature must match httpx API for compatibility
+#[allow(clippy::too_many_arguments)] // Required for httpx API compatibility
 #[pyfunction]
-#[allow(clippy::too_many_arguments)]
-#[allow(unused_variables)]
 #[pyo3(signature = (url, *, content=None, data=None, json=None, files=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn post(
     url: &str,
@@ -268,38 +474,34 @@ pub fn post(
     timeout: f64,
     trust_env: bool,
 ) -> PyResult<HttpResponse> {
-    // Extract auth parameter
-    let auth_tuple = extract_auth_parameter(auth)?;
+    // Handle compatibility parameters (accepted for httpx compatibility)
+    let _ = (proxy, trust_env);
 
-    // Create ephemeral config for this request only with verify support
-    let config = create_ephemeral_config_with_verify(
-        cookies.clone(),
-        Some(timeout),
-        follow_redirects,
-        Some(&Python::with_gil(|py| verify.to_object(py))),
-    )?;
-
-    let extracted_headers = extract_headers(headers)?;
-    execute_request_with_sync_client(
-        &config,
-        "POST",
-        url,
+    let request_data = RequestData {
         content,
         data,
         json,
         files,
+    };
+    let meta = RequestMeta {
         params,
-        extracted_headers,
-        Some(timeout),
-        auth_tuple,
-        follow_redirects,
+        headers,
         cookies,
-    )
+        auth,
+    };
+    let config = RequestConfig {
+        follow_redirects,
+        verify,
+        timeout,
+    };
+
+    execute_simple_request("POST", url, request_data, meta, config)
 }
 
+// Python PUT wrapper - delegates to core executor
+// Note: Function signature must match httpx API for compatibility
+#[allow(clippy::too_many_arguments)] // Required for httpx API compatibility
 #[pyfunction]
-#[allow(clippy::too_many_arguments)]
-#[allow(unused_variables)]
 #[pyo3(signature = (url, *, content=None, data=None, json=None, files=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn put(
     url: &str,
@@ -317,37 +519,34 @@ pub fn put(
     timeout: f64,
     trust_env: bool,
 ) -> PyResult<HttpResponse> {
-    // Extract auth parameter
-    let auth_tuple = extract_auth_parameter(auth)?;
+    // Handle compatibility parameters (accepted for httpx compatibility)
+    let _ = (proxy, trust_env);
 
-    // Create ephemeral config for this request only with verify support
-    let config = create_ephemeral_config_with_verify(
-        cookies.clone(),
-        Some(timeout),
-        follow_redirects,
-        Some(&Python::with_gil(|py| verify.to_object(py))),
-    )?;
-
-    execute_request_with_sync_client(
-        &config,
-        "PUT",
-        url,
+    let request_data = RequestData {
         content,
         data,
         json,
         files,
+    };
+    let meta = RequestMeta {
         params,
-        headers,
-        Some(timeout),
-        auth_tuple,
-        follow_redirects,
+        headers: headers.map(|h| Python::with_gil(|py| h.to_object(py))),
         cookies,
-    )
+        auth,
+    };
+    let config = RequestConfig {
+        follow_redirects,
+        verify,
+        timeout,
+    };
+
+    execute_simple_request("PUT", url, request_data, meta, config)
 }
 
+// Python PATCH wrapper - delegates to core executor
+// Note: Function signature must match httpx API for compatibility
+#[allow(clippy::too_many_arguments)] // Required for httpx API compatibility
 #[pyfunction]
-#[allow(clippy::too_many_arguments)]
-#[allow(unused_variables)]
 #[pyo3(signature = (url, *, content=None, data=None, json=None, files=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn patch(
     url: &str,
@@ -365,37 +564,34 @@ pub fn patch(
     timeout: f64,
     trust_env: bool,
 ) -> PyResult<HttpResponse> {
-    // Extract auth parameter
-    let auth_tuple = extract_auth_parameter(auth)?;
+    // Handle compatibility parameters (accepted for httpx compatibility)
+    let _ = (proxy, trust_env);
 
-    // Create ephemeral config for this request only with verify support
-    let config = create_ephemeral_config_with_verify(
-        cookies.clone(),
-        Some(timeout),
-        follow_redirects,
-        Some(&Python::with_gil(|py| verify.to_object(py))),
-    )?;
-
-    execute_request_with_sync_client(
-        &config,
-        "PATCH",
-        url,
+    let request_data = RequestData {
         content,
         data,
         json,
         files,
+    };
+    let meta = RequestMeta {
         params,
-        headers,
-        Some(timeout),
-        auth_tuple,
-        follow_redirects,
+        headers: headers.map(|h| Python::with_gil(|py| h.to_object(py))),
         cookies,
-    )
+        auth,
+    };
+    let config = RequestConfig {
+        follow_redirects,
+        verify,
+        timeout,
+    };
+
+    execute_simple_request("PATCH", url, request_data, meta, config)
 }
 
+// Python DELETE wrapper - delegates to core executor
+// Note: Function signature must match httpx API for compatibility
+#[allow(clippy::too_many_arguments)] // Required for httpx API compatibility
 #[pyfunction]
-#[allow(clippy::too_many_arguments)]
-#[allow(unused_variables)]
 #[pyo3(signature = (url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn delete(
     url: &str,
@@ -409,52 +605,34 @@ pub fn delete(
     timeout: f64,
     trust_env: bool,
 ) -> PyResult<HttpResponse> {
-    let request_params = RequestParams {
-        params,
-        headers,
-        timeout: Some(timeout),
-        auth,
-        follow_redirects: Some(follow_redirects),
-        cookies,
-        verify: Some(Python::with_gil(|py| verify.to_object(py))),
-        proxy,
-        trust_env: Some(trust_env),
+    // Handle compatibility parameters (accepted for httpx compatibility)
+    let _ = (proxy, trust_env);
+
+    let data = RequestData {
+        content: None,
+        data: None,
+        json: None,
+        files: None,
     };
-    execute_delete_request(url, request_params)
+    let meta = RequestMeta {
+        params,
+        headers: headers.map(|h| Python::with_gil(|py| h.to_object(py))),
+        cookies,
+        auth,
+    };
+    let config = RequestConfig {
+        follow_redirects,
+        verify,
+        timeout,
+    };
+
+    execute_simple_request("DELETE", url, data, meta, config)
 }
 
-fn execute_delete_request(url: &str, params: RequestParams) -> PyResult<HttpResponse> {
-    // Extract auth parameter
-    let auth_tuple = extract_auth_parameter(params.auth)?;
-
-    // Create ephemeral config for this request only with verify support
-    let config = create_ephemeral_config_with_verify(
-        params.cookies.clone(),
-        params.timeout,
-        params.follow_redirects.unwrap_or(false),
-        params.verify.as_ref(),
-    )?;
-
-    execute_request_with_sync_client(
-        &config,
-        "DELETE",
-        url,
-        None,
-        None,
-        None,
-        None,
-        params.params,
-        params.headers,
-        params.timeout,
-        auth_tuple,
-        params.follow_redirects.unwrap_or(false),
-        params.cookies,
-    )
-}
-
+// Python HEAD wrapper - delegates to core executor
+// Note: Function signature must match httpx API for compatibility
+#[allow(clippy::too_many_arguments)] // Required for httpx API compatibility
 #[pyfunction]
-#[allow(clippy::too_many_arguments)]
-#[allow(unused_variables)]
 #[pyo3(signature = (url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn head(
     url: &str,
@@ -468,37 +646,34 @@ pub fn head(
     timeout: f64,
     trust_env: bool,
 ) -> PyResult<HttpResponse> {
-    // Extract auth parameter
-    let auth_tuple = extract_auth_parameter(auth)?;
+    // Handle compatibility parameters (accepted for httpx compatibility)
+    let _ = (proxy, trust_env);
 
-    // Create ephemeral config for this request only with verify support
-    let config = create_ephemeral_config_with_verify(
-        cookies.clone(),
-        Some(timeout),
-        follow_redirects,
-        Some(&Python::with_gil(|py| verify.to_object(py))),
-    )?;
-
-    execute_request_with_sync_client(
-        &config,
-        "HEAD",
-        url,
-        None,
-        None,
-        None,
-        None,
+    let data = RequestData {
+        content: None,
+        data: None,
+        json: None,
+        files: None,
+    };
+    let meta = RequestMeta {
         params,
-        headers,
-        Some(timeout),
-        auth_tuple,
-        follow_redirects,
+        headers: headers.map(|h| Python::with_gil(|py| h.to_object(py))),
         cookies,
-    )
+        auth,
+    };
+    let config = RequestConfig {
+        follow_redirects,
+        verify,
+        timeout,
+    };
+
+    execute_simple_request("HEAD", url, data, meta, config)
 }
 
+// Python OPTIONS wrapper - delegates to core executor
+// Note: Function signature must match httpx API for compatibility
+#[allow(clippy::too_many_arguments)] // Required for httpx API compatibility
 #[pyfunction]
-#[allow(clippy::too_many_arguments)]
-#[allow(unused_variables)]
 #[pyo3(signature = (url, *, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn options(
     url: &str,
@@ -512,38 +687,34 @@ pub fn options(
     timeout: f64,
     trust_env: bool,
 ) -> PyResult<HttpResponse> {
-    // Extract auth parameter
-    let auth_tuple = extract_auth_parameter(auth)?;
+    // Handle compatibility parameters (accepted for httpx compatibility)
+    let _ = (proxy, trust_env);
 
-    // Create ephemeral config for this request only with verify support
-    let config = create_ephemeral_config_with_verify(
-        cookies.clone(),
-        Some(timeout),
-        follow_redirects,
-        Some(&Python::with_gil(|py| verify.to_object(py))),
-    )?;
-
-    execute_request_with_sync_client(
-        &config,
-        "OPTIONS",
-        url,
-        None,
-        None,
-        None,
-        None,
+    let data = RequestData {
+        content: None,
+        data: None,
+        json: None,
+        files: None,
+    };
+    let meta = RequestMeta {
         params,
-        headers,
-        Some(timeout),
-        auth_tuple,
-        follow_redirects,
+        headers: headers.map(|h| Python::with_gil(|py| h.to_object(py))),
         cookies,
-    )
+        auth,
+    };
+    let config = RequestConfig {
+        follow_redirects,
+        verify,
+        timeout,
+    };
+
+    execute_simple_request("OPTIONS", url, data, meta, config)
 }
 
-// Generic request function that creates ephemeral client
+// Python request wrapper - delegates to core executor
+// Note: Function signature must match httpx API for compatibility
+#[allow(clippy::too_many_arguments)] // Required for httpx API compatibility
 #[pyfunction]
-#[allow(clippy::too_many_arguments)]
-#[allow(unused_variables)]
 #[pyo3(signature = (method, url, *, content=None, data=None, json=None, files=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn request(
     method: &str,
@@ -562,39 +733,34 @@ pub fn request(
     timeout: f64,
     trust_env: bool,
 ) -> PyResult<HttpResponse> {
-    // Extract auth parameter
-    let auth_tuple = extract_auth_parameter(auth)?;
+    // Handle compatibility parameters (accepted for httpx compatibility)
+    let _ = (proxy, trust_env);
 
-    // Create ephemeral config for this request only with verify support
-    let config = create_ephemeral_config_with_verify(
-        cookies.clone(),
-        Some(timeout),
-        follow_redirects,
-        Some(&Python::with_gil(|py| verify.to_object(py))),
-    )?;
-
-    let extracted_headers = extract_headers(headers)?;
-    execute_request_with_sync_client(
-        &config,
-        method,
-        url,
+    let request_data = RequestData {
         content,
         data,
         json,
         files,
+    };
+    let meta = RequestMeta {
         params,
-        extracted_headers,
-        Some(timeout),
-        auth_tuple,
-        follow_redirects,
+        headers,
         cookies,
-    )
+        auth,
+    };
+    let config = RequestConfig {
+        follow_redirects,
+        verify,
+        timeout,
+    };
+
+    execute_simple_request(method, url, request_data, meta, config)
 }
 
-// Streaming request function with ephemeral config management
+// Python streaming wrapper - delegates to builder's streaming executor
+// Note: Function signature must match httpx API for compatibility
+#[allow(clippy::too_many_arguments)] // Required for httpx API compatibility
 #[pyfunction]
-#[allow(clippy::too_many_arguments)]
-#[allow(unused_variables)]
 #[pyo3(signature = (method, url, *, content=None, data=None, json=None, files=None, params=None, headers=None, cookies=None, auth=None, proxy=None, follow_redirects=false, verify=true, timeout=5.0, trust_env=true))]
 pub fn stream(
     method: &str,
@@ -613,30 +779,67 @@ pub fn stream(
     timeout: f64,
     trust_env: bool,
 ) -> PyResult<StreamingClient> {
-    // Extract auth parameter
-    let auth_tuple = extract_auth_parameter(auth)?;
+    // Handle compatibility parameters (accepted for httpx compatibility)
+    let _ = (proxy, trust_env);
 
-    // Create ephemeral config for this request only with verify support
-    let config = create_ephemeral_config_with_verify(
-        cookies.clone(),
-        Some(timeout),
-        follow_redirects,
-        Some(&Python::with_gil(|py| verify.to_object(py))),
-    )?;
-
-    Ok(StreamingClient::new(
-        config,
-        method.to_string(),
-        url.to_string(),
+    let request_data = RequestData {
         content,
         data,
         json,
         files,
+    };
+    let meta = RequestMeta {
         params,
-        headers,
-        Some(timeout),
-        auth_tuple,
-        follow_redirects,
+        headers: headers.map(|h| Python::with_gil(|py| h.to_object(py))),
         cookies,
-    ))
+        auth,
+    };
+    let config = RequestConfig {
+        follow_redirects,
+        verify,
+        timeout,
+    };
+
+    execute_stream_internal(method, url, request_data, meta, config)
+}
+
+// Internal streaming function with reduced parameters
+fn execute_stream_internal(
+    method: &str,
+    url: &str,
+    data: RequestData,
+    meta: RequestMeta,
+    config: RequestConfig,
+) -> PyResult<StreamingClient> {
+    let mut builder = HttpRequestBuilder::new()
+        .with_follow_redirects(config.follow_redirects)
+        .with_verify(config.verify)
+        .with_timeout(config.timeout);
+
+    if let Some(c) = data.content {
+        builder = builder.with_content(c);
+    }
+    if let Some(d) = data.data {
+        builder = builder.with_data(d);
+    }
+    if let Some(j) = data.json {
+        builder = builder.with_json(j);
+    }
+    if let Some(f) = data.files {
+        builder = builder.with_files(f);
+    }
+    if let Some(p) = meta.params {
+        builder = builder.with_params(p);
+    }
+    if let Some(h) = meta.headers {
+        builder = builder.with_headers(h);
+    }
+    if let Some(c) = meta.cookies {
+        builder = builder.with_cookies(c);
+    }
+    if let Some(a) = meta.auth {
+        builder = builder.with_auth(a);
+    }
+
+    builder.execute_stream(method, url)
 }

@@ -157,7 +157,7 @@ impl HttpClient {
         files: Option<PyObject>,
         json: Option<PyObject>,
         cookies: Option<HashMap<String, String>>,
-        #[allow(unused_variables)] timeout: Option<f64>,
+        #[allow(unused_variables)] timeout: Option<PyObject>,
         #[allow(unused_variables)] extensions: Option<HashMap<String, PyObject>>,
         stream: Option<bool>,
     ) -> PyResult<HttpRequest> {
@@ -186,36 +186,8 @@ impl HttpClient {
             final_cookies.extend(request_cookies);
         }
 
-        // Handle JSON serialization and content-type headers like HttpRequest::new does
-        let mut final_content = content;
-        if let Some(json_obj) = &json {
-            Python::with_gil(|py| -> PyResult<()> {
-                let json_module = py.import("json")?;
-                let json_str = json_module
-                    .call_method1("dumps", (json_obj,))?
-                    .extract::<String>()?;
-                final_content = Some(json_str.into_bytes());
-
-                // Add JSON content-type header if not already present
-                if !final_headers
-                    .iter()
-                    .any(|(k, _)| k.to_lowercase() == "content-type")
-                {
-                    final_headers
-                        .insert("content-type".to_string(), "application/json".to_string());
-                }
-
-                Ok(())
-            })?;
-        }
-
-        // Add content-length header if content is present
-        if let Some(ref content_bytes) = final_content {
-            final_headers.insert(
-                "content-length".to_string(),
-                content_bytes.len().to_string(),
-            );
-        }
+        // JSON processing is now handled by HttpRequest::new_internal
+        let final_content = content;
 
         // Handle cookies - convert to Cookie header like httpx does
         if !final_cookies.is_empty() {
@@ -298,7 +270,7 @@ impl HttpClient {
         files: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
@@ -338,6 +310,9 @@ impl HttpClient {
             }
         };
 
+        // Simple timeout processing - back to original approach for performance
+        let timeout_secs = timeout.and_then(|t| Python::with_gil(|py| t.extract::<f64>(py).ok()));
+
         // Use ureq client's full request method (follow_redirects is handled by ureq config)
         let response = self.client.send_request_full(
             method,
@@ -348,7 +323,7 @@ impl HttpClient {
             files,
             params,
             headers,
-            timeout,
+            timeout_secs,
             auth_tuple,
             merged_cookies,
             follow_redirects,
@@ -395,7 +370,7 @@ impl HttpClient {
         files: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
@@ -447,7 +422,7 @@ impl HttpClient {
         url: &str,
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
@@ -478,7 +453,7 @@ impl HttpClient {
         files: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
@@ -509,7 +484,7 @@ impl HttpClient {
         files: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
@@ -540,7 +515,7 @@ impl HttpClient {
         files: Option<HashMap<String, PyObject>>,
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
@@ -567,7 +542,7 @@ impl HttpClient {
         url: &str,
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
@@ -594,7 +569,7 @@ impl HttpClient {
         url: &str,
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
@@ -621,7 +596,7 @@ impl HttpClient {
         url: &str,
         params: Option<HashMap<String, PyObject>>,
         headers: Option<HashMap<String, String>>,
-        timeout: Option<f64>,
+        timeout: Option<PyObject>,
         auth: Option<PyObject>,
         follow_redirects: Option<bool>,
         cookies: Option<HashMap<String, String>>,
@@ -653,7 +628,7 @@ impl HttpClient {
         _files: Option<HashMap<String, PyObject>>,
         _params: Option<HashMap<String, String>>,
         _headers: Option<HashMap<String, String>>,
-        _timeout: Option<f64>,
+        _timeout: Option<PyObject>,
         _auth: Option<(String, String)>,
         follow_redirects: Option<bool>,
         _cookies: Option<HashMap<String, String>>,
@@ -688,6 +663,9 @@ impl HttpClient {
             })
         });
 
+        // Simple timeout processing - back to original approach for performance
+        let timeout_secs = _timeout.and_then(|t| Python::with_gil(|py| t.extract::<f64>(py).ok()));
+
         // Use client's configuration and merge with request-specific parameters
         Ok(StreamingClient::new(
             self.config.clone(),
@@ -699,7 +677,7 @@ impl HttpClient {
             _files,
             converted_params,
             _headers,
-            _timeout,
+            timeout_secs,
             _auth,
             follow_redirects.unwrap_or(self.config.follow_redirects),
             merged_cookies,

@@ -21,7 +21,8 @@ from ._core import USE_CLIENT_DEFAULT
 from ._core import AsyncHttpClient as RustAsyncHttpClient
 from ._core import HttpClient as RustHttpClient
 from ._timeout import Timeout
-from ._timeout_utils import extract_timeout_for_rust, extract_timeout_for_rust_client, process_timeout_param
+
+# Timeout processing now handled entirely in Rust layer for optimal performance
 
 # Create module-level default timeout to avoid B008 warning
 _DEFAULT_TIMEOUT = Timeout(timeout=5.0)
@@ -64,35 +65,19 @@ class Client:
         trust_env: bool = True,
         default_encoding: str | None = "utf-8",
     ):
-        # Store client configuration for localhost requests
+        # Pure interface layer - store configuration for interface compatibility
         self._base_url = base_url
-        # Handle timeout parameter correctly - preserve complete Timeout object for USE_CLIENT_DEFAULT
-        self._original_timeout = timeout
-        processed_timeout = process_timeout_param(timeout)
-        if processed_timeout is None:
-            processed_timeout = Timeout(timeout=30.0)
-            self._timeout = processed_timeout  # 保存完整对象
-            self._timeout_for_rust = 30.0  # Rust层用的数值
-        elif isinstance(processed_timeout, Timeout):
-            self._timeout = processed_timeout  # 保存完整Timeout对象
-            self._timeout_for_rust = extract_timeout_for_rust(processed_timeout)  # Rust层用的数值
-        else:
-            float_timeout = float(processed_timeout)
-            processed_timeout = Timeout(timeout=float_timeout)
-            self._timeout = processed_timeout  # 保存完整对象
-            self._timeout_for_rust = float_timeout  # Rust层用的数值
+        self._timeout = timeout
         self._headers = headers or {}
         self._auth = auth
         self._cookies = cookies or {}
         self._params = params or {}
         self._follow_redirects = follow_redirects
 
-        # Create the Rust client with all parameters - Rust handles all logic
-        # Pass the processed timeout object to Rust layer for complete support
-        rust_timeout = extract_timeout_for_rust_client(processed_timeout)
+        # Pass timeout directly to Rust layer for centralized processing
         self._rust_client = RustHttpClient(
             base_url=base_url,
-            timeout=rust_timeout,
+            timeout=timeout,
             headers=headers,
             verify=verify,
             follow_redirects=follow_redirects,
@@ -119,7 +104,7 @@ class Client:
         if follow_redirects is USE_CLIENT_DEFAULT:
             follow_redirects = self._follow_redirects
         if timeout is USE_CLIENT_DEFAULT:
-            timeout = self._timeout_for_rust  # 使用预先计算的Rust层数值
+            timeout = self._timeout  # Pass original timeout object to Rust
         return auth, follow_redirects, timeout
 
     # _handle_localhost_request method removed - all requests go through Rust
@@ -567,35 +552,19 @@ class AsyncClient:
         trust_env: bool = True,
         default_encoding: str | None = "utf-8",
     ):
-        # Store client configuration for localhost requests
+        # Pure interface layer - store configuration for interface compatibility
         self._base_url = base_url
-        # Handle timeout parameter correctly - preserve complete Timeout object for USE_CLIENT_DEFAULT
-        self._original_timeout = timeout
-        processed_timeout = process_timeout_param(timeout)
-        if processed_timeout is None:
-            processed_timeout = Timeout(timeout=30.0)
-            self._timeout = processed_timeout  # 保存完整对象
-            self._timeout_for_rust = 30.0  # Rust层用的数值
-        elif isinstance(processed_timeout, Timeout):
-            self._timeout = processed_timeout  # 保存完整Timeout对象
-            self._timeout_for_rust = extract_timeout_for_rust(processed_timeout)  # Rust层用的数值
-        else:
-            float_timeout = float(processed_timeout)
-            processed_timeout = Timeout(timeout=float_timeout)
-            self._timeout = processed_timeout  # 保存完整对象
-            self._timeout_for_rust = float_timeout  # Rust层用的数值
+        self._timeout = timeout
         self._headers = headers or {}
         self._auth = auth
         self._cookies = cookies or {}
         self._params = params or {}
         self._follow_redirects = follow_redirects
 
-        # Create the Rust async client with all parameters - Rust handles all logic
-        # Pass the processed timeout object to Rust layer for complete support
-        rust_timeout = extract_timeout_for_rust_client(processed_timeout)
+        # Pass timeout directly to Rust layer for centralized processing
         self._rust_client = RustAsyncHttpClient(
             base_url=base_url,
-            timeout=rust_timeout,
+            timeout=timeout,
             headers=headers,
             verify=verify,
             follow_redirects=follow_redirects,
@@ -622,7 +591,7 @@ class AsyncClient:
         if follow_redirects is USE_CLIENT_DEFAULT:
             follow_redirects = self._follow_redirects
         if timeout is USE_CLIENT_DEFAULT:
-            timeout = self._timeout_for_rust  # 使用预先计算的Rust层数值
+            timeout = self._timeout  # Pass original timeout object to Rust
         return auth, follow_redirects, timeout
 
     # _handle_localhost_request_async method removed - all requests go through Rust
@@ -935,6 +904,31 @@ class AsyncClient:
             kwargs.get("follow_redirects"),
             kwargs.get("cookies"),
         )
+
+    def close(self) -> None:
+        """
+        Close the async client synchronously.
+
+        This method provides compatibility with code that expects a synchronous close() method.
+        Note: This is a blocking operation that runs the event loop to call aclose().
+        """
+        try:
+            import asyncio
+            # Try to get the current event loop without creating one
+            try:
+                asyncio.get_running_loop()
+                # If we're already in a running event loop, we can't block
+                # Instead, just create a task to close asynchronously
+                # Store task reference to satisfy linter, but we don't await it
+                _task = asyncio.create_task(self.aclose())  # noqa: RUF006
+                return
+            except RuntimeError:
+                # No running event loop, safe to use asyncio.run()
+                asyncio.run(self.aclose())
+        except Exception:
+            # Fallback: if anything fails, just pass silently
+            # The client will be closed when garbage collected
+            pass
 
     async def aclose(self) -> Any:
         """Close the async client."""
