@@ -62,9 +62,8 @@ impl ClientConfig {
     ) -> PyResult<Self> {
         // Simple auth extraction - no complex validation
         let (auth_type, auth_object) = if let Some(auth_obj) = auth {
-            let extracted = Python::with_gil(|_py| {
-                extract_auth_from_object(&auth_obj).unwrap_or(None)
-            });
+            let extracted =
+                Python::with_gil(|_py| extract_auth_from_object(&auth_obj).unwrap_or(None));
             (extracted, Some(auth_obj))
         } else {
             (None, None)
@@ -72,9 +71,7 @@ impl ClientConfig {
 
         // Simple timeout conversion
         let timeout_value = if let Some(timeout_obj) = timeout {
-            Python::with_gil(|py| {
-                timeout_obj.extract::<f64>(py).ok()
-            })
+            Python::with_gil(|py| timeout_obj.extract::<f64>(py).ok())
         } else {
             None
         };
@@ -130,7 +127,10 @@ impl ClientConfig {
     }
 
     /// Simplified merge headers - no complex validation
-    pub fn merge_headers(&self, request_headers: Option<HashMap<String, String>>) -> HashMap<String, String> {
+    pub fn merge_headers(
+        &self,
+        request_headers: Option<HashMap<String, String>>,
+    ) -> HashMap<String, String> {
         let mut merged = self.default_headers.clone();
         if let Some(headers) = request_headers {
             merged.extend(headers);
@@ -151,7 +151,11 @@ impl ClientConfig {
             if path.starts_with("http://") || path.starts_with("https://") {
                 path.to_string()
             } else {
-                format!("{}/{}", base.trim_end_matches('/'), path.trim_start_matches('/'))
+                format!(
+                    "{}/{}",
+                    base.trim_end_matches('/'),
+                    path.trim_start_matches('/')
+                )
             }
         } else {
             path.to_string()
@@ -161,8 +165,8 @@ impl ClientConfig {
     /// Create from environment - simplified stub
     pub fn from_environment() -> PyResult<Self> {
         Self::new(
-            None, None, None, None, None, None, None, None, None, None, None,
-            None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None,
         )
     }
 }

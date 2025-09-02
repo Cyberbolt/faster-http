@@ -3,6 +3,8 @@ HTTP status code constants for faster-http
 Compatible with httpx.codes interface
 """
 
+from __future__ import annotations
+
 
 class _StatusCodes:
     """HTTP status code constants matching httpx.codes interface"""
@@ -79,11 +81,11 @@ class _StatusCodes:
     NOT_EXTENDED = 510
     NETWORK_AUTHENTICATION_REQUIRED = 511
 
-    def __contains__(self, status_code):
+    def __contains__(self, status_code: int) -> bool:
         """Check if a status code is defined"""
         return hasattr(self, self._code_to_name(status_code))
 
-    def _code_to_name(self, code):
+    def _code_to_name(self, code: int) -> str | None:
         """Convert status code to attribute name (reverse lookup)"""
         for name in dir(self):
             if not name.startswith("_") and getattr(self, name) == code:

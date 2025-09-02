@@ -24,8 +24,8 @@ pub async fn send_request_direct(
         .map_err(|e| RequestError::new_err(format!("Invalid method: {}", e)))?;
 
     // Convert URL string to hyper Uri
-    let uri = Uri::from_str(url)
-        .map_err(|e| RequestError::new_err(format!("Invalid URI: {}", e)))?;
+    let uri =
+        Uri::from_str(url).map_err(|e| RequestError::new_err(format!("Invalid URI: {}", e)))?;
 
     // Convert headers (simple copy)
     let headers_opt = if headers.is_empty() {
@@ -55,12 +55,14 @@ pub async fn send_request(
     // Simple conversion: HttpRequest -> hyper parameters
     let method = Method::from_str(request.method_str())
         .map_err(|e| RequestError::new_err(format!("Invalid method: {}", e)))?;
-    
+
     let uri = Uri::from_str(request.url_str())
         .map_err(|e| RequestError::new_err(format!("Invalid URI: {}", e)))?;
-    
+
     let headers = Some(request.headers_map().clone());
-    let body = request.content_bytes().map(|b| Bytes::copy_from_slice(b.as_ref()));
+    let body = request
+        .content_bytes()
+        .map(|b| Bytes::copy_from_slice(b.as_ref()));
 
     // Delegate to hyper client
     client.request(method, uri, headers, body).await

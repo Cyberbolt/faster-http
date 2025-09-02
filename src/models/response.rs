@@ -90,23 +90,24 @@ impl HttpResponse {
         };
 
         // Ensure request is always available - create default if None
+        // Use internal constructor to avoid GIL nesting issues
         let final_request = request.or_else(|| {
-            // Create a default HttpRequest object if none provided
+            // Create a default HttpRequest object using internal constructor (GIL-safe)
+            let default_request = crate::models::request::HttpRequest::new_internal(
+                "GET".to_string(),
+                url.clone(),
+                HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+            // Convert to PyObject in the calling context that already has GIL
             Python::with_gil(|py| {
-                crate::models::request::HttpRequest::new(
-                    "GET".to_string(),
-                    url.clone(),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                )
-                .ok()
-                .and_then(|req| Py::new(py, req).ok().map(|obj| obj.to_object(py)))
+                Py::new(py, default_request).ok().map(|obj| obj.to_object(py))
             })
         });
 
@@ -479,8 +480,10 @@ iter_lines_impl(lines)
         let body = self.body.clone();
 
         future_into_py(py, async move {
-            // Use with_gil directly without spawn_blocking to avoid async context conflicts
-            Python::with_gil(|py| -> PyResult<Py<PyBytes>> { Ok(PyBytes::new(py, &body).into()) })
+            // Avoid nested GIL calls - use py.allow_threads for safety
+            Python::with_gil(|py| -> PyResult<Py<PyBytes>> { 
+                Ok(PyBytes::new(py, &body).into()) 
+            })
         })
     }
 
@@ -495,12 +498,11 @@ iter_lines_impl(lines)
     // ==================== Other methods ====================
     pub fn raise_for_status(&self) -> PyResult<()> {
         if self.status_code >= 400 {
-            let (request_obj, response_obj) = Python::with_gil(|py| {
-                // Convert self to PyObject
-                let response = Py::new(py, self.clone()).map(|obj| obj.to_object(py)).ok();
-                // Get the request object from self.request
-                let request = self.request.clone();
-                (request, response)
+            // Extract request and response objects without nested GIL calls
+            let request_obj = self.request.clone();
+            let response_obj = Python::with_gil(|py| {
+                // Convert self to PyObject safely
+                Py::new(py, self.clone()).map(|obj| obj.to_object(py)).ok()
             });
 
             return Err(HTTPStatusError::new_err_with_request_response(
@@ -870,7 +872,7 @@ mod tests {
     fn test_http_response_new() {
         let mut headers = HashMap::new();
         headers.insert("content-type".to_string(), "application/json".to_string());
-        
+
         let body = Bytes::from("test body");
         let response = HttpResponse::new(
             200,
@@ -884,7 +886,7 @@ mod tests {
             Some("utf-8".to_string()),
             Vec::new(),
             None,
-            9
+            9,
         );
 
         assert_eq!(response.status_code(), 200);
@@ -946,7 +948,8 @@ mod tests {
     // Test text content access with different encodings
     #[test]
     fn test_http_response_text_utf8() -> PyResult<()> {
-        let response = create_test_response_with_body(200, "Hello, World!".as_bytes(), Some("utf-8"));
+        let response =
+            create_test_response_with_body(200, "Hello, World!".as_bytes(), Some("utf-8"));
         let text = response.text()?;
         assert_eq!(text, "Hello, World!");
         Ok(())
@@ -975,27 +978,30 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert("content-type".to_string(), "application/json".to_string());
         headers.insert("content-length".to_string(), "42".to_string());
-        
+
         let response = create_test_response_with_headers(200, headers.clone());
         let response_headers = response.headers();
-        
+
         // Verify headers are accessible using public methods
         let headers_map = response_headers.to_hashmap();
         assert!(headers_map.contains_key("content-type"));
         assert!(headers_map.contains_key("content-length"));
-        assert_eq!(headers_map.get("content-type"), Some(&"application/json".to_string()));
+        assert_eq!(
+            headers_map.get("content-type"),
+            Some(&"application/json".to_string())
+        );
     }
 
-    // Test cookies access  
+    // Test cookies access
     #[test]
     fn test_http_response_cookies() {
         let mut cookies = HashMap::new();
         cookies.insert("sessionid".to_string(), "abc123".to_string());
         cookies.insert("csrf_token".to_string(), "xyz789".to_string());
-        
+
         let response = create_test_response_with_cookies(200, cookies.clone());
         let response_cookies = response.cookies();
-        
+
         // Verify cookies are accessible using public methods
         let cookies_map = response_cookies.to_hashmap();
         assert!(cookies_map.contains_key("sessionid"));
@@ -1008,7 +1014,7 @@ mod tests {
     fn test_http_response_history() {
         let response = create_test_response(200);
         assert_eq!(response.history().len(), 0);
-        
+
         // Test with_history method
         let new_history = vec![];
         let response_with_history = response.with_history(new_history);
@@ -1017,11 +1023,11 @@ mod tests {
     }
 
     // Test extensions
-    #[test] 
+    #[test]
     fn test_http_response_extensions() {
         let response = create_test_response(200);
         let extensions = response.extensions();
-        
+
         // Should contain at least http_version and reason_phrase extensions
         assert!(extensions.contains_key("http_version"));
         assert!(extensions.contains_key("reason_phrase"));
@@ -1049,7 +1055,7 @@ mod tests {
         let response_302 = create_test_response(302);
         let response_307 = create_test_response(307);
         let response_308 = create_test_response(308);
-        
+
         assert!(response_301.is_redirect());
         assert!(response_302.is_redirect());
         assert!(response_307.is_redirect());
@@ -1060,13 +1066,13 @@ mod tests {
     #[test]
     fn test_edge_case_status_codes() {
         // Test boundary conditions
-        let response_99 = create_test_response(99);   // Below informational
+        let response_99 = create_test_response(99); // Below informational
         let response_199 = create_test_response(199); // Edge of informational
         let response_299 = create_test_response(299); // Edge of success
         let response_399 = create_test_response(399); // Edge of redirect
         let response_499 = create_test_response(499); // Edge of client error
         let response_599 = create_test_response(599); // Server error
-        
+
         assert!(!response_99.is_informational());
         assert!(response_199.is_informational());
         assert!(response_299.is_success());
@@ -1080,7 +1086,7 @@ mod tests {
     fn test_http_response_body_content() {
         let body_content = "test response body";
         let response = create_test_response_with_body(200, body_content.as_bytes(), None);
-        
+
         assert_eq!(response.body.len(), body_content.len());
         assert_eq!(&response.body[..], body_content.as_bytes());
     }
@@ -1089,7 +1095,7 @@ mod tests {
     #[test]
     fn test_http_response_empty() {
         let response = create_test_response_with_body(204, &[], None);
-        
+
         assert_eq!(response.status_code(), 204);
         assert_eq!(response.body.len(), 0);
         assert!(response.is_success());
@@ -1100,7 +1106,7 @@ mod tests {
     fn test_http_response_large_body() {
         let large_body = vec![b'x'; 10_000]; // 10KB of 'x'
         let response = create_test_response_with_body(200, &large_body, None);
-        
+
         assert_eq!(response.body.len(), 10_000);
         assert_eq!(response.num_bytes_downloaded(), large_body.len());
     }
@@ -1109,11 +1115,17 @@ mod tests {
     #[test]
     fn test_detect_encoding() {
         let mut headers = HashMap::new();
-        headers.insert("content-type".to_string(), "text/html; charset=utf-8".to_string());
+        headers.insert(
+            "content-type".to_string(),
+            "text/html; charset=utf-8".to_string(),
+        );
         let encoding = detect_encoding(&headers);
         assert_eq!(encoding, Some("utf-8".to_string()));
 
-        headers.insert("content-type".to_string(), "text/html; charset=latin-1".to_string());
+        headers.insert(
+            "content-type".to_string(),
+            "text/html; charset=latin-1".to_string(),
+        );
         let encoding = detect_encoding(&headers);
         assert_eq!(encoding, Some("latin-1".to_string()));
 
@@ -1158,11 +1170,15 @@ mod tests {
             Some("utf-8".to_string()),
             Vec::new(),
             None,
-            0
+            0,
         )
     }
 
-    fn create_test_response_with_body(status_code: u16, body: &[u8], encoding: Option<&str>) -> HttpResponse {
+    fn create_test_response_with_body(
+        status_code: u16,
+        body: &[u8],
+        encoding: Option<&str>,
+    ) -> HttpResponse {
         HttpResponse::new(
             status_code,
             HashMap::new(),
@@ -1175,11 +1191,14 @@ mod tests {
             encoding.map(|s| s.to_string()),
             Vec::new(),
             None,
-            body.len()
+            body.len(),
         )
     }
 
-    fn create_test_response_with_headers(status_code: u16, headers: HashMap<String, String>) -> HttpResponse {
+    fn create_test_response_with_headers(
+        status_code: u16,
+        headers: HashMap<String, String>,
+    ) -> HttpResponse {
         HttpResponse::new(
             status_code,
             headers,
@@ -1192,11 +1211,14 @@ mod tests {
             Some("utf-8".to_string()),
             Vec::new(),
             None,
-            0
+            0,
         )
     }
 
-    fn create_test_response_with_cookies(status_code: u16, cookies: HashMap<String, String>) -> HttpResponse {
+    fn create_test_response_with_cookies(
+        status_code: u16,
+        cookies: HashMap<String, String>,
+    ) -> HttpResponse {
         HttpResponse::new(
             status_code,
             HashMap::new(),
@@ -1209,7 +1231,7 @@ mod tests {
             Some("utf-8".to_string()),
             Vec::new(),
             None,
-            0
+            0,
         )
     }
 }

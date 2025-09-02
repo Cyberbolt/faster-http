@@ -26,12 +26,22 @@ pub struct ProxyConfig {
 }
 
 /// Proxy authentication credentials
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ProxyAuth {
     /// Username
     pub username: String,
     /// Password
     pub password: String,
+}
+
+// SECURITY: Custom Debug implementation to prevent password leakage
+impl std::fmt::Debug for ProxyAuth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProxyAuth")
+            .field("username", &self.username)
+            .field("password", &"***REDACTED***")
+            .finish()
+    }
 }
 
 // Default implementation is derived automatically

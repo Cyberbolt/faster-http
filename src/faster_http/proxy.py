@@ -3,8 +3,10 @@ Proxy configuration class for faster-http
 Compatible with httpx.Proxy interface
 """
 
+from __future__ import annotations
+
 import ssl
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from . import URL, Headers
@@ -15,7 +17,7 @@ class Proxy:
 
     def __init__(
         self,
-        url: Union[str, "URL"],
+        url: str | URL,
         *,
         ssl_context: ssl.SSLContext | None = None,
         auth: tuple[str, str] | None = None,
@@ -52,7 +54,7 @@ class Proxy:
             self._headers = headers
 
     @property
-    def url(self) -> "URL":
+    def url(self) -> URL:
         """The URL of the proxy server"""
         return self._url
 
@@ -69,7 +71,7 @@ class Proxy:
         return (self._auth[0].encode("utf-8"), self._auth[1].encode("utf-8"))
 
     @property
-    def headers(self) -> "Headers":
+    def headers(self) -> Headers:
         """Headers to send with proxy requests"""
         return self._headers
 

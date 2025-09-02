@@ -9,7 +9,7 @@ mod client; // HTTP client implementations
 mod config; // Configuration management
 mod core; // Core functionality
 mod models; // Data models and types
-// mod optimization; // Performance optimizations - REMOVED for pure conversion layer
+            // mod optimization; // Performance optimizations - REMOVED for pure conversion layer
 mod stubs;
 mod transport; // Transport layer
 mod utils; // Utility functions // Placeholder implementations

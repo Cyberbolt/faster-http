@@ -4,8 +4,8 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper::{Method, Response, Uri, Version};
-use hyper_util::client::legacy::{connect::HttpConnector, Client};
 use hyper_rustls::HttpsConnector;
+use hyper_util::client::legacy::{connect::HttpConnector, Client};
 use hyper_util::rt::TokioExecutor;
 use pyo3::prelude::*;
 use std::collections::HashMap;
@@ -58,8 +58,7 @@ impl HyperHttpClient {
             .build();
 
         // Create client with native connection pooling
-        let client = Client::builder(TokioExecutor::new())
-            .build(https);
+        let client = Client::builder(TokioExecutor::new()).build(https);
 
         Ok(Self { client, config })
     }
@@ -85,9 +84,7 @@ impl HyperHttpClient {
         body: Option<Bytes>,
     ) -> PyResult<HttpResponse> {
         // Build hyper request
-        let mut req = hyper::Request::builder()
-            .method(method)
-            .uri(uri);
+        let mut req = hyper::Request::builder().method(method).uri(uri);
 
         // Add headers if provided
         if let Some(headers_map) = headers {
@@ -97,13 +94,17 @@ impl HyperHttpClient {
         }
 
         // Build request body
-        let body = body.map(Full::new).unwrap_or_else(|| Full::new(Bytes::new()));
-        
-        let request = req.body(body)
+        let body = body
+            .map(Full::new)
+            .unwrap_or_else(|| Full::new(Bytes::new()));
+
+        let request = req
+            .body(body)
             .map_err(|e| RequestError::new_err(format!("Failed to build request: {}", e)))?;
 
         // Send request using hyper's native client
-        let response = self.client
+        let response = self
+            .client
             .request(request)
             .await
             .map_err(|e| RequestError::new_err(format!("Request failed: {}", e)))?;
@@ -117,7 +118,7 @@ impl HyperHttpClient {
         let status = response.status().as_u16();
         let version = match response.version() {
             Version::HTTP_09 => "HTTP/0.9",
-            Version::HTTP_10 => "HTTP/1.0", 
+            Version::HTTP_10 => "HTTP/1.0",
             Version::HTTP_11 => "HTTP/1.1",
             Version::HTTP_2 => "HTTP/2.0",
             Version::HTTP_3 => "HTTP/3.0",
@@ -147,14 +148,14 @@ impl HyperHttpClient {
             headers,
             body_bytes,
             "".to_string(), // url - will be set by caller
-            0.0, // elapsed - will be calculated by caller
-            false, // is_redirect_status
+            0.0,            // elapsed - will be calculated by caller
+            false,          // is_redirect_status
             version.to_string(),
             HashMap::new(), // cookies - empty for now
-            None, // encoding
-            Vec::new(), // history
-            None, // request
-            body_len, // num_bytes_downloaded
+            None,           // encoding
+            Vec::new(),     // history
+            None,           // request
+            body_len,       // num_bytes_downloaded
         ))
     }
 

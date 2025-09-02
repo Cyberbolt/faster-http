@@ -16,7 +16,7 @@ pub struct SslConfig {
 }
 
 /// Client certificate configuration for mutual TLS
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ClientCert {
     /// Certificate file path
     pub cert_file: PathBuf,
@@ -24,6 +24,17 @@ pub struct ClientCert {
     pub key_file: PathBuf,
     /// Optional password for encrypted private key
     pub password: Option<String>,
+}
+
+// SECURITY: Custom Debug implementation to prevent password leakage
+impl std::fmt::Debug for ClientCert {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientCert")
+            .field("cert_file", &self.cert_file)
+            .field("key_file", &self.key_file)
+            .field("password", &self.password.as_ref().map(|_| "***REDACTED***"))
+            .finish()
+    }
 }
 
 impl Default for SslConfig {

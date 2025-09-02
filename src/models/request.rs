@@ -166,7 +166,7 @@ impl HttpRequest {
 
         future_into_py(py, async move {
             use pyo3::types::PyBytes;
-            // Use with_gil directly without spawn_blocking to avoid async context conflicts
+            // Avoid nested GIL calls - use single GIL acquisition
             Python::with_gil(|py| -> PyResult<pyo3::Py<PyBytes>> {
                 match content {
                     Some(bytes) => Ok(PyBytes::new(py, &bytes).into()),

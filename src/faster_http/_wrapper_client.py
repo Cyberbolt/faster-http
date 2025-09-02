@@ -9,6 +9,8 @@ ARCHITECTURAL ENHANCEMENT: Smart Request Routing
 - external requests -> Rust implementation for performance
 """
 
+from __future__ import annotations
+
 # Async support
 from collections.abc import Callable
 from typing import Any
@@ -365,7 +367,7 @@ class Client:
             timeout=timeout,
         )
 
-    def send(self, request):
+    def send(self, request: Any) -> Any:
         """
         Send a pre-built Request object.
 
@@ -413,7 +415,7 @@ class Client:
             stream=stream,
         )
 
-    def stream(self, method: str, url: str, **kwargs):
+    def stream(self, method: str, url: str, **kwargs: Any) -> Any:
         """Send streaming request."""
         return self._rust_client.stream(
             method,
@@ -430,85 +432,85 @@ class Client:
             kwargs.get("cookies"),
         )
 
-    def close(self):
+    def close(self) -> Any:
         """Close the client."""
         return self._rust_client.close()
 
-    def __enter__(self):
+    def __enter__(self) -> Client:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
         """Context manager exit."""
         self.close()
         return False
 
     # Expose Rust client attributes for httpx compatibility
     @property
-    def base_url(self):
+    def base_url(self) -> Any:
         """Get base URL."""
         return self._rust_client.base_url
 
     @property
-    def headers(self):
+    def headers(self) -> Any:
         """Get default headers."""
         return self._rust_client.headers
 
     @property
-    def cookies(self):
+    def cookies(self) -> Any:
         """Get default cookies."""
         return self._rust_client.cookies
 
     @property
-    def params(self):
+    def params(self) -> Any:
         """Get default params."""
         return self._rust_client.params
 
     @property
-    def auth(self):
+    def auth(self) -> Any:
         """Get authentication."""
         return self._rust_client.auth
 
     @property
-    def event_hooks(self):
+    def event_hooks(self) -> Any:
         """Get event hooks proxy for httpx compatibility."""
         return self._rust_client.event_hooks
 
     @property
-    def follow_redirects(self):
+    def follow_redirects(self) -> bool:
         """Get follow_redirects setting."""
         return self._rust_client.follow_redirects
 
     # Internal connection pool monitoring methods (not part of httpx API)
-    def _get_connection_stats(self):
+    def _get_connection_stats(self) -> Any:
         """Internal: Get connection pool statistics for monitoring."""
         return self._rust_client.get_connection_stats()
 
-    def _is_connection_healthy(self):
+    def _is_connection_healthy(self) -> bool:
         """Internal: Check if connection pool is healthy."""
         return self._rust_client.is_connection_healthy()
 
-    async def _cleanup_connections(self):
+    async def _cleanup_connections(self) -> Any:
         """Internal: Cleanup idle connections in the pool."""
         return await self._rust_client.cleanup_connections()
 
     # Missing httpx compatibility methods
-    def is_closed(self):
+    def is_closed(self) -> bool:
         """Check if the client is closed."""
         return getattr(self._rust_client, "is_closed", lambda: False)()
 
     @property
-    def timeout(self):
+    def timeout(self) -> Any:
         """Get the timeout setting."""
         return getattr(self._rust_client, "timeout", self._timeout)
 
     @property
-    def trust_env(self):
+    def trust_env(self) -> bool:
         """Get the trust_env setting."""
         return getattr(self._rust_client, "trust_env", True)
 
     @property
-    def max_redirects(self):
+    def max_redirects(self) -> int:
         """Get max redirects setting, compatible with httpx.Client."""
         # Check if we have a Python-side override first
         if hasattr(self, "_max_redirects_override"):
@@ -639,7 +641,7 @@ class AsyncClient:
         auth: Any | None = None,
         follow_redirects: bool | None = None,
         cookies: dict[str, str] | None = None,
-    ):
+    ) -> Any:
         """
         Send async HTTP request with GIL-free async processing.
 
@@ -917,7 +919,7 @@ class AsyncClient:
             stream=stream,
         )
 
-    def stream(self, method: str, url: str, **kwargs):
+    def stream(self, method: str, url: str, **kwargs: Any) -> Any:
         """Send streaming request."""
         return self._rust_client.stream(
             method,
@@ -934,85 +936,85 @@ class AsyncClient:
             kwargs.get("cookies"),
         )
 
-    async def aclose(self):
+    async def aclose(self) -> Any:
         """Close the async client."""
         return await self._rust_client.aclose()
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> AsyncClient:
         """Async context manager entry."""
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
         """Async context manager exit."""
         await self.aclose()
         return False
 
     # Expose Rust client attributes for httpx compatibility
     @property
-    def base_url(self):
+    def base_url(self) -> Any:
         """Get base URL."""
         return self._rust_client.base_url()
 
     @property
-    def headers(self):
+    def headers(self) -> Any:
         """Get default headers."""
         return self._rust_client.headers()
 
     @property
-    def cookies(self):
+    def cookies(self) -> Any:
         """Get default cookies."""
         return self._rust_client.cookies()
 
     @property
-    def params(self):
+    def params(self) -> Any:
         """Get default params."""
         return self._rust_client.params()
 
     @property
-    def auth(self):
+    def auth(self) -> Any:
         """Get authentication."""
         return self._rust_client.auth()
 
     @property
-    def event_hooks(self):
+    def event_hooks(self) -> Any:
         """Get event hooks proxy for httpx compatibility."""
         return self._rust_client.event_hooks()
 
     @property
-    def follow_redirects(self):
+    def follow_redirects(self) -> bool:
         """Get follow_redirects setting."""
         return self._rust_client.follow_redirects()
 
     # Internal connection pool monitoring methods (not part of httpx API)
-    def _get_connection_stats(self):
+    def _get_connection_stats(self) -> Any:
         """Internal: Get connection pool statistics for monitoring."""
         return self._rust_client.get_connection_stats()
 
-    def _is_connection_healthy(self):
+    def _is_connection_healthy(self) -> bool:
         """Internal: Check if connection pool is healthy."""
         return self._rust_client.is_connection_healthy()
 
-    async def _cleanup_connections(self):
+    async def _cleanup_connections(self) -> Any:
         """Internal: Cleanup idle connections in the pool."""
         return await self._rust_client.cleanup_connections()
 
     # Missing httpx compatibility methods
-    def is_closed(self):
+    def is_closed(self) -> bool:
         """Check if the client is closed."""
         return getattr(self._rust_client, "is_closed", lambda: False)()
 
     @property
-    def timeout(self):
+    def timeout(self) -> Any:
         """Get the timeout setting."""
         return getattr(self._rust_client, "timeout", self._timeout)
 
     @property
-    def trust_env(self):
+    def trust_env(self) -> bool:
         """Get the trust_env setting."""
         return getattr(self._rust_client, "trust_env", True)
 
     @property
-    def max_redirects(self):
+    def max_redirects(self) -> int:
         """Get max redirects setting, compatible with httpx.AsyncClient."""
         # Check if we have a Python-side override first
         if hasattr(self, "_max_redirects_override"):

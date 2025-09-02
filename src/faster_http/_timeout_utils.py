@@ -4,10 +4,14 @@
 用于在所有Python层代码中统一处理timeout参数，确保与httpx完全兼容。
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from ._timeout import Timeout
 
 
-def process_timeout_param(timeout_param):
+def process_timeout_param(timeout_param: None | float | int | dict[str, Any] | Timeout) -> Timeout | None:
     """
     统一处理timeout参数，确保与httpx完全兼容。
 
@@ -33,13 +37,13 @@ def process_timeout_param(timeout_param):
             connect=timeout_param.get("connect"),
             read=timeout_param.get("read"),
             write=timeout_param.get("write"),
-            pool=timeout_param.get("pool")
+            pool=timeout_param.get("pool"),
         )
     else:
         raise TypeError(f"timeout must be a number, Timeout object, dict, or None, got {type(timeout_param)}")
 
 
-def extract_timeout_for_rust(timeout_param):
+def extract_timeout_for_rust(timeout_param: None | Timeout | float | int) -> float | None:
     """
     提取timeout参数以便传递给Rust层。
 
@@ -80,7 +84,7 @@ def extract_timeout_for_rust(timeout_param):
         return 30.0
 
 
-def extract_timeout_for_rust_client(timeout_param):
+def extract_timeout_for_rust_client(timeout_param: None | Timeout | float | int) -> None | Timeout | float:
     """
     为Rust客户端提取timeout参数。
 

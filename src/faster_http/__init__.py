@@ -4,6 +4,13 @@ faster-http: HTTP client compatible with httpx API, powered by Rust's hyper libr
 This library provides a drop-in replacement for httpx API, implemented using Rust's hyper library through PyO3 bindings.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Any
+
 # All imports at the top following Python best practices
 from . import proxy as _proxy_module
 from ._core import (
@@ -104,7 +111,7 @@ _rust_request = request
 _MODULE_DEFAULT_TIMEOUT = Timeout(timeout=5.0)
 
 
-def _process_timeout_for_request(timeout):
+def _process_timeout_for_request(timeout: float | Timeout | None) -> Any:
     """Helper function to process timeout parameter for all request methods."""
     from ._timeout_utils import extract_timeout_for_rust, process_timeout_param
 
@@ -114,18 +121,18 @@ def _process_timeout_for_request(timeout):
 
 # Create Python wrapper functions with proper default values
 def get(
-    url,
+    url: str | URL,
     *,
-    params=None,
-    headers=None,
-    cookies=None,
-    auth=None,
-    proxy=None,
-    follow_redirects=False,
-    verify=True,
-    timeout=_MODULE_DEFAULT_TIMEOUT,
-    trust_env=True,
-):
+    params: dict[str, Any] | QueryParams | None = None,
+    headers: dict[str, str] | Headers | None = None,
+    cookies: dict[str, str] | Cookies | None = None,
+    auth: Auth | None = None,
+    proxy: Proxy | None = None,
+    follow_redirects: bool = False,
+    verify: bool | str = True,
+    timeout: float | Timeout | None = _MODULE_DEFAULT_TIMEOUT,
+    trust_env: bool = True,
+) -> Response:
     """Send GET request with httpx-compatible defaults."""
     rust_timeout = _process_timeout_for_request(timeout)
     return _rust_get(
@@ -143,22 +150,22 @@ def get(
 
 
 def post(
-    url,
+    url: str | URL,
     *,
-    content=None,
-    data=None,
-    json=None,
-    files=None,
-    params=None,
-    headers=None,
-    cookies=None,
-    auth=None,
-    proxy=None,
-    follow_redirects=False,
-    verify=True,
-    timeout=_MODULE_DEFAULT_TIMEOUT,
-    trust_env=True,
-):
+    content: str | bytes | None = None,
+    data: dict[str, Any] | list[tuple] | bytes | str | None = None,
+    json: Any | None = None,
+    files: dict[str, Any] | None = None,
+    params: dict[str, Any] | QueryParams | None = None,
+    headers: dict[str, str] | Headers | None = None,
+    cookies: dict[str, str] | Cookies | None = None,
+    auth: Auth | None = None,
+    proxy: Proxy | None = None,
+    follow_redirects: bool = False,
+    verify: bool | str = True,
+    timeout: float | Timeout | None = _MODULE_DEFAULT_TIMEOUT,
+    trust_env: bool = True,
+) -> Response:
     """Send POST request with httpx-compatible defaults."""
     rust_timeout = _process_timeout_for_request(timeout)
     return _rust_post(
@@ -180,22 +187,22 @@ def post(
 
 
 def put(
-    url,
+    url: str | URL,
     *,
-    content=None,
-    data=None,
-    json=None,
-    files=None,
-    params=None,
-    headers=None,
-    cookies=None,
-    auth=None,
-    proxy=None,
-    follow_redirects=False,
-    verify=True,
-    timeout=_MODULE_DEFAULT_TIMEOUT,
-    trust_env=True,
-):
+    content: str | bytes | None = None,
+    data: dict[str, Any] | list[tuple] | bytes | str | None = None,
+    json: Any | None = None,
+    files: dict[str, Any] | None = None,
+    params: dict[str, Any] | QueryParams | None = None,
+    headers: dict[str, str] | Headers | None = None,
+    cookies: dict[str, str] | Cookies | None = None,
+    auth: Auth | None = None,
+    proxy: Proxy | None = None,
+    follow_redirects: bool = False,
+    verify: bool | str = True,
+    timeout: float | Timeout | None = _MODULE_DEFAULT_TIMEOUT,
+    trust_env: bool = True,
+) -> Response:
     """Send PUT request with httpx-compatible defaults."""
     rust_timeout = _process_timeout_for_request(timeout)
     return _rust_put(
@@ -217,22 +224,22 @@ def put(
 
 
 def patch(
-    url,
+    url: str | URL,
     *,
-    content=None,
-    data=None,
-    json=None,
-    files=None,
-    params=None,
-    headers=None,
-    cookies=None,
-    auth=None,
-    proxy=None,
-    follow_redirects=False,
-    verify=True,
-    timeout=_MODULE_DEFAULT_TIMEOUT,
-    trust_env=True,
-):
+    content: str | bytes | None = None,
+    data: dict[str, Any] | list[tuple] | bytes | str | None = None,
+    json: Any | None = None,
+    files: dict[str, Any] | None = None,
+    params: dict[str, Any] | QueryParams | None = None,
+    headers: dict[str, str] | Headers | None = None,
+    cookies: dict[str, str] | Cookies | None = None,
+    auth: Auth | None = None,
+    proxy: Proxy | None = None,
+    follow_redirects: bool = False,
+    verify: bool | str = True,
+    timeout: float | Timeout | None = _MODULE_DEFAULT_TIMEOUT,
+    trust_env: bool = True,
+) -> Response:
     """Send PATCH request with httpx-compatible defaults."""
     rust_timeout = _process_timeout_for_request(timeout)
     return _rust_patch(
@@ -254,18 +261,18 @@ def patch(
 
 
 def delete(
-    url,
+    url: str | URL,
     *,
-    params=None,
-    headers=None,
-    cookies=None,
-    auth=None,
-    proxy=None,
-    follow_redirects=False,
-    verify=True,
-    timeout=_MODULE_DEFAULT_TIMEOUT,
-    trust_env=True,
-):
+    params: dict[str, Any] | QueryParams | None = None,
+    headers: dict[str, str] | Headers | None = None,
+    cookies: dict[str, str] | Cookies | None = None,
+    auth: Auth | None = None,
+    proxy: Proxy | None = None,
+    follow_redirects: bool = False,
+    verify: bool | str = True,
+    timeout: float | Timeout | None = _MODULE_DEFAULT_TIMEOUT,
+    trust_env: bool = True,
+) -> Response:
     """Send DELETE request with httpx-compatible defaults."""
     rust_timeout = _process_timeout_for_request(timeout)
     return _rust_delete(
@@ -283,18 +290,18 @@ def delete(
 
 
 def head(
-    url,
+    url: str | URL,
     *,
-    params=None,
-    headers=None,
-    cookies=None,
-    auth=None,
-    proxy=None,
-    follow_redirects=False,
-    verify=True,
-    timeout=_MODULE_DEFAULT_TIMEOUT,
-    trust_env=True,
-):
+    params: dict[str, Any] | QueryParams | None = None,
+    headers: dict[str, str] | Headers | None = None,
+    cookies: dict[str, str] | Cookies | None = None,
+    auth: Auth | None = None,
+    proxy: Proxy | None = None,
+    follow_redirects: bool = False,
+    verify: bool | str = True,
+    timeout: float | Timeout | None = _MODULE_DEFAULT_TIMEOUT,
+    trust_env: bool = True,
+) -> Response:
     """Send HEAD request with httpx-compatible defaults."""
     rust_timeout = _process_timeout_for_request(timeout)
     return _rust_head(
@@ -312,18 +319,18 @@ def head(
 
 
 def options(
-    url,
+    url: str | URL,
     *,
-    params=None,
-    headers=None,
-    cookies=None,
-    auth=None,
-    proxy=None,
-    follow_redirects=False,
-    verify=True,
-    timeout=_MODULE_DEFAULT_TIMEOUT,
-    trust_env=True,
-):
+    params: dict[str, Any] | QueryParams | None = None,
+    headers: dict[str, str] | Headers | None = None,
+    cookies: dict[str, str] | Cookies | None = None,
+    auth: Auth | None = None,
+    proxy: Proxy | None = None,
+    follow_redirects: bool = False,
+    verify: bool | str = True,
+    timeout: float | Timeout | None = _MODULE_DEFAULT_TIMEOUT,
+    trust_env: bool = True,
+) -> Response:
     """Send OPTIONS request with httpx-compatible defaults."""
     rust_timeout = _process_timeout_for_request(timeout)
     return _rust_options(
@@ -341,23 +348,23 @@ def options(
 
 
 def request(
-    method,
-    url,
+    method: str,
+    url: str | URL,
     *,
-    content=None,
-    data=None,
-    json=None,
-    files=None,
-    params=None,
-    headers=None,
-    cookies=None,
-    auth=None,
-    proxy=None,
-    follow_redirects=False,
-    verify=True,
-    timeout=_MODULE_DEFAULT_TIMEOUT,
-    trust_env=True,
-):
+    content: str | bytes | None = None,
+    data: dict[str, Any] | list[tuple] | bytes | str | None = None,
+    json: Any | None = None,
+    files: dict[str, Any] | None = None,
+    params: dict[str, Any] | QueryParams | None = None,
+    headers: dict[str, str] | Headers | None = None,
+    cookies: dict[str, str] | Cookies | None = None,
+    auth: Auth | None = None,
+    proxy: Proxy | None = None,
+    follow_redirects: bool = False,
+    verify: bool | str = True,
+    timeout: float | Timeout | None = _MODULE_DEFAULT_TIMEOUT,
+    trust_env: bool = True,
+) -> Response:
     """Send HTTP request with httpx-compatible defaults."""
     rust_timeout = _process_timeout_for_request(timeout)
     return _rust_request(
@@ -385,13 +392,19 @@ def request(
 
 # Enhance HTTPStatusError and RequestError to support keyword arguments
 # Store original constructors in closure scope to avoid variable deletion issues
-def _create_enhanced_exceptions():
+def _create_enhanced_exceptions() -> tuple[Any, Any]:
     """Create enhanced exception classes with keyword argument support."""
     # Store original constructors in local scope
     orig_http_status_error_init = HTTPStatusError.__init__
     orig_request_error_init = RequestError.__init__
 
-    def enhanced_httpstatuserror_init(self, message=None, *, request=None, response=None):
+    def enhanced_httpstatuserror_init(
+        self: HTTPStatusError,
+        message: str | None = None,
+        *,
+        request: Request | None = None,
+        response: Response | None = None,
+    ) -> None:
         """Enhanced HTTPStatusError initializer with keyword argument support."""
         if message is None:
             message = "HTTP status error"
@@ -403,7 +416,9 @@ def _create_enhanced_exceptions():
         if response is not None:
             self.response = response
 
-    def enhanced_requesterror_init(self, message=None, *, request=None):
+    def enhanced_requesterror_init(
+        self: RequestError, message: str | None = None, *, request: Request | None = None
+    ) -> None:
         """Enhanced RequestError initializer with keyword argument support."""
         if message is None:
             message = "Request error"
@@ -486,6 +501,9 @@ __all__ = [
     "WSGITransport",
     "WriteError",
     "WriteTimeout",
+    "__description__",
+    "__title__",
+    "__version__",
     "codes",
     "create_ssl_context",
     "delete",
@@ -524,7 +542,22 @@ try:
 except NameError:
     pass
 
-# Note: Internal variables are kept for module function usage
+# Clean up internal symbols that shouldn't appear in dir()
+# Remove all internal symbols that may leak to public API
+del _create_enhanced_exceptions, _enhanced_httpstatuserror_init, _enhanced_requesterror_init
+
+# Remove other internal symbols
+try:
+    del TYPE_CHECKING
+except NameError:
+    pass
+
+try:
+    del annotations
+except NameError:
+    pass
+
+# Note: Internal variables are kept for module function usage and should not be deleted
 # API visibility is controlled through __all__ list above
 
 if __name__ == "__main__":

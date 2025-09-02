@@ -835,10 +835,20 @@ impl HttpLimits {
 
 /// Basic authentication - minimal interface wrapper for hyper
 #[pyclass(name = "BasicAuth", module = "faster_http")]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HttpBasicAuth {
     username: String,
     password: String,
+}
+
+// SECURITY: Custom Debug implementation to prevent password leakage
+impl std::fmt::Debug for HttpBasicAuth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpBasicAuth")
+            .field("username", &self.username)
+            .field("password", &"***REDACTED***")
+            .finish()
+    }
 }
 
 #[pymethods]
@@ -921,10 +931,20 @@ impl HttpBasicAuth {
 
 /// Digest authentication - minimal interface wrapper for hyper
 #[pyclass(name = "DigestAuth", module = "faster_http")]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HttpDigestAuth {
     username: String,
     password: String,
+}
+
+// SECURITY: Custom Debug implementation to prevent password leakage
+impl std::fmt::Debug for HttpDigestAuth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpDigestAuth")
+            .field("username", &self.username)
+            .field("password", &"***REDACTED***")
+            .finish()
+    }
 }
 
 #[pymethods]
@@ -1460,11 +1480,17 @@ mod tests {
         let headers = HttpHeaders::new(Some(map));
 
         // Test getting existing header
-        assert_eq!(headers.get("content-type", None), Some("application/json".to_string()));
-        
+        assert_eq!(
+            headers.get("content-type", None),
+            Some("application/json".to_string())
+        );
+
         // Test getting non-existent header with default
-        assert_eq!(headers.get("non-existent", Some("default".to_string())), Some("default".to_string()));
-        
+        assert_eq!(
+            headers.get("non-existent", Some("default".to_string())),
+            Some("default".to_string())
+        );
+
         // Test getting non-existent header without default
         assert_eq!(headers.get("non-existent", None), None);
     }
@@ -1472,7 +1498,10 @@ mod tests {
     #[test]
     fn test_http_headers_get_list() {
         let mut map = HashMap::new();
-        map.insert("Accept".to_string(), "text/html,application/json".to_string());
+        map.insert(
+            "Accept".to_string(),
+            "text/html,application/json".to_string(),
+        );
         map.insert("Content-Type".to_string(), "application/json".to_string());
         let headers = HttpHeaders::new(Some(map));
 
@@ -1544,7 +1573,7 @@ mod tests {
         assert!(!cookies.__contains__("non-existent"));
     }
 
-    // Test HttpUrl functionality  
+    // Test HttpUrl functionality
     #[test]
     fn test_http_url_new() -> Result<(), url::ParseError> {
         let url = HttpUrl::new("https://example.com/path?param=value".to_string())
@@ -1563,9 +1592,11 @@ mod tests {
 
     #[test]
     fn test_http_url_properties() -> Result<(), url::ParseError> {
-        let url = HttpUrl::new("https://user:pass@example.com:8080/path?param=value#fragment".to_string())
-            .map_err(|_| url::ParseError::EmptyHost)?;
-        
+        let url = HttpUrl::new(
+            "https://user:pass@example.com:8080/path?param=value#fragment".to_string(),
+        )
+        .map_err(|_| url::ParseError::EmptyHost)?;
+
         assert_eq!(url.scheme(), "https");
         assert_eq!(url.host(), Some("example.com".to_string()));
         assert_eq!(url.port(), Some(8080));
@@ -1669,13 +1700,13 @@ mod tests {
     fn test_base_transports() {
         let base = BaseTransport::new();
         assert_eq!(base.__repr__(), "<BaseTransport>");
-        
+
         let async_base = AsyncBaseTransport::new();
         assert_eq!(async_base.__repr__(), "<AsyncBaseTransport>");
-        
+
         let http = HTTPTransport::new();
         assert_eq!(http.__repr__(), "<HTTPTransport>");
-        
+
         let async_http = AsyncHTTPTransport::new();
         assert_eq!(async_http.__repr__(), "<AsyncHTTPTransport>");
     }
@@ -1685,10 +1716,10 @@ mod tests {
     fn test_stream_classes() {
         let byte_stream = ByteStream::new();
         assert_eq!(byte_stream.__repr__(), "<ByteStream>");
-        
+
         let sync_stream = SyncByteStream::new();
         assert_eq!(sync_stream.__repr__(), "<SyncByteStream>");
-        
+
         let async_stream = AsyncByteStream::new();
         assert_eq!(async_stream.__repr__(), "<AsyncByteStream>");
     }
@@ -1698,7 +1729,7 @@ mod tests {
     fn test_asgi_wsgi_transports() {
         let asgi = ASGITransport::new();
         assert_eq!(asgi.__repr__(), "<ASGITransport>");
-        
+
         let wsgi = WSGITransport::new();
         assert_eq!(wsgi.__repr__(), "<WSGITransport>");
     }
@@ -1708,7 +1739,7 @@ mod tests {
     fn test_auth_base_class() {
         let auth = Auth::new();
         assert_eq!(auth.__repr__(), "<Auth>");
-        
+
         // Test default property values
         assert!(!auth.requires_request_body());
         assert!(!auth.requires_response_body());
@@ -1733,7 +1764,7 @@ mod tests {
         map.insert("cookie1".to_string(), "value1".to_string());
         map.insert("cookie2".to_string(), "value2".to_string());
         let cookies = HttpCookies::new(Some(map));
-        
+
         let iterator = cookies.__iter__();
         assert_eq!(iterator.keys.len(), 2);
         assert_eq!(iterator.index, 0);
@@ -1747,18 +1778,18 @@ mod tests {
             .map_err(|_| url::ParseError::EmptyHost)?;
         let str_repr1 = url1.__str__();
         assert!(!str_repr1.ends_with('/'));
-        
+
         // Test URL with trailing slash
         let url2 = HttpUrl::new("https://example.com/".to_string())
             .map_err(|_| url::ParseError::EmptyHost)?;
         let str_repr2 = url2.__str__();
         assert!(str_repr2.ends_with('/'));
-        
+
         // Test URL with empty fragment
         let url3 = HttpUrl::new("https://example.com/path".to_string())
             .map_err(|_| url::ParseError::EmptyHost)?;
         assert_eq!(url3.fragment(), ""); // Should return empty string, not None
-        
+
         Ok(())
     }
 
@@ -1768,7 +1799,7 @@ mod tests {
         let url = HttpUrl::new("https://example.com/path?key1=value1&key2=value2".to_string())
             .map_err(|_| url::ParseError::EmptyHost)?;
         let params = url.params();
-        
+
         // Test internal state
         assert_eq!(params.inner.len(), 2);
         assert!(params.inner.contains_key("key1"));

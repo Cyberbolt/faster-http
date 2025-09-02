@@ -1,4 +1,4 @@
-use crate::client::hyper_client::{HyperHttpClient, HyperClientConfig};
+use crate::client::hyper_client::{HyperClientConfig, HyperHttpClient};
 use crate::config::ClientConfig;
 use crate::models::HttpRequest;
 use pyo3::prelude::*;
@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 // use std::time::Duration; // Removed unused import
 
-// use crate::auth::extract_auth; // Removed unused import  
+// use crate::auth::extract_auth; // Removed unused import
 use crate::core::engine::send_request_direct;
 use crate::core::error::RequestError;
 
@@ -72,7 +72,7 @@ impl AsyncHttpClient {
         )?;
 
         let client = HyperHttpClient::new(HyperClientConfig::default())?;
-        
+
         Ok(Self {
             client,
             config,
@@ -101,12 +101,12 @@ impl AsyncHttpClient {
         // Process JSON serialization (same as sync client)
         let mut final_headers = headers.unwrap_or_default();
         let mut final_content = content;
-        
+
         if let Some(json_hashmap) = &json {
             Python::with_gil(|py| -> PyResult<()> {
                 // Convert HashMap to Python object first
                 let json_py_obj = json_hashmap.to_object(py);
-                
+
                 let json_module = py.import("json")?;
                 let json_str = json_module
                     .call_method1("dumps", (json_py_obj,))?
@@ -133,25 +133,26 @@ impl AsyncHttpClient {
                 content_bytes.len().to_string(),
             );
         }
-        
+
         // Build URL with base_url support (same as sync client)
         let final_url = crate::utils::build_url(
             &url,
             self.config.base_url.as_ref(),
             None, // No params for simple request - build_request doesn't handle params
-        ).map_err(|e| RequestError::new_err(format!("URL build error: {}", e)))?;
-        
+        )
+        .map_err(|e| RequestError::new_err(format!("URL build error: {}", e)))?;
+
         // Convert HashMap to PyObject for headers
         let headers_obj = if final_headers.is_empty() {
             None
         } else {
             Some(Python::with_gil(|py| final_headers.to_object(py)))
         };
-        
+
         // Convert HashMap parameters to PyObjects for HttpRequest::new
         let json_obj = json.map(|j| Python::with_gil(|py| j.to_object(py)));
         let files_obj = files.map(|f| Python::with_gil(|py| f.to_object(py)));
-        
+
         HttpRequest::new(
             method,
             final_url,
@@ -169,7 +170,7 @@ impl AsyncHttpClient {
     /// Send request - simplified version
     pub fn send<'py>(&self, py: Python<'py>, request: &HttpRequest) -> PyResult<&'py PyAny> {
         self.check_not_closed()?;
-        
+
         let client = self.client.clone();
         let request = request.clone();
         let config = self.config.clone();
@@ -206,60 +207,191 @@ impl AsyncHttpClient {
         cookies: Option<HashMap<String, String>>,
     ) -> PyResult<&'py PyAny> {
         // Process parameters to match sync client behavior
-        self.simple_request(py, &method, url, content, headers, timeout, follow_redirects)
+        self.simple_request(
+            py,
+            &method,
+            url,
+            content,
+            headers,
+            timeout,
+            follow_redirects,
+        )
     }
 
     // HTTP method helpers - all simplified
     #[allow(clippy::too_many_arguments)]
-    pub fn get<'py>(&self, py: Python<'py>, url: String, _params: Option<HashMap<String, PyObject>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, _auth: Option<PyObject>, follow_redirects: Option<bool>, _cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
+    pub fn get<'py>(
+        &self,
+        py: Python<'py>,
+        url: String,
+        _params: Option<HashMap<String, PyObject>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+        _auth: Option<PyObject>,
+        follow_redirects: Option<bool>,
+        _cookies: Option<HashMap<String, String>>,
+    ) -> PyResult<&'py PyAny> {
         self.simple_request(py, "GET", url, None, headers, timeout, follow_redirects)
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn post<'py>(&self, py: Python<'py>, url: String, content: Option<Vec<u8>>, _data: Option<PyObject>, _json: Option<HashMap<String, PyObject>>, _files: Option<HashMap<String, PyObject>>, _params: Option<HashMap<String, PyObject>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, _auth: Option<PyObject>, follow_redirects: Option<bool>, _cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
+    pub fn post<'py>(
+        &self,
+        py: Python<'py>,
+        url: String,
+        content: Option<Vec<u8>>,
+        _data: Option<PyObject>,
+        _json: Option<HashMap<String, PyObject>>,
+        _files: Option<HashMap<String, PyObject>>,
+        _params: Option<HashMap<String, PyObject>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+        _auth: Option<PyObject>,
+        follow_redirects: Option<bool>,
+        _cookies: Option<HashMap<String, String>>,
+    ) -> PyResult<&'py PyAny> {
         self.simple_request(py, "POST", url, content, headers, timeout, follow_redirects)
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn put<'py>(&self, py: Python<'py>, url: String, content: Option<Vec<u8>>, _data: Option<PyObject>, _json: Option<HashMap<String, PyObject>>, _files: Option<HashMap<String, PyObject>>, _params: Option<HashMap<String, PyObject>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, _auth: Option<PyObject>, follow_redirects: Option<bool>, _cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
+    pub fn put<'py>(
+        &self,
+        py: Python<'py>,
+        url: String,
+        content: Option<Vec<u8>>,
+        _data: Option<PyObject>,
+        _json: Option<HashMap<String, PyObject>>,
+        _files: Option<HashMap<String, PyObject>>,
+        _params: Option<HashMap<String, PyObject>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+        _auth: Option<PyObject>,
+        follow_redirects: Option<bool>,
+        _cookies: Option<HashMap<String, String>>,
+    ) -> PyResult<&'py PyAny> {
         self.simple_request(py, "PUT", url, content, headers, timeout, follow_redirects)
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn patch<'py>(&self, py: Python<'py>, url: String, content: Option<Vec<u8>>, _data: Option<PyObject>, _json: Option<HashMap<String, PyObject>>, _files: Option<HashMap<String, PyObject>>, _params: Option<HashMap<String, PyObject>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, _auth: Option<PyObject>, follow_redirects: Option<bool>, _cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
-        self.simple_request(py, "PATCH", url, content, headers, timeout, follow_redirects)
+    pub fn patch<'py>(
+        &self,
+        py: Python<'py>,
+        url: String,
+        content: Option<Vec<u8>>,
+        _data: Option<PyObject>,
+        _json: Option<HashMap<String, PyObject>>,
+        _files: Option<HashMap<String, PyObject>>,
+        _params: Option<HashMap<String, PyObject>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+        _auth: Option<PyObject>,
+        follow_redirects: Option<bool>,
+        _cookies: Option<HashMap<String, String>>,
+    ) -> PyResult<&'py PyAny> {
+        self.simple_request(
+            py,
+            "PATCH",
+            url,
+            content,
+            headers,
+            timeout,
+            follow_redirects,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn delete<'py>(&self, py: Python<'py>, url: String, _params: Option<HashMap<String, PyObject>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, _auth: Option<PyObject>, follow_redirects: Option<bool>, _cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
+    pub fn delete<'py>(
+        &self,
+        py: Python<'py>,
+        url: String,
+        _params: Option<HashMap<String, PyObject>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+        _auth: Option<PyObject>,
+        follow_redirects: Option<bool>,
+        _cookies: Option<HashMap<String, String>>,
+    ) -> PyResult<&'py PyAny> {
         self.simple_request(py, "DELETE", url, None, headers, timeout, follow_redirects)
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn head<'py>(&self, py: Python<'py>, url: String, _params: Option<HashMap<String, PyObject>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, _auth: Option<PyObject>, follow_redirects: Option<bool>, _cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
+    pub fn head<'py>(
+        &self,
+        py: Python<'py>,
+        url: String,
+        _params: Option<HashMap<String, PyObject>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+        _auth: Option<PyObject>,
+        follow_redirects: Option<bool>,
+        _cookies: Option<HashMap<String, String>>,
+    ) -> PyResult<&'py PyAny> {
         self.simple_request(py, "HEAD", url, None, headers, timeout, follow_redirects)
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn options<'py>(&self, py: Python<'py>, url: String, _params: Option<HashMap<String, PyObject>>, headers: Option<HashMap<String, String>>, timeout: Option<f64>, _auth: Option<PyObject>, follow_redirects: Option<bool>, _cookies: Option<HashMap<String, String>>) -> PyResult<&'py PyAny> {
+    pub fn options<'py>(
+        &self,
+        py: Python<'py>,
+        url: String,
+        _params: Option<HashMap<String, PyObject>>,
+        headers: Option<HashMap<String, String>>,
+        timeout: Option<f64>,
+        _auth: Option<PyObject>,
+        follow_redirects: Option<bool>,
+        _cookies: Option<HashMap<String, String>>,
+    ) -> PyResult<&'py PyAny> {
         self.simple_request(py, "OPTIONS", url, None, headers, timeout, follow_redirects)
     }
 
     /// Stream method - simplified stub
     #[allow(clippy::too_many_arguments)]
-    pub fn stream(&self, _py: Python, _method: String, _url: String, _params: Option<HashMap<String, PyObject>>, _content: Option<Vec<u8>>, _data: Option<PyObject>, _json: Option<HashMap<String, PyObject>>, _files: Option<HashMap<String, PyObject>>, _headers: Option<HashMap<String, String>>, _timeout: Option<f64>, _auth: Option<PyObject>, _follow_redirects: Option<bool>, _cookies: Option<HashMap<String, String>>) -> PyResult<PyObject> {
+    pub fn stream(
+        &self,
+        _py: Python,
+        _method: String,
+        _url: String,
+        _params: Option<HashMap<String, PyObject>>,
+        _content: Option<Vec<u8>>,
+        _data: Option<PyObject>,
+        _json: Option<HashMap<String, PyObject>>,
+        _files: Option<HashMap<String, PyObject>>,
+        _headers: Option<HashMap<String, String>>,
+        _timeout: Option<f64>,
+        _auth: Option<PyObject>,
+        _follow_redirects: Option<bool>,
+        _cookies: Option<HashMap<String, String>>,
+    ) -> PyResult<PyObject> {
         // Simplified - return error for now
-        Err(RequestError::new_err("Stream not implemented in simplified version"))
+        Err(RequestError::new_err(
+            "Stream not implemented in simplified version",
+        ))
     }
 
     // Property accessors - simplified
-    pub fn base_url(&self) -> Option<String> { self.config.base_url.clone() }
-    pub fn headers(&self) -> HashMap<String, String> { self.config.default_headers.clone() }
-    pub fn cookies(&self) -> HashMap<String, String> { self.config.default_cookies.clone() }
-    pub fn params(&self) -> HashMap<String, PyObject> { HashMap::new() }
-    pub fn auth(&self) -> Option<PyObject> { self.config.auth_object.clone() }
-    pub fn event_hooks(&self) -> PyResult<crate::utils::hooks::EventHooksProxy> { Ok(crate::utils::hooks::EventHooksProxy::new(self.config.event_hooks.clone())) }
-    pub fn follow_redirects(&self) -> bool { self.config.follow_redirects }
+    pub fn base_url(&self) -> Option<String> {
+        self.config.base_url.clone()
+    }
+    pub fn headers(&self) -> HashMap<String, String> {
+        self.config.default_headers.clone()
+    }
+    pub fn cookies(&self) -> HashMap<String, String> {
+        self.config.default_cookies.clone()
+    }
+    pub fn params(&self) -> HashMap<String, PyObject> {
+        HashMap::new()
+    }
+    pub fn auth(&self) -> Option<PyObject> {
+        self.config.auth_object.clone()
+    }
+    pub fn event_hooks(&self) -> PyResult<crate::utils::hooks::EventHooksProxy> {
+        Ok(crate::utils::hooks::EventHooksProxy::new(
+            self.config.event_hooks.clone(),
+        ))
+    }
+    pub fn follow_redirects(&self) -> bool {
+        self.config.follow_redirects
+    }
 
     // Connection management - simplified stubs
     pub fn get_connection_stats(&self) -> PyResult<HashMap<String, f64>> {
@@ -272,9 +404,7 @@ impl AsyncHttpClient {
 
     pub fn cleanup_connections<'p>(&self, py: Python<'p>) -> PyResult<&'p PyAny> {
         let client = self.client.clone();
-        future_into_py(py, async move {
-            client.cleanup_connections().await
-        })
+        future_into_py(py, async move { client.cleanup_connections().await })
     }
 }
 
@@ -314,7 +444,8 @@ impl AsyncHttpClient {
             &url,
             self.config.base_url.as_ref(),
             None, // No params for simple request
-        ).map_err(|e| RequestError::new_err(format!("URL build error: {}", e)))?;
+        )
+        .map_err(|e| RequestError::new_err(format!("URL build error: {}", e)))?;
 
         let client = self.client.clone();
         let method = method.to_string();
@@ -331,7 +462,8 @@ impl AsyncHttpClient {
                 content.as_deref(),
                 &config,
                 timeout,
-            ).await
+            )
+            .await
         })
     }
 }

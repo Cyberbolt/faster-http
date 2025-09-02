@@ -8,6 +8,23 @@ pub enum AuthType {
     Bearer { token: String },
 }
 
+// SECURITY: Custom Debug implementation to prevent credential leakage
+impl std::fmt::Debug for AuthType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuthType::Basic { username, .. } => f
+                .debug_struct("Basic")
+                .field("username", username)
+                .field("password", &"***REDACTED***")
+                .finish(),
+            AuthType::Bearer { .. } => f
+                .debug_struct("Bearer")
+                .field("token", &"***REDACTED***")
+                .finish(),
+        }
+    }
+}
+
 /// Simple auth extraction from Python objects - minimal processing
 pub fn extract_auth_from_object(auth_obj: &PyObject) -> PyResult<Option<AuthType>> {
     Python::with_gil(|py| {

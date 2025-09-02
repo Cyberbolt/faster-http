@@ -2,6 +2,10 @@
 Timeout configuration wrapper to provide httpx-compatible interface.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from . import _core
 
 # Sentinel object to distinguish "not provided" from None
@@ -17,13 +21,13 @@ class Timeout:
 
     def __init__(
         self,
-        timeout=_UNSET,  # Sentinel: _UNSET means "not provided"
+        timeout: float | None | object = _UNSET,  # Sentinel: _UNSET means "not provided"
         *,
-        connect=_UNSET,  # Sentinel: _UNSET means "not provided"
-        read=_UNSET,  # Sentinel: _UNSET means "not provided"
-        write=_UNSET,  # Sentinel: _UNSET means "not provided"
-        pool=_UNSET,  # Sentinel: _UNSET means "not provided"
-    ):
+        connect: float | None | object = _UNSET,  # Sentinel: _UNSET means "not provided"
+        read: float | None | object = _UNSET,  # Sentinel: _UNSET means "not provided"
+        write: float | None | object = _UNSET,  # Sentinel: _UNSET means "not provided"
+        pool: float | None | object = _UNSET,  # Sentinel: _UNSET means "not provided"
+    ) -> None:
         """
         Initialize timeout configuration.
 
@@ -71,7 +75,7 @@ class Timeout:
         """String representation matching httpx format."""
         return self._inner.__repr__()
 
-    def __eq__(self, other) -> bool:
+    def __eq__(self, other: Any) -> bool:
         """Equality comparison."""
         if isinstance(other, Timeout):
             return self._inner.__eq__(other._inner)

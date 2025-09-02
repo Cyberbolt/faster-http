@@ -126,7 +126,10 @@ impl SyncHttpClient {
                     (None, Some(dict))
                 } else {
                     // Fallback: convert to string
-                    match data_obj.call_method0(py, "__str__").and_then(|s| s.extract::<String>(py)) {
+                    match data_obj
+                        .call_method0(py, "__str__")
+                        .and_then(|s| s.extract::<String>(py))
+                    {
                         Ok(s) => (Some(s.into_bytes()), None),
                         Err(_) => {
                             // If string conversion fails, use empty bytes as fallback

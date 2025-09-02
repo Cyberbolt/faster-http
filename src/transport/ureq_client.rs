@@ -13,11 +13,26 @@ use std::time::Duration;
 // Type alias to simplify complex return types
 type UreqResult = Result<(u16, String, HashMap<String, String>, Bytes, f64), String>;
 
-// Custom certificate verifier that accepts all certificates (for verify=False)
+// SECURITY WARNING: Insecure certificate verifier that accepts all certificates
+// This should ONLY be used when explicitly verify=False is set by the user
+// and they understand the security implications (vulnerable to man-in-the-middle attacks)
 #[derive(Debug)]
-struct NoVerifier;
+struct InsecureNoVerifier {
+    // Include a warning field to remind about security implications
+    _security_warning: &'static str,
+}
 
-impl ServerCertVerifier for NoVerifier {
+impl InsecureNoVerifier {
+    fn new() -> Self {
+        // Log security warning when creating insecure verifier
+        eprintln!("⚠️  SECURITY WARNING: TLS certificate verification is disabled. This connection is vulnerable to man-in-the-middle attacks!");
+        Self {
+            _security_warning: "TLS verification disabled - INSECURE",
+        }
+    }
+}
+
+impl ServerCertVerifier for InsecureNoVerifier {
     fn verify_server_cert(
         &self,
         _end_entity: &CertificateDer<'_>,
@@ -26,7 +41,8 @@ impl ServerCertVerifier for NoVerifier {
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        // Accept all certificates without verification
+        // WARNING: Accept all certificates without verification - INSECURE!
+        // This bypasses all security checks and makes connections vulnerable
         Ok(ServerCertVerified::assertion())
     }
 
@@ -36,7 +52,7 @@ impl ServerCertVerifier for NoVerifier {
         _cert: &CertificateDer<'_>,
         _dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        // Accept all signatures without verification
+        // WARNING: Accept all signatures without verification - INSECURE!
         Ok(HandshakeSignatureValid::assertion())
     }
 
@@ -46,15 +62,13 @@ impl ServerCertVerifier for NoVerifier {
         _cert: &CertificateDer<'_>,
         _dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        // Accept all signatures without verification
+        // WARNING: Accept all signatures without verification - INSECURE!
         Ok(HandshakeSignatureValid::assertion())
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        // Support all signature schemes
+        // Support common signature schemes for compatibility
         vec![
-            SignatureScheme::RSA_PKCS1_SHA1,
-            SignatureScheme::ECDSA_SHA1_Legacy,
             SignatureScheme::RSA_PKCS1_SHA256,
             SignatureScheme::ECDSA_NISTP256_SHA256,
             SignatureScheme::RSA_PKCS1_SHA384,
@@ -65,7 +79,6 @@ impl ServerCertVerifier for NoVerifier {
             SignatureScheme::RSA_PSS_SHA384,
             SignatureScheme::RSA_PSS_SHA512,
             SignatureScheme::ED25519,
-            SignatureScheme::ED448,
         ]
     }
 }
@@ -114,15 +127,28 @@ impl UreqHttpClient {
 
         // Configure TLS verification based on config
         if !config.verify {
-            // Create a custom TLS config that accepts invalid certificates
+            // SECURITY CRITICAL: Only disable certificate verification when explicitly requested
+            // This creates a security vulnerability - use only for testing or with trusted networks
             use rustls::ClientConfig;
-
+            
+            // Create insecure TLS config with explicit security warnings
             let tls_config = ClientConfig::builder()
-                .dangerous()
-                .with_custom_certificate_verifier(Arc::new(NoVerifier))
+                .dangerous() // This method name indicates the security risk
+                .with_custom_certificate_verifier(Arc::new(InsecureNoVerifier::new()))
                 .with_no_client_auth();
 
             agent_builder = agent_builder.tls_config(Arc::new(tls_config));
+            
+            // Additional runtime warning for security awareness
+            eprintln!("⚠️  WARNING: Starting HTTP client with TLS verification DISABLED. Use only in trusted environments!");
+        } else {
+            // Default: Use secure TLS configuration with proper certificate verification
+            // This is the recommended and secure configuration for production use
+            // The default rustls configuration includes:
+            // - Certificate chain validation
+            // - Hostname verification
+            // - Certificate expiry checks
+            // - CA certificate validation
         }
 
         let agent = agent_builder.build();
@@ -170,7 +196,9 @@ impl UreqHttpClient {
                 let status_code = response.status_code();
 
                 // Add current response to history before following redirect
-                history.push(Python::with_gil(|py| response.clone().into_py(py)));
+                // Store response for later conversion to avoid potential GIL nesting
+                let response_for_history = response.clone();
+                history.push(Python::with_gil(|py| response_for_history.into_py(py)));
 
                 if let Some(location) = headers_map
                     .get("location")
@@ -783,14 +811,14 @@ impl UreqHttpClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
     use std::collections::HashMap;
+    use std::time::Duration;
 
     // Test UreqClientConfig creation and defaults
     #[test]
     fn test_ureq_client_config_default() {
         let config = UreqClientConfig::default();
-        
+
         assert_eq!(config.timeout, Some(Duration::from_secs(5)));
         assert!(config.follow_redirects);
         assert_eq!(config.max_redirects, 21);
@@ -805,7 +833,7 @@ mod tests {
             max_redirects: 5,
             verify: false,
         };
-        
+
         assert_eq!(config.timeout, Some(Duration::from_secs(10)));
         assert!(!config.follow_redirects);
         assert_eq!(config.max_redirects, 5);
@@ -817,7 +845,7 @@ mod tests {
     fn test_ureq_http_client_new() {
         let config = UreqClientConfig::default();
         let result = UreqHttpClient::new(config);
-        
+
         assert!(result.is_ok());
     }
 
@@ -829,17 +857,17 @@ mod tests {
             max_redirects: 10,
             verify: false,
         };
-        
+
         let result = UreqHttpClient::new(config);
         assert!(result.is_ok());
     }
 
     // Test NoVerifier implementation
     #[test]
-    fn test_no_verifier_verify_server_cert() {
-        let verifier = NoVerifier;
-        
-        // Test with empty certificate data
+    fn test_insecure_no_verifier_verify_server_cert() {
+        let verifier = InsecureNoVerifier::new();
+
+        // Test with empty certificate data - this should pass (insecure by design)
         use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
         let empty_cert = CertificateDer::from(&[] as &[u8]);
         let server_name = match ServerName::try_from("example.com") {
@@ -847,57 +875,66 @@ mod tests {
             Err(_) => return, // Skip test if server name creation fails
         };
         let now = UnixTime::now();
+
+        let result = verifier.verify_server_cert(&empty_cert, &[], &server_name, &[], now);
         
-        let result = verifier.verify_server_cert(
-            &empty_cert,
-            &[],
-            &server_name,
-            &[],
-            now,
-        );
-        
+        // This should pass because InsecureNoVerifier accepts all certificates
+        // WARNING: This is intentionally insecure behavior for testing
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_no_verifier_verify_tls12_signature() {
-        let verifier = NoVerifier;
-        
-        // Test that NoVerifier supports TLS 1.2 signature verification
-        // We can't create DigitallySignedStruct directly due to private constructor
-        // but we can test that the verifier is created successfully
-        assert_eq!(std::mem::size_of_val(&verifier), std::mem::size_of::<NoVerifier>());
+    fn test_insecure_no_verifier_verify_tls12_signature() {
+        let verifier = InsecureNoVerifier::new();
+
+        // Test that InsecureNoVerifier can be created
+        // We can't test signature verification directly due to private constructors
+        // but we verify the verifier exists and has security warning field
+        assert_eq!(verifier._security_warning, "TLS verification disabled - INSECURE");
+        assert_eq!(
+            std::mem::size_of_val(&verifier),
+            std::mem::size_of::<InsecureNoVerifier>()
+        );
     }
 
     #[test]
-    fn test_no_verifier_verify_tls13_signature() {
-        let verifier = NoVerifier;
-        
-        // Test that NoVerifier supports TLS 1.3 signature verification
-        // We can't create DigitallySignedStruct directly due to private constructor
-        // but we can test that the verifier is created successfully
-        assert_eq!(std::mem::size_of_val(&verifier), std::mem::size_of::<NoVerifier>());
+    fn test_insecure_no_verifier_verify_tls13_signature() {
+        let verifier = InsecureNoVerifier::new();
+
+        // Test that InsecureNoVerifier can be created for TLS 1.3
+        // We verify the security warning is properly set
+        assert_eq!(verifier._security_warning, "TLS verification disabled - INSECURE");
+        assert_eq!(
+            std::mem::size_of_val(&verifier),
+            std::mem::size_of::<InsecureNoVerifier>()
+        );
     }
 
     #[test]
-    fn test_no_verifier_supported_verify_schemes() {
-        let verifier = NoVerifier;
+    fn test_insecure_no_verifier_supported_verify_schemes() {
+        let verifier = InsecureNoVerifier::new();
         let schemes = verifier.supported_verify_schemes();
-        
+
         assert!(!schemes.is_empty());
+        // Verify it supports modern, secure signature schemes (even though verification is disabled)
         assert!(schemes.contains(&rustls::SignatureScheme::RSA_PKCS1_SHA256));
         assert!(schemes.contains(&rustls::SignatureScheme::ECDSA_NISTP256_SHA256));
         assert!(schemes.contains(&rustls::SignatureScheme::ED25519));
+        
+        // Verify insecure schemes are NOT included for better security posture
+        assert!(!schemes.contains(&rustls::SignatureScheme::RSA_PKCS1_SHA1));
+        assert!(!schemes.contains(&rustls::SignatureScheme::ECDSA_SHA1_Legacy));
     }
 
     // Test error handling and classification
     #[test]
     fn test_error_classification_timeout() {
         let error_msg = "TimeoutError:Connection timed out";
-        
+
         assert!(error_msg.starts_with("TimeoutError:"));
-        
-        let stripped = error_msg.strip_prefix("TimeoutError:")
+
+        let stripped = error_msg
+            .strip_prefix("TimeoutError:")
             .expect("Error message should start with TimeoutError:");
         assert_eq!(stripped, "Connection timed out");
     }
@@ -905,10 +942,11 @@ mod tests {
     #[test]
     fn test_error_classification_connect() {
         let error_msg = "ConnectError:Connection refused";
-        
+
         assert!(error_msg.starts_with("ConnectError:"));
-        
-        let stripped = error_msg.strip_prefix("ConnectError:")
+
+        let stripped = error_msg
+            .strip_prefix("ConnectError:")
             .expect("Error message should start with ConnectError:");
         assert_eq!(stripped, "Connection refused");
     }
@@ -916,10 +954,11 @@ mod tests {
     #[test]
     fn test_error_classification_invalid_url() {
         let error_msg = "InvalidURL:Bad URL format";
-        
+
         assert!(error_msg.starts_with("InvalidURL:"));
-        
-        let stripped = error_msg.strip_prefix("InvalidURL:")
+
+        let stripped = error_msg
+            .strip_prefix("InvalidURL:")
             .expect("Error message should start with InvalidURL:");
         assert_eq!(stripped, "Bad URL format");
     }
@@ -927,10 +966,11 @@ mod tests {
     #[test]
     fn test_error_classification_too_many_redirects() {
         let error_msg = "TooManyRedirects:Too many redirects";
-        
+
         assert!(error_msg.starts_with("TooManyRedirects:"));
-        
-        let stripped = error_msg.strip_prefix("TooManyRedirects:")
+
+        let stripped = error_msg
+            .strip_prefix("TooManyRedirects:")
             .expect("Error message should start with TooManyRedirects:");
         assert_eq!(stripped, "Too many redirects");
     }
@@ -941,35 +981,43 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert("Content-Type".to_string(), "application/json".to_string());
         headers.insert("Authorization".to_string(), "Bearer token123".to_string());
-        
+
         assert_eq!(headers.len(), 2);
-        assert_eq!(headers.get("Content-Type"), Some(&"application/json".to_string()));
-        assert_eq!(headers.get("Authorization"), Some(&"Bearer token123".to_string()));
+        assert_eq!(
+            headers.get("Content-Type"),
+            Some(&"application/json".to_string())
+        );
+        assert_eq!(
+            headers.get("Authorization"),
+            Some(&"Bearer token123".to_string())
+        );
     }
 
     #[test]
     fn test_base64_encoding() {
         use base64::Engine;
-        
+
         let credentials = "username:password";
         let encoded = base64::engine::general_purpose::STANDARD.encode(credentials.as_bytes());
         let expected = "dXNlcm5hbWU6cGFzc3dvcmQ="; // Base64 of "username:password"
-        
+
         assert_eq!(encoded, expected);
     }
 
     // Test HTTP method validation
     #[test]
     fn test_http_methods() {
-        let valid_methods = vec!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"];
-        
+        let valid_methods = vec![
+            "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT",
+        ];
+
         for method in &valid_methods {
             // All these methods should be valid and non-empty
             assert!(!method.is_empty());
             // Verify method is in the valid list (redundant but explicit)
             assert!(valid_methods.contains(method));
         }
-        
+
         // Test that we have all expected HTTP methods
         assert_eq!(valid_methods.len(), 9);
         assert!(valid_methods.contains(&"GET"));
@@ -987,15 +1035,17 @@ mod tests {
     fn test_invalid_http_method() {
         let invalid_method = "INVALID_METHOD";
         // This would be caught in the actual request processing
-        assert!(!["GET", "POST", "PUT", "DELETE", "HEAD", "PATCH", "OPTIONS", "TRACE", "CONNECT"]
-            .contains(&invalid_method));
+        assert!(
+            !["GET", "POST", "PUT", "DELETE", "HEAD", "PATCH", "OPTIONS", "TRACE", "CONNECT"]
+                .contains(&invalid_method)
+        );
     }
 
     // Test redirect status codes
     #[test]
     fn test_redirect_status_codes() {
         let redirect_codes = vec![301u16, 302, 303, 307, 308];
-        
+
         for code in redirect_codes {
             assert!(matches!(code, 301 | 302 | 303 | 307 | 308));
         }
@@ -1004,7 +1054,7 @@ mod tests {
     #[test]
     fn test_non_redirect_status_codes() {
         let non_redirect_codes = vec![200u16, 201, 400, 404, 500];
-        
+
         for code in non_redirect_codes {
             assert!(!matches!(code, 301 | 302 | 303 | 307 | 308));
         }
@@ -1017,13 +1067,13 @@ mod tests {
             ("sessionid".to_string(), "abc123".to_string()),
             ("csrftoken".to_string(), "xyz789".to_string()),
         ]);
-        
+
         let cookie_string = cookies
             .iter()
             .map(|(k, v)| format!("{}={}", k, v))
             .collect::<Vec<_>>()
             .join("; ");
-        
+
         // Order might vary in HashMap, so check both contain expected parts
         assert!(cookie_string.contains("sessionid=abc123"));
         assert!(cookie_string.contains("csrftoken=xyz789"));
@@ -1035,7 +1085,7 @@ mod tests {
     fn test_duration_from_secs_f64() {
         let timeout_secs = 5.5;
         let duration = Duration::from_secs_f64(timeout_secs);
-        
+
         assert_eq!(duration.as_secs(), 5);
         assert!(duration.subsec_millis() == 500);
     }
@@ -1044,7 +1094,7 @@ mod tests {
     fn test_duration_from_secs() {
         let timeout_secs = 30;
         let duration = Duration::from_secs(timeout_secs);
-        
+
         assert_eq!(duration.as_secs(), 30);
         assert_eq!(duration.subsec_millis(), 0);
     }
@@ -1060,7 +1110,7 @@ mod tests {
             "https://example.com/path?query=value",
             "https://user:pass@example.com",
         ];
-        
+
         for url in valid_urls {
             let parsed = url::Url::parse(url);
             assert!(parsed.is_ok(), "Failed to parse valid URL: {}", url);
@@ -1074,11 +1124,15 @@ mod tests {
             "://example.com",
             "example.com", // Missing scheme
         ];
-        
+
         for url in invalid_urls {
             if url == "example.com" {
                 let parsed = url::Url::parse(url);
-                assert!(parsed.is_err(), "Should fail to parse URL without scheme: {}", url);
+                assert!(
+                    parsed.is_err(),
+                    "Should fail to parse URL without scheme: {}",
+                    url
+                );
             }
         }
     }
@@ -1088,7 +1142,7 @@ mod tests {
     fn test_bytes_from_string() {
         let text = "Hello, World!";
         let bytes = Bytes::from(text);
-        
+
         assert_eq!(bytes.len(), text.len());
         assert_eq!(&bytes[..], text.as_bytes());
     }
@@ -1097,7 +1151,7 @@ mod tests {
     fn test_bytes_from_vec() {
         let data = vec![1u8, 2, 3, 4, 5];
         let bytes = Bytes::from(data.clone());
-        
+
         assert_eq!(bytes.len(), data.len());
         assert_eq!(&bytes[..], &data[..]);
     }
@@ -1107,7 +1161,7 @@ mod tests {
     fn test_connection_pool_settings() {
         let max_idle_connections = 1200;
         let max_idle_per_host = 250;
-        
+
         assert!(max_idle_connections > max_idle_per_host);
         assert!(max_idle_per_host > 0);
         assert!(max_idle_connections > 0);
@@ -1117,7 +1171,7 @@ mod tests {
     #[test]
     fn test_user_agent() {
         let user_agent = "faster-http/1.0";
-        
+
         assert!(user_agent.starts_with("faster-http/"));
         assert!(user_agent.contains("1.0"));
     }
@@ -1128,13 +1182,13 @@ mod tests {
         // 303 always changes to GET
         let status_303 = 303;
         assert_eq!(status_303, 303);
-        
+
         // 301/302 change to GET for non-GET/HEAD methods
         let status_301 = 301;
         let status_302 = 302;
         assert!(matches!(status_301, 301 | 302));
         assert!(matches!(status_302, 301 | 302));
-        
+
         // 307/308 preserve original method
         let status_307 = 307;
         let status_308 = 308;
@@ -1147,10 +1201,14 @@ mod tests {
     fn test_relative_url_resolution() {
         let base_url = "https://example.com/path/to/page";
         let relative_path = "/new/path";
-        
+
         // Absolute path resolution
         if relative_path.starts_with('/') {
-            let scheme = if base_url.starts_with("https") { "https" } else { "http" };
+            let scheme = if base_url.starts_with("https") {
+                "https"
+            } else {
+                "http"
+            };
             let host = base_url.split('/').nth(2).unwrap_or("localhost");
             let resolved = format!("{}://{}{}", scheme, host, relative_path);
             assert_eq!(resolved, "https://example.com/new/path");
@@ -1162,9 +1220,9 @@ mod tests {
     fn test_max_redirects_limit() {
         let max_redirects = 21u32;
         let current_count = 20usize;
-        
+
         assert!(current_count < max_redirects as usize);
-        
+
         let exceeded_count = 25usize;
         assert!(exceeded_count >= max_redirects as usize);
     }
@@ -1176,7 +1234,7 @@ mod tests {
         // Simulate some work
         std::thread::sleep(Duration::from_millis(1));
         let elapsed = start.elapsed();
-        
+
         assert!(elapsed.as_millis() >= 1);
         assert!(elapsed.as_secs_f64() > 0.0);
     }
@@ -1185,13 +1243,13 @@ mod tests {
     #[test]
     fn test_cookie_parsing_logic() {
         let set_cookie_header = "sessionid=abc123; Domain=example.com; Path=/; HttpOnly";
-        
+
         // Extract the cookie pair (before first semicolon)
         if let Some(cookie_pair) = set_cookie_header.split(';').next() {
             if let Some((name, value)) = cookie_pair.split_once('=') {
                 let cookie_name = name.trim();
                 let cookie_value = value.trim().trim_matches('"');
-                
+
                 assert_eq!(cookie_name, "sessionid");
                 assert_eq!(cookie_value, "abc123");
             }
@@ -1204,7 +1262,7 @@ mod tests {
         let body_content = b"Hello, World!";
         let body_bytes = Bytes::from(body_content.to_vec());
         let num_bytes_downloaded = body_bytes.len();
-        
+
         assert_eq!(num_bytes_downloaded, 13); // Length of "Hello, World!"
         assert_eq!(num_bytes_downloaded, body_content.len());
     }
